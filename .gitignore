@@ -18,6 +18,7 @@ target/
 *.sqlite3
 data/*.sqlite
 data/*.sqlite-*
+data/workspaces/
 backups/
 
 # Frontend dependencies
