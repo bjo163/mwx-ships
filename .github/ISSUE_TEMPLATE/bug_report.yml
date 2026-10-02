@@ -1,0 +1,51 @@
+name: Bug Report
+description: Create a report to help us fix defects or unexpected behavior
+labels: ["type/bug"]
+body:
+  - type: markdown
+    attributes:
+      value: Thanks for taking the time to report an issue with Moonships!
+  - type: textarea
+    id: description
+    attributes:
+      label: Bug Description
+      description: A clear and concise description of what the bug is.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to Reproduce
+      description: Detailed steps explaining how to reproduce the behavior.
+      placeholder: |
+        1. Create a server with SSH credentials
+        2. Create an application with Dockerfile build type
+        3. Trigger deployment
+        4. See error
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected Behavior
+      description: What you expected to happen.
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant Logs & Output
+      description: Paste any relevant deployment or terminal logs. Ensure NO SECRETS or SSH keys are included!
+      render: shell
+  - type: dropdown
+    id: environment
+    attributes:
+      label: Runtime Environment
+      options:
+        - Linux (x86_64)
+        - Linux (aarch64)
+        - macOS
+        - Windows
+        - Docker Compose
+    validations:
+      required: true

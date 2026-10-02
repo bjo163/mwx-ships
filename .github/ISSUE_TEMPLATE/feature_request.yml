@@ -1,0 +1,42 @@
+name: Feature Request
+description: Suggest an idea or enhancement for Moonships
+labels: ["type/feature"]
+body:
+  - type: markdown
+    attributes:
+      value: Share your proposals for advancing Moonships!
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem Statement
+      description: Is your feature request related to a specific challenge or limitation?
+    validations:
+      required: true
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed Solution
+      description: Describe your proposed solution or architecture.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives Considered
+      description: Any alternative implementations or workarounds you've considered.
+  - type: dropdown
+    id: area
+    attributes:
+      label: Component Area
+      options:
+        - area/backend
+        - area/frontend
+        - area/database
+        - area/docker
+        - area/git
+        - area/ssh
+        - area/security
+        - area/devops
+        - area/docs
+    validations:
+      required: true

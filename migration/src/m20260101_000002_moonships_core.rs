@@ -1,0 +1,648 @@
+use sea_orm_migration::prelude::*;
+
+#[derive(DeriveMigrationName)]
+pub struct Migration;
+
+#[async_trait::async_trait]
+impl MigrationTrait for Migration {
+    async fn up(&self, m: &SchemaManager) -> Result<(), DbErr> {
+        // 1. Servers Table
+        m.create_table(
+            Table::create()
+                .table(Servers::Table)
+                .if_not_exists()
+                .col(
+                    ColumnDef::new(Servers::Id)
+                        .big_integer()
+                        .not_null()
+                        .auto_increment()
+                        .primary_key(),
+                )
+                .col(ColumnDef::new(Servers::Name).string().not_null())
+                .col(ColumnDef::new(Servers::Host).string().not_null())
+                .col(
+                    ColumnDef::new(Servers::Port)
+                        .integer()
+                        .not_null()
+                        .default(22),
+                )
+                .col(ColumnDef::new(Servers::Username).string().not_null())
+                .col(
+                    ColumnDef::new(Servers::AuthenticationType)
+                        .string()
+                        .not_null()
+                        .default("ssh_key"),
+                )
+                .col(ColumnDef::new(Servers::EncryptedPrivateKey).text().null())
+                .col(
+                    ColumnDef::new(Servers::KnownHostFingerprint)
+                        .string()
+                        .null(),
+                )
+                .col(
+                    ColumnDef::new(Servers::Status)
+                        .string()
+                        .not_null()
+                        .default("unknown"),
+                )
+                .col(
+                    ColumnDef::new(Servers::LastSeenAt)
+                        .timestamp_with_time_zone()
+                        .null(),
+                )
+                .col(
+                    ColumnDef::new(Servers::CreatedAt)
+                        .timestamp_with_time_zone()
+                        .not_null(),
+                )
+                .col(
+                    ColumnDef::new(Servers::UpdatedAt)
+                        .timestamp_with_time_zone()
+                        .not_null(),
+                )
+                .to_owned(),
+        )
+        .await?;
+
+        // 2. Projects Table
+        m.create_table(
+            Table::create()
+                .table(Projects::Table)
+                .if_not_exists()
+                .col(
+                    ColumnDef::new(Projects::Id)
+                        .big_integer()
+                        .not_null()
+                        .auto_increment()
+                        .primary_key(),
+                )
+                .col(ColumnDef::new(Projects::Name).string().not_null())
+                .col(
+                    ColumnDef::new(Projects::Slug)
+                        .string()
+                        .not_null()
+                        .unique_key(),
+                )
+                .col(ColumnDef::new(Projects::Description).text().null())
+                .col(
+                    ColumnDef::new(Projects::CreatedAt)
+                        .timestamp_with_time_zone()
+                        .not_null(),
+                )
+                .col(
+                    ColumnDef::new(Projects::UpdatedAt)
+                        .timestamp_with_time_zone()
+                        .not_null(),
+                )
+                .to_owned(),
+        )
+        .await?;
+
+        // 3. Environments Table
+        m.create_table(
+            Table::create()
+                .table(Environments::Table)
+                .if_not_exists()
+                .col(
+                    ColumnDef::new(Environments::Id)
+                        .big_integer()
+                        .not_null()
+                        .auto_increment()
+                        .primary_key(),
+                )
+                .col(
+                    ColumnDef::new(Environments::ProjectId)
+                        .big_integer()
+                        .not_null(),
+                )
+                .col(ColumnDef::new(Environments::Name).string().not_null())
+                .col(ColumnDef::new(Environments::Slug).string().not_null())
+                .col(ColumnDef::new(Environments::Description).text().null())
+                .col(
+                    ColumnDef::new(Environments::CreatedAt)
+                        .timestamp_with_time_zone()
+                        .not_null(),
+                )
+                .col(
+                    ColumnDef::new(Environments::UpdatedAt)
+                        .timestamp_with_time_zone()
+                        .not_null(),
+                )
+                .foreign_key(
+                    ForeignKey::create()
+                        .name("fk_environments_project")
+                        .from(Environments::Table, Environments::ProjectId)
+                        .to(Projects::Table, Projects::Id)
+                        .on_delete(ForeignKeyAction::Cascade),
+                )
+                .to_owned(),
+        )
+        .await?;
+
+        // 4. Applications Table
+        m.create_table(
+            Table::create()
+                .table(Applications::Table)
+                .if_not_exists()
+                .col(
+                    ColumnDef::new(Applications::Id)
+                        .big_integer()
+                        .not_null()
+                        .auto_increment()
+                        .primary_key(),
+                )
+                .col(
+                    ColumnDef::new(Applications::ProjectId)
+                        .big_integer()
+                        .not_null(),
+                )
+                .col(
+                    ColumnDef::new(Applications::EnvironmentId)
+                        .big_integer()
+                        .not_null(),
+                )
+                .col(
+                    ColumnDef::new(Applications::ServerId)
+                        .big_integer()
+                        .not_null(),
+                )
+                .col(ColumnDef::new(Applications::Name).string().not_null())
+                .col(
+                    ColumnDef::new(Applications::Slug)
+                        .string()
+                        .not_null()
+                        .unique_key(),
+                )
+                .col(
+                    ColumnDef::new(Applications::GitRepository)
+                        .string()
+                        .not_null(),
+                )
+                .col(
+                    ColumnDef::new(Applications::GitBranch)
+                        .string()
+                        .not_null()
+                        .default("main"),
+                )
+                .col(
+                    ColumnDef::new(Applications::BuildType)
+                        .string()
+                        .not_null()
+                        .default("dockerfile"),
+                )
+                .col(
+                    ColumnDef::new(Applications::DockerfilePath)
+                        .string()
+                        .not_null()
+                        .default("Dockerfile"),
+                )
+                .col(
+                    ColumnDef::new(Applications::DockerContext)
+                        .string()
+                        .not_null()
+                        .default("."),
+                )
+                .col(ColumnDef::new(Applications::DockerImage).string().null())
+                .col(
+                    ColumnDef::new(Applications::ContainerName)
+                        .string()
+                        .not_null(),
+                )
+                .col(
+                    ColumnDef::new(Applications::ContainerPort)
+                        .integer()
+                        .not_null()
+                        .default(80),
+                )
+                .col(ColumnDef::new(Applications::PublishedPort).integer().null())
+                .col(ColumnDef::new(Applications::StartupCommand).text().null())
+                .col(
+                    ColumnDef::new(Applications::HealthcheckPath)
+                        .string()
+                        .null(),
+                )
+                .col(
+                    ColumnDef::new(Applications::HealthcheckPort)
+                        .integer()
+                        .null(),
+                )
+                .col(
+                    ColumnDef::new(Applications::AutoDeploy)
+                        .boolean()
+                        .not_null()
+                        .default(false),
+                )
+                .col(
+                    ColumnDef::new(Applications::Status)
+                        .string()
+                        .not_null()
+                        .default("created"),
+                )
+                .col(
+                    ColumnDef::new(Applications::CreatedAt)
+                        .timestamp_with_time_zone()
+                        .not_null(),
+                )
+                .col(
+                    ColumnDef::new(Applications::UpdatedAt)
+                        .timestamp_with_time_zone()
+                        .not_null(),
+                )
+                .foreign_key(
+                    ForeignKey::create()
+                        .name("fk_applications_project")
+                        .from(Applications::Table, Applications::ProjectId)
+                        .to(Projects::Table, Projects::Id)
+                        .on_delete(ForeignKeyAction::Cascade),
+                )
+                .foreign_key(
+                    ForeignKey::create()
+                        .name("fk_applications_environment")
+                        .from(Applications::Table, Applications::EnvironmentId)
+                        .to(Environments::Table, Environments::Id)
+                        .on_delete(ForeignKeyAction::Cascade),
+                )
+                .foreign_key(
+                    ForeignKey::create()
+                        .name("fk_applications_server")
+                        .from(Applications::Table, Applications::ServerId)
+                        .to(Servers::Table, Servers::Id)
+                        .on_delete(ForeignKeyAction::Restrict),
+                )
+                .to_owned(),
+        )
+        .await?;
+
+        // 5. Environment Variables Table
+        m.create_table(
+            Table::create()
+                .table(EnvironmentVariables::Table)
+                .if_not_exists()
+                .col(
+                    ColumnDef::new(EnvironmentVariables::Id)
+                        .big_integer()
+                        .not_null()
+                        .auto_increment()
+                        .primary_key(),
+                )
+                .col(
+                    ColumnDef::new(EnvironmentVariables::ApplicationId)
+                        .big_integer()
+                        .not_null(),
+                )
+                .col(
+                    ColumnDef::new(EnvironmentVariables::Key)
+                        .string()
+                        .not_null(),
+                )
+                .col(
+                    ColumnDef::new(EnvironmentVariables::EncryptedValue)
+                        .text()
+                        .not_null(),
+                )
+                .col(
+                    ColumnDef::new(EnvironmentVariables::IsSecret)
+                        .boolean()
+                        .not_null()
+                        .default(false),
+                )
+                .col(
+                    ColumnDef::new(EnvironmentVariables::CreatedAt)
+                        .timestamp_with_time_zone()
+                        .not_null(),
+                )
+                .col(
+                    ColumnDef::new(EnvironmentVariables::UpdatedAt)
+                        .timestamp_with_time_zone()
+                        .not_null(),
+                )
+                .foreign_key(
+                    ForeignKey::create()
+                        .name("fk_env_vars_application")
+                        .from(
+                            EnvironmentVariables::Table,
+                            EnvironmentVariables::ApplicationId,
+                        )
+                        .to(Applications::Table, Applications::Id)
+                        .on_delete(ForeignKeyAction::Cascade),
+                )
+                .to_owned(),
+        )
+        .await?;
+
+        // 6. Domains Table
+        m.create_table(
+            Table::create()
+                .table(Domains::Table)
+                .if_not_exists()
+                .col(
+                    ColumnDef::new(Domains::Id)
+                        .big_integer()
+                        .not_null()
+                        .auto_increment()
+                        .primary_key(),
+                )
+                .col(
+                    ColumnDef::new(Domains::ApplicationId)
+                        .big_integer()
+                        .not_null(),
+                )
+                .col(ColumnDef::new(Domains::Hostname).string().not_null())
+                .col(
+                    ColumnDef::new(Domains::Port)
+                        .integer()
+                        .not_null()
+                        .default(80),
+                )
+                .col(
+                    ColumnDef::new(Domains::HttpsEnabled)
+                        .boolean()
+                        .not_null()
+                        .default(true),
+                )
+                .col(
+                    ColumnDef::new(Domains::CreatedAt)
+                        .timestamp_with_time_zone()
+                        .not_null(),
+                )
+                .col(
+                    ColumnDef::new(Domains::UpdatedAt)
+                        .timestamp_with_time_zone()
+                        .not_null(),
+                )
+                .foreign_key(
+                    ForeignKey::create()
+                        .name("fk_domains_application")
+                        .from(Domains::Table, Domains::ApplicationId)
+                        .to(Applications::Table, Applications::Id)
+                        .on_delete(ForeignKeyAction::Cascade),
+                )
+                .to_owned(),
+        )
+        .await?;
+
+        // 7. Deployments Table
+        m.create_table(
+            Table::create()
+                .table(Deployments::Table)
+                .if_not_exists()
+                .col(
+                    ColumnDef::new(Deployments::Id)
+                        .big_integer()
+                        .not_null()
+                        .auto_increment()
+                        .primary_key(),
+                )
+                .col(
+                    ColumnDef::new(Deployments::ApplicationId)
+                        .big_integer()
+                        .not_null(),
+                )
+                .col(
+                    ColumnDef::new(Deployments::ServerId)
+                        .big_integer()
+                        .not_null(),
+                )
+                .col(ColumnDef::new(Deployments::CommitHash).string().null())
+                .col(ColumnDef::new(Deployments::CommitMessage).text().null())
+                .col(
+                    ColumnDef::new(Deployments::Status)
+                        .string()
+                        .not_null()
+                        .default("queued"),
+                )
+                .col(
+                    ColumnDef::new(Deployments::QueuedAt)
+                        .timestamp_with_time_zone()
+                        .not_null(),
+                )
+                .col(
+                    ColumnDef::new(Deployments::StartedAt)
+                        .timestamp_with_time_zone()
+                        .null(),
+                )
+                .col(
+                    ColumnDef::new(Deployments::FinishedAt)
+                        .timestamp_with_time_zone()
+                        .null(),
+                )
+                .col(ColumnDef::new(Deployments::ExitCode).integer().null())
+                .col(ColumnDef::new(Deployments::ErrorCode).string().null())
+                .col(ColumnDef::new(Deployments::ErrorMessage).text().null())
+                .col(
+                    ColumnDef::new(Deployments::CreatedAt)
+                        .timestamp_with_time_zone()
+                        .not_null(),
+                )
+                .col(
+                    ColumnDef::new(Deployments::UpdatedAt)
+                        .timestamp_with_time_zone()
+                        .not_null(),
+                )
+                .foreign_key(
+                    ForeignKey::create()
+                        .name("fk_deployments_application")
+                        .from(Deployments::Table, Deployments::ApplicationId)
+                        .to(Applications::Table, Applications::Id)
+                        .on_delete(ForeignKeyAction::Cascade),
+                )
+                .foreign_key(
+                    ForeignKey::create()
+                        .name("fk_deployments_server")
+                        .from(Deployments::Table, Deployments::ServerId)
+                        .to(Servers::Table, Servers::Id)
+                        .on_delete(ForeignKeyAction::Restrict),
+                )
+                .to_owned(),
+        )
+        .await?;
+
+        // 8. Deployment Logs Table
+        m.create_table(
+            Table::create()
+                .table(DeploymentLogs::Table)
+                .if_not_exists()
+                .col(
+                    ColumnDef::new(DeploymentLogs::Id)
+                        .big_integer()
+                        .not_null()
+                        .auto_increment()
+                        .primary_key(),
+                )
+                .col(
+                    ColumnDef::new(DeploymentLogs::DeploymentId)
+                        .big_integer()
+                        .not_null(),
+                )
+                .col(
+                    ColumnDef::new(DeploymentLogs::Sequence)
+                        .big_integer()
+                        .not_null(),
+                )
+                .col(
+                    ColumnDef::new(DeploymentLogs::Stream)
+                        .string()
+                        .not_null()
+                        .default("stdout"),
+                )
+                .col(ColumnDef::new(DeploymentLogs::Message).text().not_null())
+                .col(
+                    ColumnDef::new(DeploymentLogs::CreatedAt)
+                        .timestamp_with_time_zone()
+                        .not_null(),
+                )
+                .foreign_key(
+                    ForeignKey::create()
+                        .name("fk_deployment_logs_deployment")
+                        .from(DeploymentLogs::Table, DeploymentLogs::DeploymentId)
+                        .to(Deployments::Table, Deployments::Id)
+                        .on_delete(ForeignKeyAction::Cascade),
+                )
+                .to_owned(),
+        )
+        .await?;
+
+        Ok(())
+    }
+
+    async fn down(&self, m: &SchemaManager) -> Result<(), DbErr> {
+        m.drop_table(Table::drop().table(DeploymentLogs::Table).to_owned())
+            .await?;
+        m.drop_table(Table::drop().table(Deployments::Table).to_owned())
+            .await?;
+        m.drop_table(Table::drop().table(Domains::Table).to_owned())
+            .await?;
+        m.drop_table(Table::drop().table(EnvironmentVariables::Table).to_owned())
+            .await?;
+        m.drop_table(Table::drop().table(Applications::Table).to_owned())
+            .await?;
+        m.drop_table(Table::drop().table(Environments::Table).to_owned())
+            .await?;
+        m.drop_table(Table::drop().table(Projects::Table).to_owned())
+            .await?;
+        m.drop_table(Table::drop().table(Servers::Table).to_owned())
+            .await?;
+        Ok(())
+    }
+}
+
+#[derive(DeriveIden)]
+enum Servers {
+    Table,
+    Id,
+    Name,
+    Host,
+    Port,
+    Username,
+    AuthenticationType,
+    EncryptedPrivateKey,
+    KnownHostFingerprint,
+    Status,
+    LastSeenAt,
+    CreatedAt,
+    UpdatedAt,
+}
+
+#[derive(DeriveIden)]
+enum Projects {
+    Table,
+    Id,
+    Name,
+    Slug,
+    Description,
+    CreatedAt,
+    UpdatedAt,
+}
+
+#[derive(DeriveIden)]
+enum Environments {
+    Table,
+    Id,
+    ProjectId,
+    Name,
+    Slug,
+    Description,
+    CreatedAt,
+    UpdatedAt,
+}
+
+#[derive(DeriveIden)]
+enum Applications {
+    Table,
+    Id,
+    ProjectId,
+    EnvironmentId,
+    ServerId,
+    Name,
+    Slug,
+    GitRepository,
+    GitBranch,
+    BuildType,
+    DockerfilePath,
+    DockerContext,
+    DockerImage,
+    ContainerName,
+    ContainerPort,
+    PublishedPort,
+    StartupCommand,
+    HealthcheckPath,
+    HealthcheckPort,
+    AutoDeploy,
+    Status,
+    CreatedAt,
+    UpdatedAt,
+}
+
+#[derive(DeriveIden)]
+enum EnvironmentVariables {
+    Table,
+    Id,
+    ApplicationId,
+    Key,
+    EncryptedValue,
+    IsSecret,
+    CreatedAt,
+    UpdatedAt,
+}
+
+#[derive(DeriveIden)]
+enum Domains {
+    Table,
+    Id,
+    ApplicationId,
+    Hostname,
+    Port,
+    HttpsEnabled,
+    CreatedAt,
+    UpdatedAt,
+}
+
+#[derive(DeriveIden)]
+enum Deployments {
+    Table,
+    Id,
+    ApplicationId,
+    ServerId,
+    CommitHash,
+    CommitMessage,
+    Status,
+    QueuedAt,
+    StartedAt,
+    FinishedAt,
+    ExitCode,
+    ErrorCode,
+    ErrorMessage,
+    CreatedAt,
+    UpdatedAt,
+}
+
+#[derive(DeriveIden)]
+enum DeploymentLogs {
+    Table,
+    Id,
+    DeploymentId,
+    Sequence,
+    Stream,
+    Message,
+    CreatedAt,
+}

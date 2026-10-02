@@ -1,0 +1,35 @@
+name: Deployment Issue
+description: Report a failed deployment, worker issue, or container runtime defect
+labels: ["area/docker", "type/bug"]
+body:
+  - type: markdown
+    attributes:
+      value: Report issues encountered during application building, container provisioning, or healthchecks.
+  - type: input
+    id: app_type
+    attributes:
+      label: Application Build Type
+      description: Dockerfile or Prebuilt Image
+      placeholder: dockerfile
+    validations:
+      required: true
+  - type: textarea
+    id: deployment_failure
+    attributes:
+      label: Failure Stage
+      description: Which stage failed? (cloning, building, stopping_old, starting_new, healthchecking)
+    validations:
+      required: true
+  - type: textarea
+    id: deployment_logs
+    attributes:
+      label: Deployment Logs (Mask all secrets!)
+      description: Relevant logs from the DeploymentLog stream.
+      render: shell
+    validations:
+      required: true
+  - type: textarea
+    id: server_details
+    attributes:
+      label: Target Remote Server Details
+      description: OS version, Docker engine version, architecture.

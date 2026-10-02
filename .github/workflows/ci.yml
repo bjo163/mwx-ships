@@ -1,0 +1,59 @@
+name: CI
+
+on:
+  push:
+    branches: [ "master", "main" ]
+  pull_request:
+    branches: [ "master", "main" ]
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  backend-checks:
+    name: Backend Quality & Tests (SQLite)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Format Check
+        run: cargo fmt --all -- --check
+
+      - name: Type Check
+        run: cargo check --all-targets --all-features
+
+      - name: Test Suite (SQLite)
+        run: cargo test --all-targets --all-features
+
+      - name: Strict Clippy Linting
+        run: cargo clippy --all-targets --all-features -- -D warnings
+
+  frontend-checks:
+    name: Frontend Quality & Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install Frontend Dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Build Frontend Bundle
+        working-directory: frontend
+        run: npm run build
