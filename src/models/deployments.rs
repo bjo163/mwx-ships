@@ -19,6 +19,14 @@ impl Model {
             .ok_or_else(|| ModelError::EntityNotFound)?)
     }
 
+    pub async fn all(db: &DatabaseConnection) -> Result<Vec<Model>> {
+        let list = Entity::find()
+            .order_by_desc(deployments::Column::QueuedAt)
+            .all(db)
+            .await?;
+        Ok(list)
+    }
+
     pub async fn by_application(
         db: &DatabaseConnection,
         application_id: i64,

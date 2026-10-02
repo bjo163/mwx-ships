@@ -22,7 +22,7 @@ export function Deployments() {
   async function loadDeployments() {
     try {
       const data = await apiRequest<any[]>('/api/deployments');
-      setDeployments(data);
+      setDeployments(Array.isArray(data) ? data : []);
     } catch (e) {
       console.error('Failed to load deployments:', e);
     } finally {

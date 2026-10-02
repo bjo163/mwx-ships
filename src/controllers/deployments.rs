@@ -6,8 +6,18 @@ use loco_rs::prelude::*;
 pub fn routes() -> Routes {
     Routes::new()
         .prefix("api/deployments")
+        .add("/", get(list))
         .add("{id}", get(get_one))
         .add("{id}/logs", get(get_logs))
+}
+
+#[debug_handler]
+pub async fn list(State(ctx): State<AppContext>) -> Result<Response> {
+    let deps = DeploymentModel::all(&ctx.db).await?;
+    format::json(serde_json::json!({
+        "data": deps,
+        "message": "ok"
+    }))
 }
 
 #[debug_handler]
