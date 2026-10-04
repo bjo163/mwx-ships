@@ -7,6 +7,7 @@ mod m20261004_000003_deployment_revisions;
 mod m20261004_000004_deployment_attempt_intent;
 mod m20261004_000005_deployment_execution_lease;
 mod m20261004_000006_managed_ingress;
+mod m20261004_000007_git_automation;
 
 pub struct Migrator;
 
@@ -20,6 +21,7 @@ impl MigratorTrait for Migrator {
             Box::new(m20261004_000004_deployment_attempt_intent::Migration),
             Box::new(m20261004_000005_deployment_execution_lease::Migration),
             Box::new(m20261004_000006_managed_ingress::Migration),
+            Box::new(m20261004_000007_git_automation::Migration),
             // inject-above (do not remove this comment)
         ]
     }
