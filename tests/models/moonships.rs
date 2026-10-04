@@ -143,6 +143,25 @@ async fn test_models_lifecycle_and_constraints() {
     .await
     .expect("create domain");
     assert_eq!(domain.hostname, "api.domain.com");
+    assert_eq!(domain.verification_status, "pending");
+    assert_eq!(domain.tls_status, "pending");
+
+    let verified = DomainModel::update_verification(db, domain.id, true, None)
+        .await
+        .expect("verify domain state");
+    assert_eq!(verified.verification_status, "verified");
+    assert!(verified.verified_at.is_some());
+
+    let tls_active = DomainModel::update_tls_status(db, domain.id, "active", None)
+        .await
+        .expect("activate TLS state");
+    assert_eq!(tls_active.tls_status, "active");
+
+    let by_hostname = DomainModel::find_by_application_hostname(db, app.id, "API.DOMAIN.COM")
+        .await
+        .expect("find domain by normalized hostname")
+        .expect("domain exists");
+    assert_eq!(by_hostname.id, domain.id);
 
     let domains_list = DomainModel::by_application(db, app.id)
         .await
