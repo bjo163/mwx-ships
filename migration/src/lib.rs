@@ -12,6 +12,7 @@ mod m20261004_000008_preview_runtime;
 mod m20261004_000009_preview_environment;
 mod m20261004_000010_webhook_intent_dedupe;
 mod m20261004_000011_git_clone_credentials;
+mod m20261004_000012_operations;
 
 pub struct Migrator;
 
@@ -30,6 +31,7 @@ impl MigratorTrait for Migrator {
             Box::new(m20261004_000009_preview_environment::Migration),
             Box::new(m20261004_000010_webhook_intent_dedupe::Migration),
             Box::new(m20261004_000011_git_clone_credentials::Migration),
+            Box::new(m20261004_000012_operations::Migration),
             // inject-above (do not remove this comment)
         ]
     }
