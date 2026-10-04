@@ -326,6 +326,12 @@ If you intentionally expose Moonships beyond localhost, use TLS and a trusted ne
 
 ---
 
+### v0.4 Managed Ingress
+
+Applications with domains and no explicit published host port use Moonships-managed Traefik and revision-specific blue/green runtimes. A candidate must pass its configured healthcheck before Moonships atomically switches the Traefik route; the previous runtime is drained only after the switch. HTTPS domains use Let's Encrypt HTTP-01 when `MOONSHIPS_ACME_EMAIL` is configured.
+
+---
+
 ## Development Branches
 
 The canonical repository intentionally uses only two working branches:
