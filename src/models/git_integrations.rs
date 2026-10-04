@@ -12,6 +12,7 @@ pub struct UpsertGitIntegrationParams {
     pub provider: String,
     pub repository_ref: String,
     pub api_base_url: Option<String>,
+    pub git_username: Option<String>,
     pub token: Option<String>,
     pub webhook_secret: String,
     pub enabled: Option<bool>,
@@ -31,6 +32,7 @@ pub struct SafeGitIntegration {
     pub provider: String,
     pub repository_ref: String,
     pub api_base_url: Option<String>,
+    pub git_username: Option<String>,
     pub has_token: bool,
     pub enabled: bool,
     pub capabilities: ProviderCapabilities,
@@ -97,6 +99,7 @@ impl Model {
                 let mut active: ActiveModel = model.into();
                 active.repository_ref = Set(repository_ref.clone());
                 active.api_base_url = Set(params.api_base_url.clone());
+                active.git_username = Set(normalize_git_username(&provider, params.git_username.as_deref())?);
                 if let Some(encrypted_token) = encrypted_token {
                     active.encrypted_token = Set(Some(encrypted_token));
                 }
@@ -111,6 +114,7 @@ impl Model {
                     provider: Set(provider),
                     repository_ref: Set(repository_ref),
                     api_base_url: Set(params.api_base_url.clone()),
+                    git_username: Set(normalize_git_username(&provider, params.git_username.as_deref())?),
                     encrypted_token: Set(encrypted_token),
                     encrypted_webhook_secret: Set(encrypted_webhook_secret),
                     enabled: Set(params.enabled.unwrap_or(true)),
@@ -143,6 +147,7 @@ impl Model {
             provider: self.provider.clone(),
             repository_ref: self.repository_ref.clone(),
             api_base_url: self.api_base_url.clone(),
+            git_username: self.git_username.clone(),
             has_token: self.encrypted_token.is_some(),
             enabled: self.enabled,
             capabilities: provider_capabilities(&self.provider),
@@ -238,4 +243,47 @@ pub fn normalize_repository_ref(provider: &str, raw: &str) -> Result<String> {
     }
 
     Ok(segments.join("/"))
+}
+
+
+pub fn normalize_git_username(provider: &str, value: Option<&str>) -> Result<Option<String>> {
+    let explicit = value.map(str::trim).filter(|value| !value.is_empty());
+    let username = match (provider, explicit) {
+        (_, Some(value)) => value.to_string(),
+        ("github", None) => "x-access-token".to_string(),
+        ("gitlab", None) => "oauth2".to_string(),
+        ("gitea", None) => return Ok(None),
+        _ => return Ok(None),
+    };
+
+    if username.starts_with('-')
+        || username.contains(char::is_whitespace)
+        || username.contains(['\n', '\r', ':', '@', '/', '\\'])
+    {
+        return Err(Error::BadRequest("git_username is malformed".to_string()));
+    }
+
+    Ok(Some(username))
+}
+
+impl Model {
+    pub async fn find_for_repository(
+        db: &DatabaseConnection,
+        application_id: i64,
+        repository: &str,
+    ) -> Result<Option<Model>> {
+        let integrations = Self::list_for_application(db, application_id).await?;
+        for integration in integrations {
+            if let Ok(normalized) = normalize_repository_ref(&integration.provider, repository) {
+                if normalized == integration.repository_ref {
+                    return Ok(Some(integration));
+                }
+            }
+        }
+        Ok(None)
+    }
+
+    pub fn resolved_git_username(&self) -> Result<Option<String>> {
+        normalize_git_username(&self.provider, self.git_username.as_deref())
+    }
 }
