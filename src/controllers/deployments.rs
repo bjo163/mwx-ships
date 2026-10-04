@@ -30,9 +30,15 @@ pub async fn list(headers: HeaderMap, State(ctx): State<AppContext>) -> Result<R
     let principal = Principal::authenticate(&ctx, &headers).await?;
     let organization_ids = principal.organization_ids(&ctx.db).await?;
     let projects = ProjectModel::all_for_organizations(&ctx.db, &organization_ids).await?;
-    let project_ids = projects.into_iter().map(|project| project.id).collect::<Vec<_>>();
+    let project_ids = projects
+        .into_iter()
+        .map(|project| project.id)
+        .collect::<Vec<_>>();
     let applications = ApplicationModel::all_for_projects(&ctx.db, &project_ids).await?;
-    let application_ids = applications.into_iter().map(|app| app.id).collect::<Vec<_>>();
+    let application_ids = applications
+        .into_iter()
+        .map(|app| app.id)
+        .collect::<Vec<_>>();
     let deployments = DeploymentModel::all_for_applications(&ctx.db, &application_ids).await?;
 
     format::json(serde_json::json!({

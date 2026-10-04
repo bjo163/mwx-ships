@@ -4,9 +4,7 @@ use crate::{
         api_tokens::{CreateApiTokenParams, Model as ApiTokenModel},
         audit_events::{AuditEventInput, Model as AuditEventModel},
         auth_rate_limits::Model as AuthRateLimitModel,
-        organization_memberships::{
-            Model as MembershipModel, SetMembershipParams,
-        },
+        organization_memberships::{Model as MembershipModel, SetMembershipParams},
         organizations::{CreateOrganizationParams, Model as OrganizationModel},
     },
     services::access_control::{Permission, Principal},
@@ -43,15 +41,8 @@ async fn enforce_sensitive_action(
     action: &str,
 ) -> Result<()> {
     let key = format!("{}:{organization_id}:{action}", principal.user.id);
-    let decision = AuthRateLimitModel::check_and_record(
-        &ctx.db,
-        "sensitive_action",
-        &key,
-        30,
-        60,
-        60,
-    )
-    .await?;
+    let decision =
+        AuthRateLimitModel::check_and_record(&ctx.db, "sensitive_action", &key, 30, 60, 60).await?;
 
     if !decision.allowed {
         return Err(Error::BadRequest(format!(
@@ -64,10 +55,7 @@ async fn enforce_sensitive_action(
 }
 
 #[debug_handler]
-pub async fn list(
-    headers: HeaderMap,
-    State(ctx): State<AppContext>,
-) -> Result<Response> {
+pub async fn list(headers: HeaderMap, State(ctx): State<AppContext>) -> Result<Response> {
     let principal = Principal::authenticate(&ctx, &headers).await?;
     let memberships = MembershipModel::list_for_user(&ctx.db, principal.user.id).await?;
     let mut organizations = Vec::new();
@@ -145,7 +133,9 @@ pub async fn list_members(
     State(ctx): State<AppContext>,
 ) -> Result<Response> {
     let principal = Principal::authenticate(&ctx, &headers).await?;
-    principal.require(&ctx.db, id, Permission::ManageOrganization).await?;
+    principal
+        .require(&ctx.db, id, Permission::ManageOrganization)
+        .await?;
     let memberships = MembershipModel::list_for_organization(&ctx.db, id).await?;
     format::json(serde_json::json!({"data": memberships}))
 }
@@ -168,7 +158,8 @@ pub async fn upsert_member(
         .as_ref()
         .map(MembershipModel::is_owner)
         .unwrap_or(false);
-    let grants_owner = params.role.eq_ignore_ascii_case("owner") && params.is_active.unwrap_or(true);
+    let grants_owner =
+        params.role.eq_ignore_ascii_case("owner") && params.is_active.unwrap_or(true);
 
     if (target_is_owner || grants_owner) && !actor_membership.is_owner() {
         return unauthorized("only an organization owner can modify owner membership");
@@ -307,8 +298,11 @@ pub async fn list_audit(
     State(ctx): State<AppContext>,
 ) -> Result<Response> {
     let principal = Principal::authenticate(&ctx, &headers).await?;
-    principal.require(&ctx.db, id, Permission::ManageOrganization).await?;
-    let events = AuditEventModel::list_for_organization(&ctx.db, id, query.limit.unwrap_or(100)).await?;
+    principal
+        .require(&ctx.db, id, Permission::ManageOrganization)
+        .await?;
+    let events =
+        AuditEventModel::list_for_organization(&ctx.db, id, query.limit.unwrap_or(100)).await?;
     format::json(serde_json::json!({"data": events}))
 }
 
@@ -322,13 +316,19 @@ pub async fn claim_legacy(
     principal.require(&ctx.db, id, Permission::Owner).await?;
 
     let project_result = projects::Entity::update_many()
-        .col_expr(projects::Column::OrganizationId, sea_orm::sea_query::Expr::value(id))
+        .col_expr(
+            projects::Column::OrganizationId,
+            sea_orm::sea_query::Expr::value(id),
+        )
         .filter(projects::Column::OrganizationId.is_null())
         .exec(&ctx.db)
         .await?;
 
     let server_result = servers::Entity::update_many()
-        .col_expr(servers::Column::OrganizationId, sea_orm::sea_query::Expr::value(id))
+        .col_expr(
+            servers::Column::OrganizationId,
+            sea_orm::sea_query::Expr::value(id),
+        )
         .filter(servers::Column::OrganizationId.is_null())
         .exec(&ctx.db)
         .await?;

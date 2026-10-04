@@ -13,9 +13,7 @@ use moonships::{
         domains::{CreateDomainParams, Model as DomainModel},
         environments::{CreateEnvironmentParams, Model as EnvironmentModel},
         git_integrations::{Model as GitIntegrationModel, UpsertGitIntegrationParams},
-        organization_memberships::{
-            Model as MembershipModel, SetMembershipParams,
-        },
+        organization_memberships::{Model as MembershipModel, SetMembershipParams},
         organizations::{CreateOrganizationParams, Model as OrganizationModel},
         preview_deployments::{Model as PreviewModel, UpsertPreviewInput},
         projects::{CreateProjectParams, Model as ProjectModel},
@@ -637,7 +635,6 @@ async fn test_models_lifecycle_and_constraints() {
     assert_eq!(preview_updated.commit_sha, "fedcba9876543210");
 }
 
-
 #[tokio::test]
 #[serial]
 async fn test_v07_access_control_security_contract() {
@@ -740,12 +737,10 @@ async fn test_v07_access_control_security_contract() {
         request_id: "test-owner-request".to_string(),
         confirmation: Some("confirmed".to_string()),
     };
-    assert!(
-        owner_principal
-            .require(db, org.id, Permission::Owner)
-            .await
-            .is_ok()
-    );
+    assert!(owner_principal
+        .require(db, org.id, Permission::Owner)
+        .await
+        .is_ok());
 
     let viewer_principal = Principal {
         user: viewer.clone(),
@@ -755,12 +750,10 @@ async fn test_v07_access_control_security_contract() {
         request_id: "test-viewer-request".to_string(),
         confirmation: None,
     };
-    assert!(
-        viewer_principal
-            .require(db, org.id, Permission::View)
-            .await
-            .is_ok()
-    );
+    assert!(viewer_principal
+        .require(db, org.id, Permission::View)
+        .await
+        .is_ok());
     assert!(
         viewer_principal
             .require(db, org.id, Permission::Deploy)
@@ -821,12 +814,10 @@ async fn test_v07_access_control_security_contract() {
         request_id: "api-token-request".to_string(),
         confirmation: None,
     };
-    assert!(
-        api_principal
-            .require(db, org.id, Permission::Deploy)
-            .await
-            .is_ok()
-    );
+    assert!(api_principal
+        .require(db, org.id, Permission::Deploy)
+        .await
+        .is_ok());
     assert!(
         api_principal
             .require(db, org.id, Permission::ManageOrganization)
@@ -838,12 +829,10 @@ async fn test_v07_access_control_security_contract() {
     ApiTokenModel::revoke_for_organization(db, created.record.id, org.id)
         .await
         .expect("revoke organization API token");
-    assert!(
-        ApiTokenModel::authenticate(db, &raw_token)
-            .await
-            .expect("authenticate revoked token")
-            .is_none()
-    );
+    assert!(ApiTokenModel::authenticate(db, &raw_token)
+        .await
+        .expect("authenticate revoked token")
+        .is_none());
 
     let previous_session_version = owner.session_version;
     let revoked_user = UserModel::revoke_sessions(db, owner.id)
@@ -874,21 +863,13 @@ async fn test_v07_access_control_security_contract() {
         .await
         .expect("list audit events");
     assert!(events.iter().any(|event| {
-        event.request_id.as_deref() == Some("audit-request-1")
-            && event.action == "test.destructive"
+        event.request_id.as_deref() == Some("audit-request-1") && event.action == "test.destructive"
     }));
 
     for attempt in 0..3 {
-        let decision = AuthRateLimitModel::check_and_record(
-            db,
-            "v07-test",
-            "same-key",
-            2,
-            60,
-            60,
-        )
-        .await
-        .expect("rate limit decision");
+        let decision = AuthRateLimitModel::check_and_record(db, "v07-test", "same-key", 2, 60, 60)
+            .await
+            .expect("rate limit decision");
         if attempt < 2 {
             assert!(decision.allowed);
         } else {

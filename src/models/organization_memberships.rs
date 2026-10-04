@@ -30,10 +30,7 @@ impl Model {
             .await?)
     }
 
-    pub async fn list_for_user(
-        db: &DatabaseConnection,
-        user_id: i64,
-    ) -> Result<Vec<Model>> {
+    pub async fn list_for_user(db: &DatabaseConnection, user_id: i64) -> Result<Vec<Model>> {
         Ok(Entity::find()
             .filter(organization_memberships::Column::UserId.eq(user_id))
             .filter(organization_memberships::Column::IsActive.eq(true))
@@ -41,10 +38,7 @@ impl Model {
             .await?)
     }
 
-    pub async fn active_owner_count(
-        db: &DatabaseConnection,
-        organization_id: i64,
-    ) -> Result<u64> {
+    pub async fn active_owner_count(db: &DatabaseConnection, organization_id: i64) -> Result<u64> {
         Ok(Entity::find()
             .filter(organization_memberships::Column::OrganizationId.eq(organization_id))
             .filter(organization_memberships::Column::Role.eq(OWNER))

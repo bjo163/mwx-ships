@@ -144,7 +144,9 @@ async fn login(
     State(ctx): State<AppContext>,
     Json(params): Json<LoginParams>,
 ) -> Result<Response> {
-    let user = users::Model::find_by_email(&ctx.db, &params.email).await.ok();
+    let user = users::Model::find_by_email(&ctx.db, &params.email)
+        .await
+        .ok();
     let valid = user
         .as_ref()
         .map(|user| user.verify_password(&params.password))
@@ -226,19 +228,13 @@ async fn login(
 }
 
 #[debug_handler]
-async fn current(
-    headers: HeaderMap,
-    State(ctx): State<AppContext>,
-) -> Result<Response> {
+async fn current(headers: HeaderMap, State(ctx): State<AppContext>) -> Result<Response> {
     let principal = Principal::authenticate(&ctx, &headers).await?;
     format::json(CurrentResponse::new(&principal.user))
 }
 
 #[debug_handler]
-async fn revoke(
-    headers: HeaderMap,
-    State(ctx): State<AppContext>,
-) -> Result<Response> {
+async fn revoke(headers: HeaderMap, State(ctx): State<AppContext>) -> Result<Response> {
     let principal = Principal::authenticate(&ctx, &headers).await?;
 
     if let Some(token) = principal.api_token.clone() {
@@ -424,7 +420,6 @@ pub fn routes() -> Routes {
         .add("/magic-link/{token}", get(magic_link_verify))
         .add("/resend-verification-mail", post(resend_verification_email))
 }
-
 
 fn request_id_from_headers(headers: &HeaderMap) -> String {
     headers

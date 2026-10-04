@@ -1,9 +1,6 @@
 use crate::{
     models::{backup_runs, operational_events, server_health_checks},
-    services::{
-        access_control::Principal,
-        operations::OperationsService,
-    },
+    services::{access_control::Principal, operations::OperationsService},
     workers::{
         backup::{BackupWorker, BackupWorkerArgs},
         operations_monitor::{OperationsMonitorWorker, OperationsMonitorWorkerArgs},

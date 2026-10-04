@@ -116,7 +116,10 @@ pub async fn list(headers: HeaderMap, State(ctx): State<AppContext>) -> Result<R
     let principal = Principal::authenticate(&ctx, &headers).await?;
     let organization_ids = principal.organization_ids(&ctx.db).await?;
     let projects = ProjectModel::all_for_organizations(&ctx.db, &organization_ids).await?;
-    let project_ids = projects.into_iter().map(|project| project.id).collect::<Vec<_>>();
+    let project_ids = projects
+        .into_iter()
+        .map(|project| project.id)
+        .collect::<Vec<_>>();
     let apps = ApplicationModel::all_for_projects(&ctx.db, &project_ids).await?;
     format::json(serde_json::json!({
         "data": apps,
@@ -172,8 +175,7 @@ pub async fn get_one(
     Path(id): Path<i64>,
     State(ctx): State<AppContext>,
 ) -> Result<Response> {
-    let (_, _, app) =
-        authorized_application(&ctx, &headers, id, Permission::View).await?;
+    let (_, _, app) = authorized_application(&ctx, &headers, id, Permission::View).await?;
     let latest_deployment = DeploymentModel::latest_for_application(&ctx.db, id).await?;
     let env_count = EnvVarModel::by_application(&ctx.db, id).await?.len();
     let domains = DomainModel::by_application(&ctx.db, id).await?;
@@ -517,8 +519,7 @@ pub async fn status(
     Path(id): Path<i64>,
     State(ctx): State<AppContext>,
 ) -> Result<Response> {
-    let (_, _, app) =
-        authorized_application(&ctx, &headers, id, Permission::View).await?;
+    let (_, _, app) = authorized_application(&ctx, &headers, id, Permission::View).await?;
     let (server, runtime) = remote_runtime(&ctx.db, &app).await?;
     let runtime_name = app.resolved_runtime_name();
     let container_status = runtime
@@ -542,8 +543,7 @@ pub async fn logs(
     Path(id): Path<i64>,
     State(ctx): State<AppContext>,
 ) -> Result<Response> {
-    let (_, _, app) =
-        authorized_application(&ctx, &headers, id, Permission::View).await?;
+    let (_, _, app) = authorized_application(&ctx, &headers, id, Permission::View).await?;
     let (server, runtime) = remote_runtime(&ctx.db, &app).await?;
     let runtime_name = app.resolved_runtime_name();
     let logs = runtime
@@ -594,7 +594,8 @@ pub async fn set_env(
     State(ctx): State<AppContext>,
     Json(params): Json<SetEnvVarParams>,
 ) -> Result<Response> {
-    let (principal, organization_id, _) = authorized_application(&ctx, &headers, id, Permission::ManageApplications).await?;
+    let (principal, organization_id, _) =
+        authorized_application(&ctx, &headers, id, Permission::ManageApplications).await?;
     let is_secret = params.is_secret.unwrap_or(false);
     let encrypted = if is_secret {
         CryptoService::encrypt(&params.value).map_err(|e| Error::BadRequest(e.to_string()))?
@@ -652,7 +653,8 @@ pub async fn remove_env(
     Path((id, key)): Path<(i64, String)>,
     State(ctx): State<AppContext>,
 ) -> Result<Response> {
-    let (principal, organization_id, _) = authorized_application(&ctx, &headers, id, Permission::ManageApplications).await?;
+    let (principal, organization_id, _) =
+        authorized_application(&ctx, &headers, id, Permission::ManageApplications).await?;
     let existing = environment_variables::Entity::find()
         .filter(environment_variables::Column::ApplicationId.eq(id))
         .filter(environment_variables::Column::Key.eq(&key))
@@ -701,7 +703,8 @@ pub async fn add_domain(
     State(ctx): State<AppContext>,
     Json(params): Json<CreateDomainParams>,
 ) -> Result<Response> {
-    let (principal, organization_id, _) = authorized_application(&ctx, &headers, id, Permission::ManageApplications).await?;
+    let (principal, organization_id, _) =
+        authorized_application(&ctx, &headers, id, Permission::ManageApplications).await?;
     ProxyService::validate_hostname(&params.hostname)
         .map_err(|e| Error::BadRequest(e.to_string()))?;
     let domain = DomainModel::create_domain(&ctx.db, id, &params).await?;
@@ -726,7 +729,8 @@ pub async fn verify_domain(
     Path((id, domain_id)): Path<(i64, i64)>,
     State(ctx): State<AppContext>,
 ) -> Result<Response> {
-    let (principal, organization_id, app) = authorized_application(&ctx, &headers, id, Permission::ManageApplications).await?;
+    let (principal, organization_id, app) =
+        authorized_application(&ctx, &headers, id, Permission::ManageApplications).await?;
     let domain = DomainModel::find_by_id(&ctx.db, domain_id).await?;
     if domain.application_id != app.id {
         return Err(Error::BadRequest(
@@ -839,7 +843,8 @@ pub async fn upsert_git_integration(
     State(ctx): State<AppContext>,
     Json(params): Json<UpsertGitIntegrationParams>,
 ) -> Result<Response> {
-    let (principal, organization_id, _) = authorized_application(&ctx, &headers, id, Permission::ManageApplications).await?;
+    let (principal, organization_id, _) =
+        authorized_application(&ctx, &headers, id, Permission::ManageApplications).await?;
     let integration = GitIntegrationModel::upsert(&ctx.db, id, &params).await?;
     audit_application(
         &ctx,
@@ -862,7 +867,8 @@ pub async fn remove_git_integration(
     Path((id, provider)): Path<(i64, String)>,
     State(ctx): State<AppContext>,
 ) -> Result<Response> {
-    let (principal, organization_id, _) = authorized_application(&ctx, &headers, id, Permission::ManageApplications).await?;
+    let (principal, organization_id, _) =
+        authorized_application(&ctx, &headers, id, Permission::ManageApplications).await?;
     use crate::models::_entities::git_integrations;
 
     git_integrations::Entity::delete_many()

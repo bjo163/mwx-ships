@@ -33,9 +33,7 @@ impl Model {
                 if blocked_until > now_fixed {
                     return Ok(RateLimitDecision {
                         allowed: false,
-                        retry_after_seconds: Some(
-                            (blocked_until - now_fixed).num_seconds().max(1),
-                        ),
+                        retry_after_seconds: Some((blocked_until - now_fixed).num_seconds().max(1)),
                     });
                 }
             }

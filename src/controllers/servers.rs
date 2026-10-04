@@ -200,15 +200,7 @@ pub async fn update(
     active.updated_at = Set(Utc::now().into());
     let updated = active.update(&ctx.db).await?;
 
-    audit_server(
-        &ctx,
-        &principal,
-        organization_id,
-        "server.update",
-        id,
-        None,
-    )
-    .await;
+    audit_server(&ctx, &principal, organization_id, "server.update", id, None).await;
     format::json(serde_json::json!({
         "data": {
             "id": updated.id,
@@ -236,15 +228,7 @@ pub async fn remove(
     let server = ServerModel::find_by_id(&ctx.db, id).await?;
     Entity::delete_by_id(server.id).exec(&ctx.db).await?;
 
-    audit_server(
-        &ctx,
-        &principal,
-        organization_id,
-        "server.delete",
-        id,
-        None,
-    )
-    .await;
+    audit_server(&ctx, &principal, organization_id, "server.delete", id, None).await;
     format::json(serde_json::json!({
         "data": null,
         "message": "ok"
@@ -354,7 +338,6 @@ pub async fn preflight(
         "message": "ok"
     }))
 }
-
 
 async fn audit_server(
     ctx: &AppContext,

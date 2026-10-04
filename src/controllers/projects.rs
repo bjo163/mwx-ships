@@ -31,10 +31,7 @@ pub fn routes() -> Routes {
 }
 
 #[debug_handler]
-pub async fn list(
-    headers: HeaderMap,
-    State(ctx): State<AppContext>,
-) -> Result<Response> {
+pub async fn list(headers: HeaderMap, State(ctx): State<AppContext>) -> Result<Response> {
     let principal = Principal::authenticate(&ctx, &headers).await?;
     let organization_ids = principal.organization_ids(&ctx.db).await?;
     let projects = ProjectModel::all_for_organizations(&ctx.db, &organization_ids).await?;

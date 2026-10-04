@@ -3,10 +3,8 @@ use loco_rs::{auth::jwt::JWT, prelude::*};
 use serde_json::{Map, Value};
 
 use crate::models::{
-    api_tokens, applications, deployments,
-    organization_memberships::Model as MembershipModel,
-    organizations::Model as OrganizationModel,
-    projects, servers, users,
+    api_tokens, applications, deployments, organization_memberships::Model as MembershipModel,
+    organizations::Model as OrganizationModel, projects, servers, users,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -55,7 +53,9 @@ impl Principal {
             let user = users::Entity::find_by_id(record.user_id)
                 .one(&ctx.db)
                 .await?
-                .ok_or_else(|| Error::Unauthorized("API token user no longer exists".to_string()))?;
+                .ok_or_else(|| {
+                    Error::Unauthorized("API token user no longer exists".to_string())
+                })?;
             return Ok(Self {
                 actor_kind: "api_token",
                 actor_id: record.id.to_string(),
@@ -180,8 +180,7 @@ impl Principal {
             let membership = self.membership(db, organization.id).await?;
             if !membership.is_owner() {
                 return Err(Error::Unauthorized(
-                    "platform operations require owner access to every organization"
-                        .to_string(),
+                    "platform operations require owner access to every organization".to_string(),
                 ));
             }
         }
@@ -210,8 +209,7 @@ impl Principal {
                 "user has no active organization membership".to_string(),
             )),
             _ => Err(Error::BadRequest(
-                "organization_id is required when multiple organizations are available"
-                    .to_string(),
+                "organization_id is required when multiple organizations are available".to_string(),
             )),
         }
     }
@@ -274,10 +272,7 @@ impl Principal {
         (self.actor_kind, self.actor_id.clone())
     }
 
-    pub fn audit_metadata(
-        &self,
-        metadata: Option<serde_json::Value>,
-    ) -> Option<serde_json::Value> {
+    pub fn audit_metadata(&self, metadata: Option<serde_json::Value>) -> Option<serde_json::Value> {
         let mut object = match metadata {
             Some(serde_json::Value::Object(map)) => map,
             Some(value) => {
@@ -320,7 +315,6 @@ fn bearer_token(headers: &HeaderMap) -> Result<&str> {
         .filter(|token| !token.trim().is_empty())
         .ok_or_else(|| Error::Unauthorized("authorization bearer token is malformed".to_string()))
 }
-
 
 fn request_id(headers: &HeaderMap) -> String {
     headers
