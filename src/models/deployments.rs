@@ -221,7 +221,7 @@ impl Model {
         let lease_expired = current
             .lease_expires_at
             .as_ref()
-            .map(|expires| expires < &now.into())
+            .map(|expires| expires.timestamp() < now.timestamp())
             .unwrap_or(true);
 
         if !queued && !lease_expired {
