@@ -5,6 +5,7 @@ mod m20220101_000001_users;
 mod m20260101_000002_moonships_core;
 mod m20261004_000003_deployment_revisions;
 mod m20261004_000004_deployment_attempt_intent;
+mod m20261004_000005_deployment_execution_lease;
 
 pub struct Migrator;
 
@@ -16,6 +17,7 @@ impl MigratorTrait for Migrator {
             Box::new(m20260101_000002_moonships_core::Migration),
             Box::new(m20261004_000003_deployment_revisions::Migration),
             Box::new(m20261004_000004_deployment_attempt_intent::Migration),
+            Box::new(m20261004_000005_deployment_execution_lease::Migration),
             // inject-above (do not remove this comment)
         ]
     }
