@@ -82,6 +82,13 @@ pub async fn create(
         .await?;
 
     let now = Utc::now();
+    let tags = ServerModel::normalized_tags(params.tags.as_deref().unwrap_or(&[]))?;
+    let capacity_units = params.capacity_units.unwrap_or(100);
+    if capacity_units < 1 {
+        return Err(Error::BadRequest(
+            "capacity_units must be at least 1".to_string(),
+        ));
+    }
     let encrypted_key = if let Some(key) = params.private_key {
         Some(CryptoService::encrypt(&key).map_err(|e| Error::BadRequest(e.to_string()))?)
     } else {
@@ -100,6 +107,8 @@ pub async fn create(
         encrypted_private_key: Set(encrypted_key),
         known_host_fingerprint: Set(params.known_host_fingerprint),
         status: Set("unknown".to_string()),
+        tags_json: Set(serde_json::to_string(&tags)?),
+        capacity_units: Set(capacity_units),
         created_at: Set(now.into()),
         updated_at: Set(now.into()),
         ..Default::default()
@@ -125,6 +134,8 @@ pub async fn create(
             "username": model.username,
             "known_host_fingerprint": model.known_host_fingerprint,
             "status": model.status,
+            "tags": tags,
+            "capacity_units": model.capacity_units,
             "created_at": model.created_at,
         },
         "message": "ok"
@@ -152,6 +163,8 @@ pub async fn get_one(
             "authentication_type": server.authentication_type,
             "known_host_fingerprint": server.known_host_fingerprint,
             "status": server.status,
+            "tags": server.tags().unwrap_or_default(),
+            "capacity_units": server.capacity_units,
             "last_seen_at": server.last_seen_at,
             "created_at": server.created_at,
             "updated_at": server.updated_at,
@@ -196,6 +209,17 @@ pub async fn update(
     if let Some(fingerprint) = params.known_host_fingerprint {
         active.known_host_fingerprint = Set(Some(fingerprint));
     }
+    if let Some(tags) = params.tags {
+        active.tags_json = Set(serde_json::to_string(&ServerModel::normalized_tags(&tags)?)?);
+    }
+    if let Some(capacity_units) = params.capacity_units {
+        if capacity_units < 1 {
+            return Err(Error::BadRequest(
+                "capacity_units must be at least 1".to_string(),
+            ));
+        }
+        active.capacity_units = Set(capacity_units);
+    }
 
     active.updated_at = Set(Utc::now().into());
     let updated = active.update(&ctx.db).await?;
@@ -210,6 +234,8 @@ pub async fn update(
             "username": updated.username,
             "known_host_fingerprint": updated.known_host_fingerprint,
             "status": updated.status,
+            "tags": updated.tags().unwrap_or_default(),
+            "capacity_units": updated.capacity_units,
         },
         "message": "ok"
     }))
