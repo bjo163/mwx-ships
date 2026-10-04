@@ -603,7 +603,6 @@ pub async fn remove_domain(
     }))
 }
 
-
 #[debug_handler]
 pub async fn list_git_integrations(
     _auth: auth::JWT,

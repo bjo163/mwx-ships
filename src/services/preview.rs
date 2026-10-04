@@ -16,9 +16,7 @@ use crate::{
 };
 use chrono::Utc;
 use loco_rs::prelude::*;
-use sea_orm::{
-    ActiveModelTrait, ActiveValue::Set, ColumnTrait, EntityTrait, QueryFilter,
-};
+use sea_orm::{ActiveModelTrait, ActiveValue::Set, ColumnTrait, EntityTrait, QueryFilter};
 
 #[derive(Debug, thiserror::Error)]
 pub enum PreviewError {
@@ -93,10 +91,7 @@ impl PreviewService {
                     project_id: base_app.project_id,
                     environment_id: base_app.environment_id,
                     server_id: base_app.server_id,
-                    name: format!(
-                        "{} Preview #{}",
-                        base_app.name, external_request_id
-                    ),
+                    name: format!("{} Preview #{}", base_app.name, external_request_id),
                     slug: Some(preview.preview_slug.clone()),
                     git_repository: base_app.git_repository.clone(),
                     git_branch: Some(source_ref.to_string()),
@@ -244,9 +239,7 @@ impl PreviewService {
             .map_err(|err| PreviewError::Setup(err.to_string()))?;
 
         environment_variables::Entity::delete_many()
-            .filter(
-                environment_variables::Column::ApplicationId.eq(preview_application_id),
-            )
+            .filter(environment_variables::Column::ApplicationId.eq(preview_application_id))
             .exec(db)
             .await
             .map_err(|err| PreviewError::Setup(err.to_string()))?;

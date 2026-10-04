@@ -1435,8 +1435,7 @@ impl DeploymentService {
         success: bool,
         error_message: Option<&str>,
     ) {
-        let Ok(Some(delivery)) =
-            webhook_deliveries::Model::by_deployment(db, deployment_id).await
+        let Ok(Some(delivery)) = webhook_deliveries::Model::by_deployment(db, deployment_id).await
         else {
             return;
         };

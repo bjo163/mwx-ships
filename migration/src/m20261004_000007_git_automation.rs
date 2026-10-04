@@ -22,14 +22,22 @@ impl MigrationTrait for Migration {
                         .big_integer()
                         .not_null(),
                 )
-                .col(ColumnDef::new(GitIntegrations::Provider).string().not_null())
+                .col(
+                    ColumnDef::new(GitIntegrations::Provider)
+                        .string()
+                        .not_null(),
+                )
                 .col(
                     ColumnDef::new(GitIntegrations::RepositoryRef)
                         .string()
                         .not_null(),
                 )
                 .col(ColumnDef::new(GitIntegrations::ApiBaseUrl).string().null())
-                .col(ColumnDef::new(GitIntegrations::EncryptedToken).text().null())
+                .col(
+                    ColumnDef::new(GitIntegrations::EncryptedToken)
+                        .text()
+                        .null(),
+                )
                 .col(
                     ColumnDef::new(GitIntegrations::EncryptedWebhookSecret)
                         .text()
@@ -89,25 +97,45 @@ impl MigrationTrait for Migration {
                         .big_integer()
                         .not_null(),
                 )
-                .col(ColumnDef::new(WebhookDeliveries::Provider).string().not_null())
+                .col(
+                    ColumnDef::new(WebhookDeliveries::Provider)
+                        .string()
+                        .not_null(),
+                )
                 .col(
                     ColumnDef::new(WebhookDeliveries::DeliveryId)
                         .string()
                         .not_null(),
                 )
-                .col(ColumnDef::new(WebhookDeliveries::EventKind).string().not_null())
+                .col(
+                    ColumnDef::new(WebhookDeliveries::EventKind)
+                        .string()
+                        .not_null(),
+                )
                 .col(ColumnDef::new(WebhookDeliveries::SourceRef).string().null())
                 .col(ColumnDef::new(WebhookDeliveries::CommitSha).string().null())
-                .col(ColumnDef::new(WebhookDeliveries::ExternalRequestId).string().null())
+                .col(
+                    ColumnDef::new(WebhookDeliveries::ExternalRequestId)
+                        .string()
+                        .null(),
+                )
                 .col(ColumnDef::new(WebhookDeliveries::Action).string().null())
-                .col(ColumnDef::new(WebhookDeliveries::DeploymentId).big_integer().null())
+                .col(
+                    ColumnDef::new(WebhookDeliveries::DeploymentId)
+                        .big_integer()
+                        .null(),
+                )
                 .col(
                     ColumnDef::new(WebhookDeliveries::Status)
                         .string()
                         .not_null()
                         .default("received"),
                 )
-                .col(ColumnDef::new(WebhookDeliveries::ErrorMessage).text().null())
+                .col(
+                    ColumnDef::new(WebhookDeliveries::ErrorMessage)
+                        .text()
+                        .null(),
+                )
                 .col(
                     ColumnDef::new(WebhookDeliveries::CreatedAt)
                         .timestamp_with_time_zone()
@@ -166,15 +194,31 @@ impl MigrationTrait for Migration {
                         .big_integer()
                         .not_null(),
                 )
-                .col(ColumnDef::new(PreviewDeployments::Provider).string().not_null())
+                .col(
+                    ColumnDef::new(PreviewDeployments::Provider)
+                        .string()
+                        .not_null(),
+                )
                 .col(
                     ColumnDef::new(PreviewDeployments::ExternalRequestId)
                         .string()
                         .not_null(),
                 )
-                .col(ColumnDef::new(PreviewDeployments::SourceRef).string().not_null())
-                .col(ColumnDef::new(PreviewDeployments::CommitSha).string().not_null())
-                .col(ColumnDef::new(PreviewDeployments::PreviewSlug).string().not_null())
+                .col(
+                    ColumnDef::new(PreviewDeployments::SourceRef)
+                        .string()
+                        .not_null(),
+                )
+                .col(
+                    ColumnDef::new(PreviewDeployments::CommitSha)
+                        .string()
+                        .not_null(),
+                )
+                .col(
+                    ColumnDef::new(PreviewDeployments::PreviewSlug)
+                        .string()
+                        .not_null(),
+                )
                 .col(
                     ColumnDef::new(PreviewDeployments::Status)
                         .string()

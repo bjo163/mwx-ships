@@ -1,9 +1,9 @@
-use std::time::Duration;
 use axum::http::HeaderMap;
 use hmac::{Hmac, Mac};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::Sha256;
+use std::time::Duration;
 
 use crate::models::git_integrations;
 
@@ -275,10 +275,7 @@ fn parse_github_like(
     }
 }
 
-fn parse_gitlab(
-    event_header: &str,
-    payload: &Value,
-) -> Result<GitWebhookEvent, GitProviderError> {
+fn parse_gitlab(event_header: &str, payload: &Value) -> Result<GitWebhookEvent, GitProviderError> {
     match event_header {
         "Push Hook" => Ok(GitWebhookEvent {
             provider: "gitlab".to_string(),
@@ -344,10 +341,9 @@ fn verify_hmac_header(
     let signature = signature
         .strip_prefix(prefix)
         .ok_or(GitProviderError::InvalidSignature)?;
-    let signature =
-        hex::decode(signature).map_err(|_| GitProviderError::InvalidSignature)?;
-    let mut mac =
-        HmacSha256::new_from_slice(secret.as_bytes()).map_err(|_| GitProviderError::InvalidSignature)?;
+    let signature = hex::decode(signature).map_err(|_| GitProviderError::InvalidSignature)?;
+    let mut mac = HmacSha256::new_from_slice(secret.as_bytes())
+        .map_err(|_| GitProviderError::InvalidSignature)?;
     mac.update(body);
     mac.verify_slice(&signature)
         .map_err(|_| GitProviderError::InvalidSignature)
@@ -449,9 +445,13 @@ mod tests {
         mac.update(body);
         let signature = format!("sha256={}", hex::encode(mac.finalize().into_bytes()));
 
-        let event =
-            GitProviderService::verify_and_parse("github", &github_headers(signature), body, secret)
-                .unwrap();
+        let event = GitProviderService::verify_and_parse(
+            "github",
+            &github_headers(signature),
+            body,
+            secret,
+        )
+        .unwrap();
 
         assert_eq!(event.delivery_id, "delivery-1");
         assert_eq!(event.event_kind, "push");
@@ -474,7 +474,10 @@ mod tests {
     #[test]
     fn parses_gitlab_merge_request_close() {
         let mut headers = HeaderMap::new();
-        headers.insert("x-gitlab-token", HeaderValue::from_static("0123456789abcdef"));
+        headers.insert(
+            "x-gitlab-token",
+            HeaderValue::from_static("0123456789abcdef"),
+        );
         headers.insert("x-gitlab-event-uuid", HeaderValue::from_static("uuid-1"));
         headers.insert(
             "x-gitlab-event",
@@ -489,13 +492,9 @@ mod tests {
             }
         }"#;
 
-        let event = GitProviderService::verify_and_parse(
-            "gitlab",
-            &headers,
-            body,
-            "0123456789abcdef",
-        )
-        .unwrap();
+        let event =
+            GitProviderService::verify_and_parse("gitlab", &headers, body, "0123456789abcdef")
+                .unwrap();
 
         assert_eq!(event.external_request_id.as_deref(), Some("42"));
         assert_eq!(event.source_ref.as_deref(), Some("feature/x"));

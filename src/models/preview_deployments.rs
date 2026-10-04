@@ -29,10 +29,7 @@ impl Model {
             .await?)
     }
 
-    pub async fn upsert(
-        db: &DatabaseConnection,
-        input: &UpsertPreviewInput,
-    ) -> Result<Model> {
+    pub async fn upsert(db: &DatabaseConnection, input: &UpsertPreviewInput) -> Result<Model> {
         let existing = Self::find_by_request(
             db,
             input.application_id,

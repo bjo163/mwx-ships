@@ -44,21 +44,18 @@ pub async fn receive(
     }
 
     let secret = integration.webhook_secret()?;
-    let event = match GitProviderService::verify_and_parse(
-        &integration.provider,
-        &headers,
-        &body,
-        &secret,
-    ) {
-        Ok(event) => event,
-        Err(GitProviderError::InvalidSignature | GitProviderError::MissingHeader(_)) => {
-            return response(
-                StatusCode::UNAUTHORIZED,
-                serde_json::json!({"error":{"code":"INVALID_WEBHOOK_SIGNATURE"}}),
-            );
-        }
-        Err(error) => return Err(Error::BadRequest(error.to_string())),
-    };
+    let event =
+        match GitProviderService::verify_and_parse(&integration.provider, &headers, &body, &secret)
+        {
+            Ok(event) => event,
+            Err(GitProviderError::InvalidSignature | GitProviderError::MissingHeader(_)) => {
+                return response(
+                    StatusCode::UNAUTHORIZED,
+                    serde_json::json!({"error":{"code":"INVALID_WEBHOOK_SIGNATURE"}}),
+                );
+            }
+            Err(error) => return Err(Error::BadRequest(error.to_string())),
+        };
 
     let created = WebhookDeliveryModel::create_or_get(
         &ctx.db,
@@ -91,12 +88,8 @@ pub async fn receive(
     }
 
     match event.event_kind.as_str() {
-        "push" => {
-            handle_push(&ctx, &integration, &created.delivery, &event).await
-        }
-        "pull_request" => {
-            handle_pull_request(&ctx, &integration, &created.delivery, &event).await
-        }
+        "push" => handle_push(&ctx, &integration, &created.delivery, &event).await,
+        "pull_request" => handle_pull_request(&ctx, &integration, &created.delivery, &event).await,
         _ => {
             let delivery = WebhookDeliveryModel::mark_ignored(&ctx.db, created.delivery.id).await?;
             response(
@@ -143,7 +136,10 @@ async fn handle_push(
         &ctx.db,
         app.id,
         Some(commit_sha.clone()),
-        Some(format!("{} webhook {}", integration.provider, delivery.delivery_id)),
+        Some(format!(
+            "{} webhook {}",
+            integration.provider, delivery.delivery_id
+        )),
         "webhook",
         None,
     )
@@ -236,8 +232,7 @@ async fn handle_pull_request(
         .await
         {
             Ok(preview) => {
-                let delivery =
-                    WebhookDeliveryModel::mark_completed(&ctx.db, delivery.id).await?;
+                let delivery = WebhookDeliveryModel::mark_completed(&ctx.db, delivery.id).await?;
                 response(
                     StatusCode::ACCEPTED,
                     serde_json::json!({
@@ -251,12 +246,8 @@ async fn handle_pull_request(
                 )
             }
             Err(error) => {
-                let _ = WebhookDeliveryModel::mark_failed(
-                    &ctx.db,
-                    delivery.id,
-                    error.to_string(),
-                )
-                .await;
+                let _ = WebhookDeliveryModel::mark_failed(&ctx.db, delivery.id, error.to_string())
+                    .await;
                 let status = if matches!(error, PreviewError::Busy) {
                     StatusCode::CONFLICT
                 } else {
@@ -336,7 +327,10 @@ async fn handle_pull_request(
         Err(error) => {
             let _ =
                 WebhookDeliveryModel::mark_failed(&ctx.db, delivery.id, error.to_string()).await;
-            let status = if matches!(error, PreviewError::Busy | PreviewError::Deployment(DeploymentError::Conflict)) {
+            let status = if matches!(
+                error,
+                PreviewError::Busy | PreviewError::Deployment(DeploymentError::Conflict)
+            ) {
                 StatusCode::CONFLICT
             } else {
                 StatusCode::BAD_REQUEST
