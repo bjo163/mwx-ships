@@ -199,7 +199,6 @@ mod tests {
     }
 }
 
-
 fn host_rule(domains: &[String]) -> String {
     let tick = char::from(96);
     domains
