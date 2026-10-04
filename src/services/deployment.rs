@@ -1026,6 +1026,7 @@ impl DeploymentService {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn record_failure(
         db: &DatabaseConnection,
         execution_token: &str,
