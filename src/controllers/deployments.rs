@@ -209,8 +209,8 @@ async fn audit_deployment(
             resource_type: Some("deployment".to_string()),
             resource_id: Some(deployment_id.to_string()),
             outcome: "success".to_string(),
-            request_id: None,
-            metadata,
+            request_id: Some(principal.request_id.clone()),
+            metadata: principal.audit_metadata(metadata),
         },
     )
     .await;
