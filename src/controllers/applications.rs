@@ -300,7 +300,7 @@ pub async fn deploy(
     State(ctx): State<AppContext>,
     Json(params): Json<TriggerDeployParams>,
 ) -> Result<Response> {
-    let (principal, organization_id, app) =
+    let (principal, organization_id, _app) =
         authorized_application(&ctx, &headers, id, Permission::Deploy).await?;
     match DeploymentService::trigger_deploy(&ctx.db, id, params.commit_hash, params.commit_message)
         .await
@@ -360,7 +360,7 @@ pub async fn rollback(
     Path(id): Path<i64>,
     State(ctx): State<AppContext>,
 ) -> Result<Response> {
-    let (principal, organization_id, app) =
+    let (principal, organization_id, _app) =
         authorized_application(&ctx, &headers, id, Permission::Deploy).await?;
     match DeploymentService::rollback_application(&ctx.db, id).await {
         Ok(dep) => {
@@ -655,7 +655,7 @@ pub async fn remove_env(
     let (principal, organization_id, _) = authorized_application(&ctx, &headers, id, Permission::ManageApplications).await?;
     let existing = environment_variables::Entity::find()
         .filter(environment_variables::Column::ApplicationId.eq(id))
-        .filter(environment_variables::Column::Key.eq(key))
+        .filter(environment_variables::Column::Key.eq(&key))
         .one(&ctx.db)
         .await?;
 
@@ -772,7 +772,7 @@ pub async fn verify_domain(
         organization_id,
         "application.domain.verify",
         id,
-        Some(serde_json::json!({"domain_id": domain.id, "verified": domain.dns_verified})),
+        Some(serde_json::json!({"domain_id": domain.id, "verified": verified})),
     )
     .await;
     format::json(serde_json::json!({
@@ -783,11 +783,12 @@ pub async fn verify_domain(
 
 #[debug_handler]
 pub async fn remove_domain(
-    _auth: auth::JWT,
-    Path((_id, domain_id)): Path<(i64, i64)>,
+    headers: HeaderMap,
+    Path((id, domain_id)): Path<(i64, i64)>,
     State(ctx): State<AppContext>,
 ) -> Result<Response> {
-    let (principal, organization_id, _) = authorized_application(&ctx, &headers, id, Permission::ManageApplications).await?;
+    let (principal, organization_id, _) =
+        authorized_application(&ctx, &headers, id, Permission::ManageApplications).await?;
     let domain = DomainModel::find_by_id(&ctx.db, domain_id).await?;
     if domain.application_id != id {
         return Err(Error::BadRequest(
