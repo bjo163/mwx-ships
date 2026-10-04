@@ -311,11 +311,7 @@ MOONSHIPS_ASKPASS\n\
                      else printf 'MOONSHIPS_ABSENT\\n'; fi"
                 );
                 let output = self
-                    .exec_checked(
-                        "source_inspection_read",
-                        &command,
-                        Duration::from_secs(10),
-                    )
+                    .exec_checked("source_inspection_read", &command, Duration::from_secs(10))
                     .await?;
                 if let Some(content) = output.strip_prefix("MOONSHIPS_PRESENT\n") {
                     files.push(((*path).to_string(), content.to_string()));
