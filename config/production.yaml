@@ -61,12 +61,21 @@ workers:
   
 # Queue Configuration
 queue:
-  kind: Sqlite
-  
-  # SQLite connection URI
+  # SQLite is the default single-node mode. Set QUEUE_KIND=Postgres and point
+  # QUEUE_URL at PostgreSQL for multi-worker control-plane deployments.
+  kind: <%= get_env(name="QUEUE_KIND", default="Sqlite") %>
   uri: <%= get_env(name="QUEUE_URL", default="sqlite://data/moonships.sqlite?mode=rwc") %>
-  # Dangerously flush all data in the queue table on startup. dangerous operation, make sure that you using this flag only on dev environments or test mode
   dangerously_flush: false
+  enable_logging: <%= get_env(name="QUEUE_LOGGING", default="false") %>
+  max_connections: <%= get_env(name="QUEUE_MAX_CONNECTIONS", default="20") %>
+  min_connections: <%= get_env(name="QUEUE_MIN_CONNECTIONS", default="1") %>
+  connect_timeout: <%= get_env(name="QUEUE_CONNECT_TIMEOUT", default="500") %>
+  idle_timeout: <%= get_env(name="QUEUE_IDLE_TIMEOUT", default="500") %>
+  poll_interval_sec: <%= get_env(name="QUEUE_POLL_INTERVAL_SEC", default="1") %>
+  num_workers: <%= get_env(name="QUEUE_NUM_WORKERS", default="2") %>
+  reaper:
+    age_minutes: <%= get_env(name="QUEUE_REAPER_AGE_MINUTES", default="10") %>
+    interval_seconds: <%= get_env(name="QUEUE_REAPER_INTERVAL_SECONDS", default="60") %>
   
 
 # Mailer Configuration.
