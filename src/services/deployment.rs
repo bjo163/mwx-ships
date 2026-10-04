@@ -620,48 +620,6 @@ impl DeploymentService {
         Self::transition_phase(db, dep.id, &execution_token, &["cloning"], "building").await?;
         let _ = applications::Model::update_status(db, app.id, "building").await;
 
-        let build_result = if revision_snapshot.build_type == "prebuilt_image" {
-            runtime.pull_image(&revision.image_reference).await
-        } else {
-            runtime
-                .build_image_config(
-                    app.id,
-                    &revision_snapshot.docker_context,
-                    &revision_snapshot.dockerfile_path,
-                    &revision.image_reference,
-                )
-                .await
-        };
-
-        if let Err(err) = build_result {
-            let exit_code = err.exit_code();
-            let message = err.to_string();
-            let error_code = if revision_snapshot.build_type == "prebuilt_image" {
-                "REMOTE_DOCKER_PULL_FAILED"
-            } else {
-                "REMOTE_DOCKER_BUILD_FAILED"
-            };
-            return Err(Self::record_failure(
-                db,
-                &execution_token,
-                dep.id,
-                app.id,
-                error_code,
-                "building",
-                &message,
-                exit_code,
-            )
-            .await);
-        }
-
-        let _ = deployment_logs::Model::append(
-            db,
-            dep.id,
-            "stdout",
-            &format!("Image prepared successfully on {}", runtime.target()),
-        )
-        .await;
-
         let mut decrypted_envs = Vec::new();
         let mut secret_values = git_token.iter().cloned().collect::<Vec<_>>();
 
@@ -685,7 +643,7 @@ impl DeploymentService {
                         dep.id,
                         app.id,
                         "REVISION_SECRET_INTEGRITY_FAILED",
-                        "starting_runtime",
+                        "building",
                         &format!(
                             "encrypted revision secret '{}' failed integrity check",
                             env.key
@@ -707,7 +665,7 @@ impl DeploymentService {
                             dep.id,
                             app.id,
                             "SECRET_DECRYPT_FAILED",
-                            "starting_runtime",
+                            "building",
                             &err.to_string(),
                             None,
                         )
@@ -729,7 +687,7 @@ impl DeploymentService {
                         dep.id,
                         app.id,
                         "REVISION_ENV_INTEGRITY_FAILED",
-                        "starting_runtime",
+                        "building",
                         &format!("revision environment '{}' failed integrity check", env.key),
                         None,
                     )
@@ -740,10 +698,197 @@ impl DeploymentService {
             decrypted_envs.push((env.key.clone(), value));
         }
 
+        let registry_auth = match revision_snapshot.registry_credential.as_ref() {
+            Some(credential) => {
+                if deployment_revisions::sha256_hex(&credential.encrypted_password)
+                    != credential.password_fingerprint
+                {
+                    return Err(Self::record_failure(
+                        db,
+                        &execution_token,
+                        dep.id,
+                        app.id,
+                        "REGISTRY_SECRET_INTEGRITY_FAILED",
+                        "building",
+                        "encrypted registry credential failed integrity check",
+                        None,
+                    )
+                    .await);
+                }
+                let password = match CryptoService::decrypt(&credential.encrypted_password) {
+                    Ok(password) => password,
+                    Err(err) => {
+                        return Err(Self::record_failure(
+                            db,
+                            &execution_token,
+                            dep.id,
+                            app.id,
+                            "REGISTRY_SECRET_DECRYPT_FAILED",
+                            "building",
+                            &err.to_string(),
+                            None,
+                        )
+                        .await);
+                    }
+                };
+                secret_values.push(password.clone());
+                Some((
+                    credential.registry.clone(),
+                    credential.username.clone(),
+                    password,
+                ))
+            }
+            None => None,
+        };
+
+        let is_compose = revision_snapshot.workload_type == "compose";
+        let compose_file = revision_snapshot
+            .compose_file_path
+            .as_deref()
+            .filter(|value| !value.trim().is_empty());
+        let compose_project = if is_compose {
+            let base = revision_snapshot
+                .compose_project_name
+                .as_deref()
+                .filter(|value| !value.trim().is_empty())
+                .unwrap_or(&app.slug)
+                .to_ascii_lowercase();
+            Some(format!(
+                "{}-r{}",
+                base,
+                &revision.revision_hash[..8.min(revision.revision_hash.len())]
+            ))
+        } else {
+            None
+        };
+
+        let registry_tuple = registry_auth
+            .as_ref()
+            .map(|(registry, username, password)| {
+                (registry.as_str(), username.as_str(), password.as_str())
+            });
+
+        let build_result = if is_compose {
+            let compose_file = match compose_file {
+                Some(value) => value,
+                None => {
+                    return Err(Self::record_failure(
+                        db,
+                        &execution_token,
+                        dep.id,
+                        app.id,
+                        "COMPOSE_CONFIG_INVALID",
+                        "building",
+                        "compose workload requires compose_file_path",
+                        None,
+                    )
+                    .await);
+                }
+            };
+            runtime
+                .compose_prepare(
+                    app.id,
+                    compose_file,
+                    compose_project.as_deref().expect("compose project resolved"),
+                    &decrypted_envs,
+                    registry_tuple,
+                )
+                .await
+        } else if revision_snapshot.build_type == "prebuilt_image" {
+            match registry_tuple {
+                Some((registry, username, password)) => {
+                    runtime
+                        .pull_image_with_registry(
+                            &revision.image_reference,
+                            registry,
+                            username,
+                            password,
+                        )
+                        .await
+                }
+                None => runtime.pull_image(&revision.image_reference).await,
+            }
+        } else {
+            match registry_tuple {
+                Some((registry, username, password)) => {
+                    runtime
+                        .build_image_config_with_registry(
+                            app.id,
+                            &revision_snapshot.docker_context,
+                            &revision_snapshot.dockerfile_path,
+                            &revision.image_reference,
+                            registry,
+                            username,
+                            password,
+                        )
+                        .await
+                }
+                None => {
+                    runtime
+                        .build_image_config(
+                            app.id,
+                            &revision_snapshot.docker_context,
+                            &revision_snapshot.dockerfile_path,
+                            &revision.image_reference,
+                        )
+                        .await
+                }
+            }
+        };
+
+        if let Err(err) = build_result {
+            let exit_code = err.exit_code();
+            let message = redact_secrets(&err.to_string(), &secret_values);
+            let error_code = if is_compose {
+                "REMOTE_COMPOSE_PREPARE_FAILED"
+            } else if revision_snapshot.build_type == "prebuilt_image" {
+                "REMOTE_DOCKER_PULL_FAILED"
+            } else {
+                "REMOTE_DOCKER_BUILD_FAILED"
+            };
+            return Err(Self::record_failure(
+                db,
+                &execution_token,
+                dep.id,
+                app.id,
+                error_code,
+                "building",
+                &message,
+                exit_code,
+            )
+            .await);
+        }
+
+        let _ = deployment_logs::Model::append(
+            db,
+            dep.id,
+            "stdout",
+            &format!(
+                "{} prepared successfully on {}",
+                if is_compose { "Compose workload" } else { "Image" },
+                runtime.target()
+            ),
+        )
+        .await;
+
         let managed_ingress = ProxyService::uses_managed_ingress(
             revision_snapshot.domains.len(),
             revision_snapshot.published_port,
         );
+
+        if is_compose && managed_ingress {
+            return Err(Self::record_failure(
+                db,
+                &execution_token,
+                dep.id,
+                app.id,
+                "COMPOSE_MANAGED_INGRESS_UNSUPPORTED",
+                "building",
+                "Compose workloads cannot use Moonships-managed ingress until a primary service is explicitly configured; use Compose-native routing or published ports",
+                None,
+            )
+            .await);
+        }
 
         if managed_ingress {
             let healthcheck_path = match revision_snapshot.healthcheck_path.as_deref() {
@@ -1148,6 +1293,172 @@ impl DeploymentService {
                 ),
             )
             .await;
+        } else if is_compose {
+            let compose_file = compose_file.expect("validated compose file");
+            let compose_project = compose_project.as_deref().expect("validated compose project");
+
+            Self::transition_phase(db, dep.id, &execution_token, &["building"], "stopping_old")
+                .await?;
+
+            if let Some(current_revision_id) = app.current_revision_id {
+                if let Ok(current_revision) =
+                    deployment_revisions::Model::find_by_id(db, current_revision_id).await
+                {
+                    if let Ok(current_snapshot) = current_revision.snapshot() {
+                        if current_snapshot.workload_type == "compose" {
+                            if let Some(current_file) = current_snapshot.compose_file_path.as_deref() {
+                                let current_project = app.resolved_runtime_name();
+                                let _ = runtime
+                                    .compose_down(app.id, current_file, &current_project)
+                                    .await;
+                            }
+                        } else {
+                            let _ = runtime
+                                .stop_and_remove_container(&app.resolved_runtime_name())
+                                .await;
+                        }
+                    }
+                }
+            } else {
+                let _ = runtime
+                    .stop_and_remove_container(&app.resolved_runtime_name())
+                    .await;
+            }
+
+            Self::transition_phase(
+                db,
+                dep.id,
+                &execution_token,
+                &["stopping_old"],
+                "starting_new",
+            )
+            .await?;
+            let _ = applications::Model::update_status(db, app.id, "starting").await;
+
+            if let Err(err) = runtime
+                .compose_up(
+                    app.id,
+                    compose_file,
+                    compose_project,
+                    &decrypted_envs,
+                    registry_tuple,
+                )
+                .await
+            {
+                let message = redact_secrets(&err.to_string(), &secret_values);
+                return Err(Self::record_failure(
+                    db,
+                    &execution_token,
+                    dep.id,
+                    app.id,
+                    "REMOTE_COMPOSE_UP_FAILED",
+                    "starting_new",
+                    &message,
+                    err.exit_code(),
+                )
+                .await);
+            }
+
+            Self::transition_phase(
+                db,
+                dep.id,
+                &execution_token,
+                &["starting_new"],
+                "healthchecking",
+            )
+            .await?;
+
+            let compose_status = match runtime
+                .compose_status(app.id, compose_file, compose_project)
+                .await
+            {
+                Ok(status) if !status.trim().is_empty() => status,
+                Ok(_) => {
+                    let _ = runtime.compose_down(app.id, compose_file, compose_project).await;
+                    return Err(Self::record_failure(
+                        db,
+                        &execution_token,
+                        dep.id,
+                        app.id,
+                        "REMOTE_COMPOSE_EMPTY",
+                        "healthchecking",
+                        "Compose project started no services",
+                        None,
+                    )
+                    .await);
+                }
+                Err(err) => {
+                    let _ = runtime.compose_down(app.id, compose_file, compose_project).await;
+                    let message = redact_secrets(&err.to_string(), &secret_values);
+                    return Err(Self::record_failure(
+                        db,
+                        &execution_token,
+                        dep.id,
+                        app.id,
+                        "REMOTE_COMPOSE_STATUS_FAILED",
+                        "healthchecking",
+                        &message,
+                        err.exit_code(),
+                    )
+                    .await);
+                }
+            };
+
+            let _ = deployment_logs::Model::append(
+                db,
+                dep.id,
+                "stdout",
+                &format!(
+                    "Compose project '{}' is running: {}",
+                    compose_project,
+                    compose_status.lines().next().unwrap_or("services active")
+                ),
+            )
+            .await;
+
+            if let Err(err) = deployment_revisions::Model::mark_healthy(db, revision.id).await {
+                return Err(Self::record_failure(
+                    db,
+                    &execution_token,
+                    dep.id,
+                    app.id,
+                    "REVISION_FINALIZE_FAILED",
+                    "healthchecking",
+                    &err.to_string(),
+                    None,
+                )
+                .await);
+            }
+
+            if let Err(err) = applications::Model::promote_revision_with_runtime(
+                db,
+                app.id,
+                revision.id,
+                Some(compose_project.to_string()),
+            )
+            .await
+            {
+                return Err(Self::record_failure(
+                    db,
+                    &execution_token,
+                    dep.id,
+                    app.id,
+                    "REVISION_PROMOTE_FAILED",
+                    "healthchecking",
+                    &err.to_string(),
+                    None,
+                )
+                .await);
+            }
+
+            Self::transition_phase(
+                db,
+                dep.id,
+                &execution_token,
+                &["healthchecking"],
+                "success",
+            )
+            .await?;
         } else {
             Self::transition_phase(db, dep.id, &execution_token, &["building"], "stopping_old")
                 .await?;
