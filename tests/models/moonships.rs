@@ -905,3 +905,111 @@ async fn test_v07_access_control_security_contract() {
         password: "owner-password-123".to_string(),
     };
 }
+
+
+#[tokio::test]
+#[serial]
+async fn test_active_deployment_claim_is_atomic_under_concurrency() {
+    let boot = boot_test::<App>()
+        .await
+        .expect("Failed to boot test application");
+    let db = &boot.app_context.db;
+
+    let server = servers::ActiveModel {
+        name: Set("CAS Worker Host".to_string()),
+        host: Set("10.0.0.22".to_string()),
+        port: Set(22),
+        username: Set("deploy".to_string()),
+        authentication_type: Set("ssh_key".to_string()),
+        encrypted_private_key: Set(None),
+        status: Set("online".to_string()),
+        created_at: Set(Utc::now().into()),
+        updated_at: Set(Utc::now().into()),
+        ..Default::default()
+    }
+    .insert(db)
+    .await
+    .expect("insert CAS server");
+
+    let project = ProjectModel::create_project(
+        db,
+        &CreateProjectParams {
+            name: "CAS Project".to_string(),
+            slug: Some("cas-project".to_string()),
+            description: None,
+        },
+    )
+    .await
+    .expect("create CAS project");
+
+    let environment = EnvironmentModel::create_environment(
+        db,
+        &CreateEnvironmentParams {
+            project_id: project.id,
+            name: "CAS".to_string(),
+            slug: Some("cas".to_string()),
+            description: None,
+        },
+    )
+    .await
+    .expect("create CAS environment");
+
+    let application = ApplicationModel::create_application(
+        db,
+        &CreateApplicationParams {
+            project_id: project.id,
+            environment_id: environment.id,
+            server_id: server.id,
+            server_pool_id: None,
+            resource_units: Some(1),
+            name: "CAS App".to_string(),
+            slug: Some("cas-app".to_string()),
+            git_repository: "https://example.com/cas.git".to_string(),
+            git_branch: Some("main".to_string()),
+            build_type: Some("dockerfile".to_string()),
+            workload_type: Some("single".to_string()),
+            compose_file_path: None,
+            compose_project_name: None,
+            registry_credential_id: None,
+            dockerfile_path: Some("Dockerfile".to_string()),
+            docker_context: Some(".".to_string()),
+            docker_image: None,
+            container_name: Some("cas-app".to_string()),
+            container_port: Some(8080),
+            published_port: None,
+            startup_command: None,
+            healthcheck_path: None,
+            healthcheck_port: None,
+            auto_deploy: Some(false),
+        },
+    )
+    .await
+    .expect("create CAS application");
+
+    let mut handles = Vec::new();
+    for candidate in 10_001_i64..10_033_i64 {
+        let worker_db: DatabaseConnection = db.clone();
+        let application_id = application.id;
+        handles.push(tokio::spawn(async move {
+            ApplicationModel::claim_active_deployment(&worker_db, application_id, candidate)
+                .await
+                .expect("atomic deployment claim")
+        }));
+    }
+
+    let mut winners = 0usize;
+    for handle in handles {
+        if handle.await.expect("claim task") {
+            winners += 1;
+        }
+    }
+
+    assert_eq!(
+        winners, 1,
+        "exactly one concurrent worker may own the application deployment lock"
+    );
+    let locked = ApplicationModel::find_by_id(db, application.id)
+        .await
+        .expect("reload CAS application");
+    assert!(locked.active_deployment_id.is_some());
+}
