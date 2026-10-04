@@ -1,6 +1,7 @@
 pub mod _entities;
 pub mod applications;
 pub mod deployment_logs;
+pub mod deployment_revisions;
 pub mod deployments;
 pub mod domains;
 pub mod environment_variables;
