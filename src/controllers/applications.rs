@@ -232,6 +232,7 @@ pub async fn update(
     let (principal, organization_id, app) =
         authorized_application(&ctx, &headers, id, Permission::ManageApplications).await?;
     let project_id = app.project_id;
+    let current_resource_units = app.resource_units;
     let mut active: ActiveModel = app.into();
 
     if let Some(name) = params.name {
@@ -283,9 +284,7 @@ pub async fn update(
         let selected = PlacementService::select(
             &ctx.db,
             server_pool_id,
-            params
-                .resource_units
-                .unwrap_or_else(|| active.resource_units.clone().unwrap_or(1)),
+            params.resource_units.unwrap_or(current_resource_units),
         )
         .await?;
         active.server_pool_id = Set(Some(server_pool_id));
