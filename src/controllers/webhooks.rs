@@ -248,7 +248,7 @@ async fn handle_pull_request(
             Err(error) => {
                 let _ = WebhookDeliveryModel::mark_failed(&ctx.db, delivery.id, error.to_string())
                     .await;
-                let status = if matches!(error, PreviewError::Busy) {
+                let status = if matches!(&error, PreviewError::Busy) {
                     StatusCode::CONFLICT
                 } else {
                     StatusCode::BAD_REQUEST
@@ -289,16 +289,26 @@ async fn handle_pull_request(
             let delivery =
                 WebhookDeliveryModel::mark_queued(&ctx.db, delivery.id, deployment.id).await?;
 
+            let preview_url = preview.preview_hostname.as_deref().map(|host| {
+                let https_enabled = std::env::var("MOONSHIPS_PREVIEW_HTTPS")
+                    .ok()
+                    .map(|value| {
+                        matches!(
+                            value.to_ascii_lowercase().as_str(),
+                            "1" | "true" | "yes"
+                        )
+                    })
+                    .unwrap_or(false);
+                let scheme = if https_enabled { "https" } else { "http" };
+                format!("{scheme}://{host}")
+            });
+
             let _ = GitProviderService::set_commit_status(
                 integration,
                 &commit_sha,
                 CommitStatus::Pending,
                 "Moonships preview deployment queued",
-                preview
-                    .preview_hostname
-                    .as_deref()
-                    .map(|host| format!("https://{host}"))
-                    .as_deref(),
+                preview_url.as_deref(),
             )
             .await;
 
@@ -328,7 +338,7 @@ async fn handle_pull_request(
             let _ =
                 WebhookDeliveryModel::mark_failed(&ctx.db, delivery.id, error.to_string()).await;
             let status = if matches!(
-                error,
+                &error,
                 PreviewError::Busy | PreviewError::Deployment(DeploymentError::Conflict)
             ) {
                 StatusCode::CONFLICT
