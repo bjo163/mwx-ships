@@ -13,3 +13,7 @@ pub use super::projects::Entity as Projects;
 pub use super::servers::Entity as Servers;
 pub use super::users::Entity as Users;
 pub use super::webhook_deliveries::Entity as WebhookDeliveries;
+pub use super::backup_runs::Entity as BackupRuns;
+pub use super::notification_events::Entity as NotificationEvents;
+pub use super::operational_events::Entity as OperationalEvents;
+pub use super::server_health_checks::Entity as ServerHealthChecks;
