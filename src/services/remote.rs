@@ -216,6 +216,179 @@ impl RemoteRuntime {
         Ok((kbytes / 1024.0 / 1024.0 * 10.0).round() / 10.0)
     }
 
+    pub async fn ensure_network(&self, network: &str) -> Result<(), RemoteError> {
+        DockerService::validate_container_name(network)
+            .map_err(|e| RemoteError::Validation(e.to_string()))?;
+        let quoted = shell_quote(network);
+        self.exec_checked(
+            "docker_network_ensure",
+            &format!(
+                "docker network inspect {quoted} >/dev/null 2>&1 || docker network create {quoted} >/dev/null"
+            ),
+            Duration::from_secs(60),
+        )
+        .await?;
+        Ok(())
+    }
+
+    pub async fn ensure_managed_ingress(
+        &self,
+        network: &str,
+        proxy_name: &str,
+        image: &str,
+        acme_email: Option<&str>,
+    ) -> Result<(), RemoteError> {
+        DockerService::validate_container_name(network)
+            .map_err(|e| RemoteError::Validation(e.to_string()))?;
+        DockerService::validate_container_name(proxy_name)
+            .map_err(|e| RemoteError::Validation(e.to_string()))?;
+        DockerService::validate_image_name(image)
+            .map_err(|e| RemoteError::Validation(e.to_string()))?;
+
+        self.ensure_network(network).await?;
+
+        let network = shell_quote(network);
+        let proxy_name = shell_quote(proxy_name);
+        let image = shell_quote(image);
+        let mut args = vec![
+            "docker run -d".to_string(),
+            format!("--name {proxy_name}"),
+            "--restart unless-stopped".to_string(),
+            format!("--network {network}"),
+            "-p 80:80".to_string(),
+            "-p 443:443".to_string(),
+            "-v \"$HOME/.moonships/traefik/dynamic:/etc/traefik/dynamic:ro\"".to_string(),
+            "-v \"$HOME/.moonships/traefik/acme.json:/acme.json\"".to_string(),
+            image,
+            "--providers.file.directory=/etc/traefik/dynamic".to_string(),
+            "--providers.file.watch=true".to_string(),
+            "--entrypoints.web.address=:80".to_string(),
+            "--entrypoints.websecure.address=:443".to_string(),
+        ];
+
+        if let Some(email) = acme_email.filter(|value| !value.trim().is_empty()) {
+            args.push(format!(
+                "--certificatesresolvers.letsencrypt.acme.email={}",
+                shell_quote(email.trim())
+            ));
+            args.push(
+                "--certificatesresolvers.letsencrypt.acme.storage=/acme.json".to_string(),
+            );
+            args.push(
+                "--certificatesresolvers.letsencrypt.acme.httpchallenge.entrypoint=web".to_string(),
+            );
+        }
+
+        let command = format!(
+            "mkdir -p \"$HOME/.moonships/traefik/dynamic\"; \
+             touch \"$HOME/.moonships/traefik/acme.json\"; chmod 600 \"$HOME/.moonships/traefik/acme.json\"; \
+             if docker inspect {proxy_name} >/dev/null 2>&1; then \
+               docker start {proxy_name} >/dev/null 2>&1 || true; \
+               docker network connect {network} {proxy_name} >/dev/null 2>&1 || true; \
+             else \
+               docker pull {image} >/dev/null && {}; \
+             fi",
+            args.join(" ")
+        );
+
+        self.exec_checked(
+            "managed_ingress_ensure",
+            &command,
+            Duration::from_secs(600),
+        )
+        .await?;
+        Ok(())
+    }
+
+    pub async fn write_managed_route(
+        &self,
+        application_id: i64,
+        config_json: &str,
+    ) -> Result<(), RemoteError> {
+        let route_path = format!(
+            "\"$HOME/.moonships/traefik/dynamic/app-{application_id}.json\""
+        );
+        let temp_path = format!(
+            "\"$HOME/.moonships/traefik/dynamic/app-{application_id}.json.tmp\""
+        );
+        let command = format!(
+            "umask 077; mkdir -p \"$HOME/.moonships/traefik/dynamic\"; \
+             cat > {temp_path}; test -s {temp_path}; mv -f {temp_path} {route_path}"
+        );
+        let (code, _, stderr) = self
+            .session
+            .execute_with_input(&command, config_json)
+            .await
+            .map_err(RemoteError::Ssh)?;
+
+        if code != 0 {
+            return Err(RemoteError::CommandFailed {
+                operation: "managed_route_write".to_string(),
+                exit_code: code,
+                message: stderr.trim().to_string(),
+            });
+        }
+        Ok(())
+    }
+
+    pub async fn remove_managed_route(&self, application_id: i64) -> Result<(), RemoteError> {
+        self.exec_checked(
+            "managed_route_remove",
+            &format!(
+                "rm -f \"$HOME/.moonships/traefik/dynamic/app-{application_id}.json\""
+            ),
+            Duration::from_secs(30),
+        )
+        .await?;
+        Ok(())
+    }
+
+    pub async fn verify_domain_target(
+        &self,
+        hostname: &str,
+        target_host: &str,
+    ) -> Result<bool, RemoteError> {
+        if hostname.trim().is_empty() || target_host.trim().is_empty() {
+            return Err(RemoteError::Validation(
+                "hostname and target host must not be empty".to_string(),
+            ));
+        }
+        let hostname = shell_quote(hostname);
+        let target = shell_quote(target_host);
+        let command = format!(
+            "DOMAIN_IPS=$(getent ahostsv4 {hostname} 2>/dev/null | awk '{{print $1}}' | sort -u); \
+             TARGET_IPS=$(getent ahostsv4 {target} 2>/dev/null | awk '{{print $1}}' | sort -u); \
+             if [ -z \"$TARGET_IPS\" ]; then TARGET_IPS={target}; fi; \
+             for ip in $DOMAIN_IPS; do for target_ip in $TARGET_IPS; do [ \"$ip\" = \"$target_ip\" ] && exit 0; done; done; exit 1"
+        );
+        let (code, _, _) = self
+            .session
+            .execute_with_timeout(&command, Duration::from_secs(20))
+            .await?;
+        Ok(code == 0)
+    }
+
+    pub async fn verify_tls(&self, hostname: &str) -> Result<bool, RemoteError> {
+        if hostname.trim().is_empty() {
+            return Err(RemoteError::Validation(
+                "hostname must not be empty".to_string(),
+            ));
+        }
+        let url = format!("https://{}/", hostname.trim());
+        let (code, _, _) = self
+            .session
+            .execute_with_timeout(
+                &format!(
+                    "curl -fsSI --max-time 8 --resolve {}:443:127.0.0.1 {} >/dev/null",
+                    shell_quote(hostname.trim()),
+                    shell_quote(&url)
+                ),
+                Duration::from_secs(12),
+            )
+            .await?;
+        Ok(code == 0)
+    }
+
     pub async fn pull_image(&self, image: &str) -> Result<String, RemoteError> {
         DockerService::validate_image_name(image)
             .map_err(|e| RemoteError::Validation(e.to_string()))?;
