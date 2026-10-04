@@ -1,34 +1,59 @@
 # Security Architecture & Policies
 
-Moonships manages privileged Docker operations on remote target machines, so v0.2 treats the control plane, SSH boundary, secrets, and target runtime as separate trust zones.
+Moonships manages privileged application lifecycle operations on remote Docker hosts. The control plane, database/queue, Git providers, SSH boundary, organization authorization, and target runtime are separate trust zones.
 
-## 1. Authentication Boundary
+## 1. Authentication & Authorization
 
-Operational management routes require a valid JWT. `GET /api/health` remains public for liveness checks. Multi-tenant organization RBAC is not yet implemented.
+`GET /api/health` remains public for liveness. Operational routes require an authenticated principal.
 
-## 2. Secrets At Rest
+Supported principals:
+- JWT sessions with revocable `session_version`;
+- organization API tokens stored only as hashes, with explicit scopes and optional expiry.
 
-SSH private keys and environment variables marked secret are encrypted with AES-256-GCM and randomized nonces before database insertion. Production requires an operator-provided 32-byte/64-hex-character `ENCRYPTION_KEY`; there is no repository-known fallback.
+Organization roles are **Owner, Admin, Deployer, Viewer**. Authorization resolves the organization owning the requested project/server/application resource and fails closed on cross-organization access. Sensitive organization actions require explicit confirmation and are audit-attributed.
 
-## 3. SSH Credentials and Host Identity
+## 2. Secrets at Rest
 
-- Decrypted SSH private keys are written only to temporary files with restrictive permissions and removed when the session is dropped.
-- SSH uses `StrictHostKeyChecking=yes` with an isolated scanned `known_hosts` file.
-- A configured SHA256 `known_host_fingerprint` is verified before connecting.
-- Without explicit pinning, scanned host-key discovery is trust-on-first-use and should not be treated as equivalent to out-of-band verification.
+Moonships protects SSH keys, application secrets, Git/provider credentials, registry credentials, and optional encrypted backup exports with AES-256-GCM and randomized nonces. Production requires an operator-provided 32-byte / 64-hex-character `ENCRYPTION_KEY`.
 
-## 4. Remote Command Safety
+API token plaintext is reveal-once and only a hash is persisted.
 
-v0.2 uses a remote shell over OpenSSH because Git and Docker workflows require compound target-side commands. Safety is enforced by validating SSH targets, container/image names, Docker context/Dockerfile paths, and environment keys; rejecting path traversal and option-style SSH target injection; shell-quoting inserted values; and applying bounded connection/command timeouts.
+## 3. Secret Transfer
 
-## 5. Secret Transfer and Log Redaction
+Runtime secrets, private-registry passwords, and HTTPS Git credentials are not placed in command-line arguments or repository URLs. They are transferred over SSH stdin into restrictive temporary files or stdin-backed authentication mechanisms such as `GIT_ASKPASS` / `docker login --password-stdin`. Known plaintext secret values are included in deployment redaction inputs.
 
-Secret environment values are sent through SSH stdin into a temporary target-side env file created under a restrictive umask. They are not embedded into deployment command log strings. Known decrypted secret values are redacted from surfaced runtime failures and container logs.
+## 4. SSH Host Identity
 
-## 6. Control-Plane Privilege Reduction
+- SSH uses strict host-key checking with an isolated `known_hosts` file.
+- Operators may pin a SHA256 host fingerprint from an out-of-band trusted source.
+- Without explicit pinning, discovery is trust-on-first-use and must not be treated as equivalent to out-of-band verification.
+- SSH connection/command durations are bounded.
 
-Application workloads execute on the selected target server. The production Moonships container no longer mounts `/var/run/docker.sock` and does not need the Docker CLI for application lifecycle operations.
+## 5. Remote Command Boundary
 
-## 7. Concurrency
+Git/Docker/Compose/Traefik workflows require target-side shell composition. Moonships validates inserted values (SSH targets, names, paths, refs, domains, environment keys, registry hosts/usernames) and shell-quotes allowed values. Secrets are passed separately rather than interpolated.
 
-Only one active deployment may run per application. This prevents overlapping build/replacement operations. This is concurrency control, not cryptographic replay prevention.
+## 6. Control-Plane Privilege
+
+Application workloads execute on selected remote servers. The production Moonships container does **not** mount the host Docker socket and does not need local Docker-daemon privilege.
+
+## 7. Concurrency & Replay
+
+Moonships uses layered database coordination:
+- application-level conditional deployment ownership;
+- random execution-token leases with periodic heartbeat and stale reclaim;
+- lease-token checks on every phase transition;
+- signed Git-provider webhook verification;
+- unique delivery/source-intent keys for replay/deduplication.
+
+This is tested on SQLite and PostgreSQL. PostgreSQL is required when multiple writable control-plane workers share state.
+
+## 8. Administrative Audit & Abuse Controls
+
+Administrative/destructive actions append immutable audit records containing actor, organization, resource, outcome, request correlation, and bounded metadata. Login and sensitive-action rate limits are keyed by hashed identifiers so raw credential material is not used as rate-limit storage.
+
+## 9. Database Modes
+
+SQLite is the single-node default. PostgreSQL is the optional multi-worker scale mode. The SQLite→PostgreSQL migration tool copies encrypted values as ciphertext and verifies schema/row/checksum/FK parity; the destination therefore requires the same `ENCRYPTION_KEY`.
+
+PostgreSQL HA, transport policy, and database-provider backup operations remain operator responsibilities.
