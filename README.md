@@ -103,8 +103,8 @@ Traditional PaaS platforms require spinning up PostgreSQL, Redis, and message br
 - **Server Inventory & Preflight**: Register remote Linux machines over SSH with encrypted private keys, optional SHA256 host-fingerprint pinning, connection tests, and non-destructive preflight checks.
 - **Project & Environment Isolation**: Organize services into projects with dedicated environments (`production`, `staging`, `preview`).
 - **Flexible Build Types**: Build directly from Git repositories using `Dockerfile` or deploy prebuilt images from container registries.
-- **Durable Deployment State Machine**: Remote lifecycle (`queued` -> `connecting` -> `cloning` -> `building` -> `stopping_old` -> `starting_new` -> `healthchecking` -> `success|failed`).
-- **Concurrency Locking**: Maximum 1 active deployment per application (409 Conflict rejection) prevents overlapping builds.
+- **Recoverable Deployment State Machine**: Remote lifecycle supports immutable revisions, `cancelled`, retry provenance, execution leases, and deterministic rollback to the previous known-good revision.
+- **Concurrency & Recovery Locking**: Maximum 1 active deployment per application plus execution leases prevent duplicate worker delivery and allow stale interrupted work to be reclaimed.
 - **Sequential Real-Time Logs**: Log entries streamed into SQLite with monotonic sequence numbers and stdout/stderr stream separation.
 - **Automated Healthchecks**: HTTP polling retries ensure applications respond with 200 OK before marking deployments successful.
 - **AES-256-GCM Secret Protection**: SSH private keys and sensitive runtime environment variables are encrypted at rest and masked in API responses.
@@ -124,8 +124,12 @@ Traditional PaaS platforms require spinning up PostgreSQL, Redis, and message br
 | **M4 Dashboard** | React dashboard, live terminal log viewer | Complete |
 | **M5 Security** | AES-256-GCM encryption, secret masking, injection validation | Complete |
 | **M6 Documentation** | Architectural Decision Records, runbooks, guides | Complete |
-| **M7 PostgreSQL Adapter** | Multi-worker scale adapter | Planned |
-| **M8 Advanced Platform** | Webhooks, rollback, compose, RBAC | Planned |
+| **M7 Deployment Reliability** | Immutable revisions, cancel/retry, rollback, worker leases, retention | Complete (v0.3) |
+| **M8 Managed Ingress** | Blue/green, managed Traefik, TLS lifecycle | Planned (v0.4) |
+| **M9 Git Automation** | Signed webhooks, provider status, previews | Planned (v0.5) |
+| **M10 Production Operations** | Backup/restore, observability, notifications | Planned (v0.6) |
+| **M11 Teams & RBAC** | Organizations, roles, API tokens, audit | Planned (v0.7) |
+| **M12 Scale Adapter** | PostgreSQL multi-worker and advanced workloads | Planned (v0.8) |
 
 ---
 
@@ -229,7 +233,7 @@ Settings are configured via `config/*.yaml` and environment variables:
 4. **Trigger Deployment**:
    - Click **Deploy**. The request returns `202 Accepted` and enqueues into SQLite.
    - Open the **Deployments** tab to watch live build logs stream in real time.
-   - In v0.2, Git sync, Docker build/pull/run, logs/status, and healthchecks execute on the selected server over SSH.
+   - In v0.3, the selected server executes the immutable revision; failed/cancelled attempts can be retried and a previous known-good revision can be rolled back.
 
 ---
 
@@ -242,6 +246,9 @@ Full REST reference is available in [docs/api.md](docs/api.md).
 - `POST /api/servers/:id/preflight`: Run non-destructive server preflight checks.
 - `GET /api/applications`: List applications.
 - `POST /api/applications/:id/deploy`: Enqueue deployment (`202 Accepted`).
+- `POST /api/applications/:id/rollback`: Queue rollback to the previous known-good revision.
+- `POST /api/deployments/:id/cancel`: Cancel a deployment before destructive replacement begins.
+- `POST /api/deployments/:id/retry`: Queue a new attempt preserving immutable source intent.
 - `GET /api/applications/:id/environment`: List environment variables (secrets masked).
 - `GET /api/deployments/:id/logs`: Stream sequential build logs.
 
@@ -301,9 +308,9 @@ Comprehensive technical guides are available in the [`docs/`](docs/) directory:
 
 ---
 
-## Network Exposure & v0.2 Security Boundary
+## Network Exposure & v0.3 Security Boundary
 
-The v0.2 management API requires JWT on operational routes and keeps `GET /api/health` public. Docker Compose still publishes Moonships to **127.0.0.1:5150 only** by default as defense in depth.
+The v0.3 management API requires JWT on operational routes and keeps `GET /api/health` public. Docker Compose still publishes Moonships to **127.0.0.1:5150 only** by default as defense in depth.
 
 If you intentionally expose Moonships beyond localhost, use TLS and a trusted network boundary, rotate `JWT_SECRET` and `ENCRYPTION_KEY`, and pin remote-server SSH fingerprints where possible.
 
@@ -315,7 +322,7 @@ If you intentionally expose Moonships beyond localhost, use TLS and a trusted ne
 - **Single-Node Control Plane**: SQLite is optimized for single-node deployments; multi-writer active-active control planes are deferred to the PostgreSQL scale adapter (Milestone M7).
 - **Authorization Model**: v0.2 authenticates operational routes with JWT, but multi-tenant organizations and role-based authorization remain a later milestone.
 - **SSH Trust Bootstrap**: Without an explicit pinned fingerprint, first host-key discovery is trust-on-first-use. Pin fingerprints for production targets.
-- **Deployment Replacement**: The current state machine stops the previous container before starting the replacement; zero-downtime rollout is not yet implemented.
+- **Deployment Replacement**: v0.3 adds deterministic rollback/recovery, but still stops the previous container before starting the replacement; health-before-traffic blue/green rollout begins in v0.4.
 
 ---
 
