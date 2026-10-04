@@ -455,6 +455,277 @@ MOONSHIPS_ASKPASS\n\
         .await
     }
 
+    pub async fn pull_image_with_registry(
+        &self,
+        image: &str,
+        registry: &str,
+        username: &str,
+        password: &str,
+    ) -> Result<String, RemoteError> {
+        DockerService::validate_image_name(image)
+            .map_err(|e| RemoteError::Validation(e.to_string()))?;
+        validate_registry_host(registry)?;
+        validate_registry_username(username)?;
+        validate_single_line_secret(password, "registry password")?;
+
+        let command = format!(
+            "set -eu; umask 077; \
+             cfg=$(mktemp -d \"$HOME/.moonships-docker-config.XXXXXX\"); \
+             cleanup() {{ rm -rf \"$cfg\"; }}; trap cleanup EXIT HUP INT TERM; \
+             cat | docker --config \"$cfg\" login {} --username {} --password-stdin >/dev/null; \
+             docker --config \"$cfg\" pull {}",
+            shell_quote(registry),
+            shell_quote(username),
+            shell_quote(image)
+        );
+
+        self.exec_checked_with_input(
+            "docker_pull_private",
+            &command,
+            password,
+            Duration::from_secs(600),
+        )
+        .await
+    }
+
+    pub async fn build_image_config_with_registry(
+        &self,
+        application_id: i64,
+        docker_context: &str,
+        dockerfile_path: &str,
+        image_tag: &str,
+        registry: &str,
+        username: &str,
+        password: &str,
+    ) -> Result<String, RemoteError> {
+        DockerService::validate_image_name(image_tag)
+            .map_err(|e| RemoteError::Validation(e.to_string()))?;
+        validate_relative_path(docker_context)?;
+        validate_relative_path(dockerfile_path)?;
+        validate_registry_host(registry)?;
+        validate_registry_username(username)?;
+        validate_single_line_secret(password, "registry password")?;
+
+        let dockerfile = if docker_context == "." {
+            dockerfile_path.to_string()
+        } else {
+            format!(
+                "{}/{}",
+                docker_context.trim_end_matches('/'),
+                dockerfile_path.trim_start_matches("./")
+            )
+        };
+
+        let command = format!(
+            "set -eu; umask 077; \
+             cfg=$(mktemp -d \"$HOME/.moonships-docker-config.XXXXXX\"); \
+             cleanup() {{ rm -rf \"$cfg\"; }}; trap cleanup EXIT HUP INT TERM; \
+             cat | docker --config \"$cfg\" login {} --username {} --password-stdin >/dev/null; \
+             cd {} && docker --config \"$cfg\" build -t {} -f {} {}",
+            shell_quote(registry),
+            shell_quote(username),
+            Self::workspace_expr(application_id),
+            shell_quote(image_tag),
+            shell_quote(&dockerfile),
+            shell_quote(docker_context)
+        );
+
+        self.exec_checked_with_input(
+            "docker_build_private",
+            &command,
+            password,
+            Duration::from_secs(1200),
+        )
+        .await
+    }
+
+    pub async fn compose_prepare(
+        &self,
+        application_id: i64,
+        compose_file: &str,
+        project_name: &str,
+        env_vars: &[(String, String)],
+        registry_auth: Option<(&str, &str, &str)>,
+    ) -> Result<String, RemoteError> {
+        validate_relative_path(compose_file)?;
+        validate_compose_project_name(project_name)?;
+        let env_file = compose_env_file(env_vars)?;
+        let workspace = Self::workspace_expr(application_id);
+        let compose_args = format!(
+            "compose --env-file \"$ENV_FILE\" -f {} -p {}",
+            shell_quote(compose_file),
+            shell_quote(project_name)
+        );
+
+        match registry_auth {
+            Some((registry, username, password)) => {
+                validate_registry_host(registry)?;
+                validate_registry_username(username)?;
+                validate_single_line_secret(password, "registry password")?;
+                let input = format!("{password}\n{env_file}");
+                let command = format!(
+                    "set -eu; umask 077; \
+                     cfg=$(mktemp -d \"$HOME/.moonships-docker-config.XXXXXX\"); \
+                     ENV_FILE=$(mktemp \"$HOME/.moonships-compose-env.XXXXXX\"); \
+                     cleanup() {{ rm -rf \"$cfg\"; rm -f \"$ENV_FILE\"; }}; \
+                     trap cleanup EXIT HUP INT TERM; \
+                     IFS= read -r registry_password; cat > \"$ENV_FILE\"; \
+                     printf '%s' \"$registry_password\" | docker --config \"$cfg\" login {} --username {} --password-stdin >/dev/null; \
+                     cd {workspace}; \
+                     docker --config \"$cfg\" {compose_args} config --quiet; \
+                     docker --config \"$cfg\" {compose_args} pull --ignore-pull-failures; \
+                     docker --config \"$cfg\" {compose_args} build",
+                    shell_quote(registry),
+                    shell_quote(username)
+                );
+                self.exec_checked_with_input(
+                    "compose_prepare_private",
+                    &command,
+                    &input,
+                    Duration::from_secs(1800),
+                )
+                .await
+            }
+            None => {
+                let command = format!(
+                    "set -eu; umask 077; \
+                     ENV_FILE=$(mktemp \"$HOME/.moonships-compose-env.XXXXXX\"); \
+                     cleanup() {{ rm -f \"$ENV_FILE\"; }}; trap cleanup EXIT HUP INT TERM; \
+                     cat > \"$ENV_FILE\"; cd {workspace}; \
+                     docker {compose_args} config --quiet; \
+                     docker {compose_args} pull --ignore-pull-failures; \
+                     docker {compose_args} build"
+                );
+                self.exec_checked_with_input(
+                    "compose_prepare",
+                    &command,
+                    &env_file,
+                    Duration::from_secs(1800),
+                )
+                .await
+            }
+        }
+    }
+
+    pub async fn compose_up(
+        &self,
+        application_id: i64,
+        compose_file: &str,
+        project_name: &str,
+        env_vars: &[(String, String)],
+        registry_auth: Option<(&str, &str, &str)>,
+    ) -> Result<String, RemoteError> {
+        validate_relative_path(compose_file)?;
+        validate_compose_project_name(project_name)?;
+        let env_file = compose_env_file(env_vars)?;
+        let workspace = Self::workspace_expr(application_id);
+        let compose_args = format!(
+            "compose --env-file \"$ENV_FILE\" -f {} -p {}",
+            shell_quote(compose_file),
+            shell_quote(project_name)
+        );
+
+        match registry_auth {
+            Some((registry, username, password)) => {
+                validate_registry_host(registry)?;
+                validate_registry_username(username)?;
+                validate_single_line_secret(password, "registry password")?;
+                let input = format!("{password}\n{env_file}");
+                let command = format!(
+                    "set -eu; umask 077; \
+                     cfg=$(mktemp -d \"$HOME/.moonships-docker-config.XXXXXX\"); \
+                     ENV_FILE=$(mktemp \"$HOME/.moonships-compose-env.XXXXXX\"); \
+                     cleanup() {{ rm -rf \"$cfg\"; rm -f \"$ENV_FILE\"; }}; \
+                     trap cleanup EXIT HUP INT TERM; \
+                     IFS= read -r registry_password; cat > \"$ENV_FILE\"; \
+                     printf '%s' \"$registry_password\" | docker --config \"$cfg\" login {} --username {} --password-stdin >/dev/null; \
+                     cd {workspace}; docker --config \"$cfg\" {compose_args} up -d --remove-orphans",
+                    shell_quote(registry),
+                    shell_quote(username)
+                );
+                self.exec_checked_with_input(
+                    "compose_up_private",
+                    &command,
+                    &input,
+                    Duration::from_secs(900),
+                )
+                .await
+            }
+            None => {
+                let command = format!(
+                    "set -eu; umask 077; \
+                     ENV_FILE=$(mktemp \"$HOME/.moonships-compose-env.XXXXXX\"); \
+                     cleanup() {{ rm -f \"$ENV_FILE\"; }}; trap cleanup EXIT HUP INT TERM; \
+                     cat > \"$ENV_FILE\"; cd {workspace}; docker {compose_args} up -d --remove-orphans"
+                );
+                self.exec_checked_with_input(
+                    "compose_up",
+                    &command,
+                    &env_file,
+                    Duration::from_secs(900),
+                )
+                .await
+            }
+        }
+    }
+
+    pub async fn compose_down(
+        &self,
+        application_id: i64,
+        compose_file: &str,
+        project_name: &str,
+    ) -> Result<(), RemoteError> {
+        validate_relative_path(compose_file)?;
+        validate_compose_project_name(project_name)?;
+        let command = format!(
+            "cd {} && docker compose -f {} -p {} down --remove-orphans",
+            Self::workspace_expr(application_id),
+            shell_quote(compose_file),
+            shell_quote(project_name)
+        );
+        self.exec_checked("compose_down", &command, Duration::from_secs(300))
+            .await?;
+        Ok(())
+    }
+
+    pub async fn compose_status(
+        &self,
+        application_id: i64,
+        compose_file: &str,
+        project_name: &str,
+    ) -> Result<String, RemoteError> {
+        validate_relative_path(compose_file)?;
+        validate_compose_project_name(project_name)?;
+        let command = format!(
+            "cd {} && docker compose -f {} -p {} ps --format json",
+            Self::workspace_expr(application_id),
+            shell_quote(compose_file),
+            shell_quote(project_name)
+        );
+        self.exec_checked("compose_status", &command, Duration::from_secs(60))
+            .await
+    }
+
+    pub async fn compose_logs(
+        &self,
+        application_id: i64,
+        compose_file: &str,
+        project_name: &str,
+        tail: u32,
+    ) -> Result<String, RemoteError> {
+        validate_relative_path(compose_file)?;
+        validate_compose_project_name(project_name)?;
+        let command = format!(
+            "cd {} && docker compose -f {} -p {} logs --no-color --tail {}",
+            Self::workspace_expr(application_id),
+            shell_quote(compose_file),
+            shell_quote(project_name),
+            tail.min(5000)
+        );
+        self.exec_checked("compose_logs", &command, Duration::from_secs(60))
+            .await
+    }
+
     pub async fn stop_and_remove_container(&self, name: &str) -> Result<(), RemoteError> {
         DockerService::validate_container_name(name)
             .map_err(|e| RemoteError::Validation(e.to_string()))?;
@@ -745,6 +1016,74 @@ fn validate_relative_path(value: &str) -> Result<(), RemoteError> {
     Ok(())
 }
 
+fn validate_compose_project_name(value: &str) -> Result<(), RemoteError> {
+    let valid = !value.is_empty()
+        && value.len() <= 128
+        && value
+            .chars()
+            .all(|ch| ch.is_ascii_lowercase() || ch.is_ascii_digit() || matches!(ch, '-' | '_'))
+        && value
+            .chars()
+            .next()
+            .map(|ch| ch.is_ascii_lowercase() || ch.is_ascii_digit())
+            .unwrap_or(false);
+    if !valid {
+        return Err(RemoteError::Validation(
+            "Docker Compose project name is malformed".to_string(),
+        ));
+    }
+    Ok(())
+}
+
+fn validate_registry_host(value: &str) -> Result<(), RemoteError> {
+    let value = value.trim().trim_end_matches('/');
+    if value.is_empty()
+        || value.starts_with('-')
+        || value.contains(char::is_whitespace)
+        || value.contains(['\n', '\r', '\0'])
+    {
+        return Err(RemoteError::Validation(
+            "registry hostname is malformed".to_string(),
+        ));
+    }
+    Ok(())
+}
+
+fn validate_registry_username(value: &str) -> Result<(), RemoteError> {
+    if value.trim().is_empty() || value.contains(['\n', '\r', '\0']) {
+        return Err(RemoteError::Validation(
+            "registry username is malformed".to_string(),
+        ));
+    }
+    Ok(())
+}
+
+fn validate_single_line_secret(value: &str, label: &str) -> Result<(), RemoteError> {
+    if value.is_empty() || value.contains(['\n', '\r', '\0']) {
+        return Err(RemoteError::Validation(format!(
+            "{label} contains unsupported control characters"
+        )));
+    }
+    Ok(())
+}
+
+fn compose_env_file(env_vars: &[(String, String)]) -> Result<String, RemoteError> {
+    let mut output = String::new();
+    for (key, value) in env_vars {
+        validate_env_key(key)?;
+        if value.contains(['\n', '\r', '\0']) {
+            return Err(RemoteError::Validation(format!(
+                "environment variable {key} contains unsupported control characters"
+            )));
+        }
+        output.push_str(key);
+        output.push('=');
+        output.push_str(value);
+        output.push('\n');
+    }
+    Ok(output)
+}
+
 fn validate_git_username(value: &str) -> Result<(), RemoteError> {
     let valid = !value.trim().is_empty()
         && !value.starts_with('-')
@@ -802,6 +1141,15 @@ mod tests {
         assert!(validate_relative_path("docker/app").is_ok());
         assert!(validate_relative_path("../secret").is_err());
         assert!(validate_relative_path("/etc").is_err());
+    }
+
+    #[test]
+    fn validates_compose_project_names() {
+        assert!(validate_compose_project_name("moonships-app-42").is_ok());
+        assert!(validate_compose_project_name("app_42").is_ok());
+        assert!(validate_compose_project_name("BadName").is_err());
+        assert!(validate_compose_project_name("-bad").is_err());
+        assert!(validate_compose_project_name("bad/name").is_err());
     }
 
     #[test]
