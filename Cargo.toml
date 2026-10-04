@@ -48,6 +48,8 @@ axum-extra = { version = "0.10", features = ["form"] }
 aes-gcm = "0.10.3"
 hex = "0.4.3"
 sha2 = "0.10"
+hmac = "0.12"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 
 [[bin]]
 name = "moonships-cli"
