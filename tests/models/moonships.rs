@@ -279,7 +279,7 @@ async fn test_models_lifecycle_and_constraints() {
         "once deployment is success, lock must be released"
     );
 
-    // 8. A second healthy revision moves the previous pointer without mutating history.
+    // 8. A second successful revision moves the previous pointer without mutating history.
     let second_dep = DeploymentModel::create_deployment(
         db,
         app.id,
@@ -320,10 +320,28 @@ async fn test_models_lifecycle_and_constraints() {
     assert_eq!(promoted.current_revision_id, Some(second_revision.id));
     assert_eq!(promoted.previous_revision_id, Some(revision.id));
 
-    // 9. Safe cancellation is terminal and releases the active lock.
-    let cancelled = DeploymentModel::cancel_if_safe(db, second_dep.id)
+    let second_dep = DeploymentModel::update_status(db, second_dep.id, "success")
         .await
-        .expect("cancel second deployment")
+        .expect("finish second deployment");
+    assert_eq!(second_dep.status, "success");
+
+    // 9. Safe cancellation is terminal and releases the active lock.
+    let cancellable = DeploymentModel::create_deployment_attempt(
+        db,
+        app.id,
+        server.id,
+        Some("decaf02".to_string()),
+        Some("Retryable revision".to_string()),
+        "manual",
+        None,
+        Some(second_revision.id),
+    )
+    .await
+    .expect("create cancellable deployment");
+
+    let cancelled = DeploymentModel::cancel_if_safe(db, cancellable.id)
+        .await
+        .expect("cancel deployment")
         .expect("queued deployment should be cancellable");
     assert_eq!(cancelled.status, "cancelled");
     assert!(
@@ -363,7 +381,22 @@ async fn test_models_lifecycle_and_constraints() {
         .expect("retry should still be in safe queued phase");
     assert_eq!(retry_cancelled.status, "cancelled");
 
-    // 11. Cancellation is rejected once destructive replacement begins.
+    // 11. Rollback queues the previous immutable known-good revision as a new attempt.
+    let rollback = DeploymentService::rollback_application(db, app.id)
+        .await
+        .expect("queue rollback");
+    assert_eq!(rollback.status, "queued");
+    assert_eq!(rollback.trigger_kind, "rollback");
+    assert_eq!(rollback.revision_id, Some(revision.id));
+    assert_eq!(rollback.commit_hash.as_deref(), Some("c0ffee1"));
+    assert_eq!(rollback.source_deployment_id, Some(second_dep.id));
+
+    DeploymentModel::cancel_if_safe(db, rollback.id)
+        .await
+        .expect("cancel queued rollback")
+        .expect("rollback should be cancellable before execution");
+
+    // 12. Cancellation is rejected once destructive replacement begins.
     let destructive = DeploymentModel::create_deployment(
         db,
         app.id,
