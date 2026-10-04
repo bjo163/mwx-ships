@@ -259,7 +259,7 @@ impl RemoteRuntime {
             "-p 443:443".to_string(),
             "-v \"$HOME/.moonships/traefik/dynamic:/etc/traefik/dynamic:ro\"".to_string(),
             "-v \"$HOME/.moonships/traefik/acme.json:/acme.json\"".to_string(),
-            image,
+            image.clone(),
             "--providers.file.directory=/etc/traefik/dynamic".to_string(),
             "--providers.file.watch=true".to_string(),
             "--entrypoints.web.address=:80".to_string(),
