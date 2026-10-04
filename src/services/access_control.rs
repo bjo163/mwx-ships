@@ -3,16 +3,19 @@ use loco_rs::{auth::jwt::JWT, prelude::*};
 use serde_json::{Map, Value};
 
 use crate::models::{
-    api_tokens,
+    api_tokens, applications, deployments,
     organization_memberships::{self, Model as MembershipModel},
-    users,
+    projects, servers, users,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Permission {
     View,
     Deploy,
-    Admin,
+    ManageProjects,
+    ManageServers,
+    ManageApplications,
+    ManageOrganization,
     Owner,
 }
 
@@ -21,8 +24,10 @@ impl Permission {
         match self {
             Self::View => "read",
             Self::Deploy => "deploy",
-            Self::Admin => "manage:organization",
-            Self::Owner => "manage:organization",
+            Self::ManageProjects => "manage:projects",
+            Self::ManageServers => "manage:servers",
+            Self::ManageApplications => "manage:applications",
+            Self::ManageOrganization | Self::Owner => "manage:organization",
         }
     }
 }
@@ -109,12 +114,7 @@ impl Principal {
 
         if let Some(token) = &self.api_token {
             let scope = permission.required_scope();
-            if !token.has_scope(scope)
-                && !(permission == Permission::Admin
-                    && (token.has_scope("manage:projects")
-                        || token.has_scope("manage:servers")
-                        || token.has_scope("manage:applications")))
-            {
+            if !token.has_scope(scope) {
                 return Err(Error::Unauthorized(format!(
                     "API token lacks required scope '{scope}'"
                 )));
@@ -124,7 +124,10 @@ impl Principal {
         let allowed = match permission {
             Permission::View => membership.can_view(),
             Permission::Deploy => membership.can_deploy(),
-            Permission::Admin => membership.can_admin(),
+            Permission::ManageProjects
+            | Permission::ManageServers
+            | Permission::ManageApplications
+            | Permission::ManageOrganization => membership.can_admin(),
             Permission::Owner => membership.is_owner(),
         };
 
@@ -136,6 +139,74 @@ impl Principal {
         }
 
         Ok(membership)
+    }
+
+    pub async fn organization_ids(&self, db: &DatabaseConnection) -> Result<Vec<i64>> {
+        if let Some(token) = &self.api_token {
+            self.membership(db, token.organization_id).await?;
+            return Ok(vec![token.organization_id]);
+        }
+
+        Ok(MembershipModel::list_for_user(db, self.user.id)
+            .await?
+            .into_iter()
+            .filter(|membership| membership.can_view())
+            .map(|membership| membership.organization_id)
+            .collect())
+    }
+
+    pub async fn project_organization(
+        &self,
+        db: &DatabaseConnection,
+        project_id: i64,
+        permission: Permission,
+    ) -> Result<i64> {
+        let project = projects::Model::find_by_id(db, project_id).await?;
+        let organization_id = project.organization_id.ok_or_else(|| {
+            Error::Unauthorized(
+                "legacy project is not assigned to an organization; claim it first".to_string(),
+            )
+        })?;
+        self.require(db, organization_id, permission).await?;
+        Ok(organization_id)
+    }
+
+    pub async fn server_organization(
+        &self,
+        db: &DatabaseConnection,
+        server_id: i64,
+        permission: Permission,
+    ) -> Result<i64> {
+        let server = servers::Model::find_by_id(db, server_id).await?;
+        let organization_id = server.organization_id.ok_or_else(|| {
+            Error::Unauthorized(
+                "legacy server is not assigned to an organization; claim it first".to_string(),
+            )
+        })?;
+        self.require(db, organization_id, permission).await?;
+        Ok(organization_id)
+    }
+
+    pub async fn application_organization(
+        &self,
+        db: &DatabaseConnection,
+        application_id: i64,
+        permission: Permission,
+    ) -> Result<i64> {
+        let application = applications::Model::find_by_id(db, application_id).await?;
+        self.project_organization(db, application.project_id, permission)
+            .await
+    }
+
+    pub async fn deployment_organization(
+        &self,
+        db: &DatabaseConnection,
+        deployment_id: i64,
+        permission: Permission,
+    ) -> Result<i64> {
+        let deployment = deployments::Model::find_by_id(db, deployment_id).await?;
+        self.application_organization(db, deployment.application_id, permission)
+            .await
     }
 
     pub fn audit_actor(&self) -> (&'static str, String) {
