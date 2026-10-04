@@ -5,6 +5,41 @@ All notable changes to **Moonships** will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.0] - 2026-10-05
+
+### Added
+- **Supported Upgrade Matrix**: automated historical-schema fixtures prove direct forward upgrades from v0.2, v0.3, v0.4, v0.5, v0.6, v0.7, and v0.8 into the current schema while preserving application identity and encrypted secret bytes.
+- **GA Resilience Suite**: a 128-attempt deployment state-machine soak, lifecycle failure injection across every active deployment phase, and stale-worker lease recovery run as permanent CI gates.
+- **Frozen v1 API Contract**: `docs/openapi-v1.json` is the machine-readable v1 route/method compatibility contract and is exercised against the live router in CI.
+- **Upgrade & Compatibility Policy**: documented backup-before-upgrade, forward-only migration, downgrade/restore, SQLite-to-PostgreSQL cutover, and v1 compatibility guarantees.
+- **v1 Threat Model**: documented assets, trust zones, residual risks, P0/P1 release-blocking definitions, and explicit v1 scope boundaries.
+- **Reliability Budgets**: checked-in CI/runtime reliability budgets cover deployment soak, concurrency ownership, stale lease recovery, restore, upgrade, and published-image health.
+- **Dependency Policy Gate**: security CI rejects third-party Rust packages without license metadata and rejects unresolved Git dependencies that are not pinned to a concrete commit.
+- **Supply-Chain Release Artifacts**: v0.9+ release workflow emits BuildKit SBOM/provenance metadata, a signed GitHub/Sigstore build-provenance attestation, SPDX JSON SBOM, and SHA-256 release checksums.
+
+### Reliability
+- SQLite full tests, PostgreSQL full tests, and the verified SQLite→PostgreSQL migration drill remain mandatory release gates.
+- Docker release smoke uses the exact published OCI digest rather than only a mutable tag.
+- The release smoke verifies OCI version and source-revision labels before booting the control plane.
+- Frozen protected API routes are checked for existence and unauthenticated rejection.
+- No feature scope was added after v0.8; v0.9 is exclusively a GA hardening/release-candidate release.
+
+### Security
+- Secret scanning, Rust advisory audit, dependency provenance/license policy, RBAC regression coverage, and threat-model review are release-blocking gates.
+- Published release images are associated with build provenance attestations bound to their OCI digest.
+- SPDX SBOM and checksum files are attached to GitHub Releases for external verification.
+- GA cannot proceed with unresolved P0/P1 correctness or security defects under the v1 threat-model severity policy.
+
+### Compatibility
+- Direct forward schema upgrades are tested from every released schema milestone v0.2 through v0.8.
+- The v1 route/method contract is frozen; v1.x may add endpoints/response fields but may not silently remove or repurpose documented operations.
+- Database downgrade after a schema-changing upgrade is not supported; restore the verified pre-upgrade backup instead.
+
+### Known limitations
+- PostgreSQL HA/backup orchestration remains the database operator/provider responsibility.
+- DNS provider automation, Kubernetes/service-mesh orchestration, enterprise SSO, and application data-volume/database backups remain outside the v1 core scope.
+- The API contract freezes routes/methods and compatibility behavior; full generated request/response schemas can be expanded additively after GA.
+
 ## [0.8.0] - 2026-10-05
 
 ### Added
