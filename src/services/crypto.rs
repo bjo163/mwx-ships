@@ -63,6 +63,42 @@ impl CryptoService {
         Ok(format!("{}:{}", encoded_nonce, encoded_ciphertext))
     }
 
+    #[allow(deprecated)]
+    pub fn encrypt_bytes(plaintext: &[u8]) -> Result<Vec<u8>, CryptoError> {
+        let key_bytes = Self::get_key()?;
+        let key = Key::<Aes256Gcm>::from_slice(&key_bytes);
+        let cipher = Aes256Gcm::new(key);
+
+        let mut nonce_bytes = [0u8; 12];
+        OsRng.fill_bytes(&mut nonce_bytes);
+        let nonce = Nonce::from_slice(&nonce_bytes);
+        let ciphertext = cipher
+            .encrypt(nonce, plaintext)
+            .map_err(|_| CryptoError::DecryptionFailed)?;
+
+        let mut payload = Vec::with_capacity(12 + ciphertext.len());
+        payload.extend_from_slice(&nonce_bytes);
+        payload.extend_from_slice(&ciphertext);
+        Ok(payload)
+    }
+
+    #[allow(deprecated)]
+    pub fn decrypt_bytes(payload: &[u8]) -> Result<Vec<u8>, CryptoError> {
+        if payload.len() < 13 {
+            return Err(CryptoError::InvalidFormat);
+        }
+
+        let (nonce_bytes, ciphertext) = payload.split_at(12);
+        let key_bytes = Self::get_key()?;
+        let key = Key::<Aes256Gcm>::from_slice(&key_bytes);
+        let cipher = Aes256Gcm::new(key);
+        let nonce = Nonce::from_slice(nonce_bytes);
+
+        cipher
+            .decrypt(nonce, ciphertext)
+            .map_err(|_| CryptoError::DecryptionFailed)
+    }
+
     /// Decrypt an AES-256-GCM encrypted string formatted as "hex(nonce):hex(ciphertext_and_tag)"
     #[allow(deprecated)]
     pub fn decrypt(payload: &str) -> Result<String, CryptoError> {
@@ -120,6 +156,19 @@ mod tests {
 
         let decrypted = CryptoService::decrypt(&encrypted).expect("decryption succeeds");
         assert_eq!(secret, decrypted);
+    }
+
+    #[test]
+    #[serial]
+    fn test_binary_encryption_roundtrip() {
+        configure_test_key();
+        let payload = [0u8, 1, 2, 3, 255, 128, 64];
+        let encrypted = CryptoService::encrypt_bytes(&payload).expect("encrypt bytes");
+        assert_ne!(encrypted, payload);
+        assert_eq!(
+            CryptoService::decrypt_bytes(&encrypted).expect("decrypt bytes"),
+            payload
+        );
     }
 
     #[test]
