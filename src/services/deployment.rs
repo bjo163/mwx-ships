@@ -1488,6 +1488,7 @@ impl DeploymentService {
         let _ = timeout(Duration::from_secs(5), callback).await;
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn record_failure(
         db: &DatabaseConnection,
         execution_token: &str,
