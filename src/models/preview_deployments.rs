@@ -87,6 +87,27 @@ impl Model {
         }
     }
 
+    pub async fn find_by_deployment(
+        db: &DatabaseConnection,
+        deployment_id: i64,
+    ) -> Result<Option<Model>> {
+        Ok(Entity::find()
+            .filter(preview_deployments::Column::DeploymentId.eq(deployment_id))
+            .one(db)
+            .await?)
+    }
+
+    pub async fn mark_closing(db: &DatabaseConnection, id: i64) -> Result<Model> {
+        let model = Entity::find_by_id(id)
+            .one(db)
+            .await?
+            .ok_or_else(|| ModelError::EntityNotFound)?;
+        let mut active: ActiveModel = model.into();
+        active.status = Set("closing".to_string());
+        active.updated_at = Set(Utc::now().into());
+        Ok(active.update(db).await?)
+    }
+
     pub async fn attach_runtime(
         db: &DatabaseConnection,
         id: i64,
