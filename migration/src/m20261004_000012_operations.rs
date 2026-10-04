@@ -1,0 +1,144 @@
+use sea_orm_migration::prelude::*;
+
+#[derive(DeriveMigrationName)]
+pub struct Migration;
+
+#[async_trait::async_trait]
+impl MigrationTrait for Migration {
+    async fn up(&self, m: &SchemaManager) -> Result<(), DbErr> {
+        m.create_table(
+            Table::create()
+                .table(ServerHealthChecks::Table)
+                .if_not_exists()
+                .col(ColumnDef::new(ServerHealthChecks::Id).big_integer().not_null().auto_increment().primary_key())
+                .col(ColumnDef::new(ServerHealthChecks::ServerId).big_integer().not_null())
+                .col(ColumnDef::new(ServerHealthChecks::SshConnected).boolean().not_null())
+                .col(ColumnDef::new(ServerHealthChecks::DockerRunning).boolean().not_null())
+                .col(ColumnDef::new(ServerHealthChecks::DiskAvailableGb).double().null())
+                .col(ColumnDef::new(ServerHealthChecks::MemoryAvailableMb).big_integer().null())
+                .col(ColumnDef::new(ServerHealthChecks::CpuCores).integer().null())
+                .col(ColumnDef::new(ServerHealthChecks::Healthy).boolean().not_null())
+                .col(ColumnDef::new(ServerHealthChecks::IssuesJson).text().not_null())
+                .col(ColumnDef::new(ServerHealthChecks::CreatedAt).timestamp_with_time_zone().not_null())
+                .foreign_key(
+                    ForeignKey::create()
+                        .name("fk_server_health_checks_server")
+                        .from(ServerHealthChecks::Table, ServerHealthChecks::ServerId)
+                        .to(Servers::Table, Servers::Id)
+                        .on_delete(ForeignKeyAction::Cascade),
+                )
+                .to_owned(),
+        )
+        .await?;
+
+        m.create_index(
+            Index::create()
+                .name("idx_server_health_checks_server_created")
+                .table(ServerHealthChecks::Table)
+                .col(ServerHealthChecks::ServerId)
+                .col(ServerHealthChecks::CreatedAt)
+                .to_owned(),
+        )
+        .await?;
+
+        m.create_table(
+            Table::create()
+                .table(OperationalEvents::Table)
+                .if_not_exists()
+                .col(ColumnDef::new(OperationalEvents::Id).big_integer().not_null().auto_increment().primary_key())
+                .col(ColumnDef::new(OperationalEvents::EventKind).string().not_null())
+                .col(ColumnDef::new(OperationalEvents::Severity).string().not_null())
+                .col(ColumnDef::new(OperationalEvents::ResourceType).string().null())
+                .col(ColumnDef::new(OperationalEvents::ResourceId).big_integer().null())
+                .col(ColumnDef::new(OperationalEvents::Message).text().not_null())
+                .col(ColumnDef::new(OperationalEvents::MetadataJson).text().null())
+                .col(ColumnDef::new(OperationalEvents::CreatedAt).timestamp_with_time_zone().not_null())
+                .to_owned(),
+        )
+        .await?;
+
+        m.create_index(
+            Index::create()
+                .name("idx_operational_events_created")
+                .table(OperationalEvents::Table)
+                .col(OperationalEvents::CreatedAt)
+                .to_owned(),
+        )
+        .await?;
+
+        m.create_table(
+            Table::create()
+                .table(BackupRuns::Table)
+                .if_not_exists()
+                .col(ColumnDef::new(BackupRuns::Id).big_integer().not_null().auto_increment().primary_key())
+                .col(ColumnDef::new(BackupRuns::BackupPath).text().not_null())
+                .col(ColumnDef::new(BackupRuns::Status).string().not_null())
+                .col(ColumnDef::new(BackupRuns::SizeBytes).big_integer().null())
+                .col(ColumnDef::new(BackupRuns::Sha256).string().null())
+                .col(ColumnDef::new(BackupRuns::Encrypted).boolean().not_null().default(false))
+                .col(ColumnDef::new(BackupRuns::Verified).boolean().not_null().default(false))
+                .col(ColumnDef::new(BackupRuns::VerificationMessage).text().null())
+                .col(ColumnDef::new(BackupRuns::ErrorMessage).text().null())
+                .col(ColumnDef::new(BackupRuns::CreatedAt).timestamp_with_time_zone().not_null())
+                .col(ColumnDef::new(BackupRuns::CompletedAt).timestamp_with_time_zone().null())
+                .to_owned(),
+        )
+        .await?;
+
+        m.create_table(
+            Table::create()
+                .table(NotificationEvents::Table)
+                .if_not_exists()
+                .col(ColumnDef::new(NotificationEvents::Id).big_integer().not_null().auto_increment().primary_key())
+                .col(ColumnDef::new(NotificationEvents::Fingerprint).string().not_null().unique_key())
+                .col(ColumnDef::new(NotificationEvents::EventKind).string().not_null())
+                .col(ColumnDef::new(NotificationEvents::Severity).string().not_null())
+                .col(ColumnDef::new(NotificationEvents::Message).text().not_null())
+                .col(ColumnDef::new(NotificationEvents::Status).string().not_null())
+                .col(ColumnDef::new(NotificationEvents::Attempts).integer().not_null().default(0))
+                .col(ColumnDef::new(NotificationEvents::LastSentAt).timestamp_with_time_zone().null())
+                .col(ColumnDef::new(NotificationEvents::CooldownUntil).timestamp_with_time_zone().null())
+                .col(ColumnDef::new(NotificationEvents::LastError).text().null())
+                .col(ColumnDef::new(NotificationEvents::CreatedAt).timestamp_with_time_zone().not_null())
+                .col(ColumnDef::new(NotificationEvents::UpdatedAt).timestamp_with_time_zone().not_null())
+                .to_owned(),
+        )
+        .await?;
+
+        Ok(())
+    }
+
+    async fn down(&self, m: &SchemaManager) -> Result<(), DbErr> {
+        m.drop_table(Table::drop().table(NotificationEvents::Table).if_exists().to_owned()).await?;
+        m.drop_table(Table::drop().table(BackupRuns::Table).if_exists().to_owned()).await?;
+        m.drop_table(Table::drop().table(OperationalEvents::Table).if_exists().to_owned()).await?;
+        m.drop_table(Table::drop().table(ServerHealthChecks::Table).if_exists().to_owned()).await?;
+        Ok(())
+    }
+}
+
+#[derive(DeriveIden)]
+enum Servers { Table, Id }
+
+#[derive(DeriveIden)]
+enum ServerHealthChecks {
+    Table, Id, ServerId, SshConnected, DockerRunning, DiskAvailableGb,
+    MemoryAvailableMb, CpuCores, Healthy, IssuesJson, CreatedAt,
+}
+
+#[derive(DeriveIden)]
+enum OperationalEvents {
+    Table, Id, EventKind, Severity, ResourceType, ResourceId, Message, MetadataJson, CreatedAt,
+}
+
+#[derive(DeriveIden)]
+enum BackupRuns {
+    Table, Id, BackupPath, Status, SizeBytes, Sha256, Encrypted, Verified,
+    VerificationMessage, ErrorMessage, CreatedAt, CompletedAt,
+}
+
+#[derive(DeriveIden)]
+enum NotificationEvents {
+    Table, Id, Fingerprint, EventKind, Severity, Message, Status, Attempts,
+    LastSentAt, CooldownUntil, LastError, CreatedAt, UpdatedAt,
+}
