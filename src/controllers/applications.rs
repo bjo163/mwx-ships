@@ -45,6 +45,7 @@ pub fn routes() -> Routes {
         .add("{id}/environment/{key}", delete(remove_env))
         .add("{id}/domains", get(list_domains))
         .add("{id}/domains", post(add_domain))
+        .add("{id}/domains/{domain_id}/verify", post(verify_domain))
         .add("{id}/domains/{domain_id}", delete(remove_domain))
 }
 
@@ -513,6 +514,58 @@ pub async fn add_domain(
     format::json(serde_json::json!({
         "data": domain,
         "message": "ok"
+    }))
+}
+
+#[debug_handler]
+pub async fn verify_domain(
+    _auth: auth::JWT,
+    Path((id, domain_id)): Path<(i64, i64)>,
+    State(ctx): State<AppContext>,
+) -> Result<Response> {
+    let app = ApplicationModel::find_by_id(&ctx.db, id).await?;
+    let domain = DomainModel::find_by_id(&ctx.db, domain_id).await?;
+    if domain.application_id != app.id {
+        return Err(Error::BadRequest(
+            "domain does not belong to this application".to_string(),
+        ));
+    }
+
+    let (server, runtime) = remote_runtime(&ctx.db, &app).await?;
+    let verified = runtime
+        .verify_domain_target(&domain.hostname, &server.host)
+        .await
+        .map_err(|err| Error::BadRequest(err.to_string()))?;
+
+    let domain = DomainModel::update_verification(
+        &ctx.db,
+        domain.id,
+        verified,
+        (!verified).then(|| {
+            format!(
+                "DNS for '{}' does not resolve to target server '{}'",
+                domain.hostname, server.host
+            )
+        }),
+    )
+    .await?;
+
+    let domain = if verified && domain.https_enabled {
+        let tls_ready = runtime.verify_tls(&domain.hostname).await.unwrap_or(false);
+        DomainModel::update_tls_status(
+            &ctx.db,
+            domain.id,
+            if tls_ready { "active" } else { "pending" },
+            None,
+        )
+        .await?
+    } else {
+        domain
+    };
+
+    format::json(serde_json::json!({
+        "data": domain,
+        "message": if verified { "Domain verified" } else { "Domain verification failed" }
     }))
 }
 
