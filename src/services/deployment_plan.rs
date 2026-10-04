@@ -4,9 +4,7 @@ use crate::{
             applications::{Column as ApplicationColumn, Entity as ApplicationEntity},
             domains::{Column as DomainColumn, Entity as DomainEntity},
         },
-        applications,
-        deployment_revisions,
-        servers,
+        applications, deployment_revisions, servers,
     },
     services::{docker::DockerService, git::GitService, proxy::ProxyService},
 };
@@ -294,10 +292,7 @@ fn validate_port(value: i32, field: &str) -> Result<()> {
 
 fn validate_healthcheck_path(value: &str) -> Result<()> {
     let value = value.trim();
-    if value.starts_with('/')
-        && value.len() <= 512
-        && !value.contains(['\n', '\r', '\0'])
-    {
+    if value.starts_with('/') && value.len() <= 512 && !value.contains(['\n', '\r', '\0']) {
         Ok(())
     } else {
         Err(Error::BadRequest(
