@@ -5,6 +5,19 @@ use serde::{Deserialize, Serialize};
 
 pub use super::_entities::deployments::{self, ActiveModel, Entity, Model};
 
+pub const ACTIVE_STATUSES: &[&str] = &[
+    "queued",
+    "connecting",
+    "cloning",
+    "building",
+    "stopping_old",
+    "starting_new",
+    "healthchecking",
+];
+
+pub const SAFE_CANCEL_STATUSES: &[&str] = &["queued", "connecting", "cloning", "building"];
+pub const RETRYABLE_STATUSES: &[&str] = &["failed", "cancelled"];
+
 #[derive(Debug, Deserialize, Serialize)]
 pub struct TriggerDeployParams {
     pub commit_hash: Option<String>,
@@ -55,19 +68,12 @@ impl Model {
         db: &DatabaseConnection,
         application_id: i64,
     ) -> Result<bool> {
-        let active_statuses = vec![
-            "queued".to_string(),
-            "connecting".to_string(),
-            "cloning".to_string(),
-            "building".to_string(),
-            "stopping_old".to_string(),
-            "starting_new".to_string(),
-            "healthchecking".to_string(),
-        ];
-
         let count = Entity::find()
             .filter(deployments::Column::ApplicationId.eq(application_id))
-            .filter(deployments::Column::Status.is_in(active_statuses))
+            .filter(
+                deployments::Column::Status
+                    .is_in(ACTIVE_STATUSES.iter().map(|status| status.to_string())),
+            )
             .count(db)
             .await?;
 
@@ -96,6 +102,56 @@ impl Model {
 
         let model = active.insert(db).await?;
         Ok(model)
+    }
+
+    pub async fn transition_status_if(
+        db: &DatabaseConnection,
+        id: i64,
+        allowed_from: &[&str],
+        status: &str,
+    ) -> Result<Option<Model>> {
+        let now = Utc::now();
+        let mut patch = ActiveModel {
+            status: Set(status.to_string()),
+            updated_at: Set(now.into()),
+            ..Default::default()
+        };
+
+        if status == "connecting" {
+            patch.started_at = Set(Some(now.into()));
+        }
+
+        if matches!(status, "success" | "failed" | "cancelled") {
+            patch.finished_at = Set(Some(now.into()));
+        }
+
+        let result = Entity::update_many()
+            .set(patch)
+            .filter(deployments::Column::Id.eq(id))
+            .filter(
+                deployments::Column::Status
+                    .is_in(allowed_from.iter().map(|value| value.to_string())),
+            )
+            .exec(db)
+            .await?;
+
+        if result.rows_affected == 0 {
+            return Ok(None);
+        }
+
+        Ok(Some(Self::find_by_id(db, id).await?))
+    }
+
+    pub async fn cancel_if_safe(db: &DatabaseConnection, id: i64) -> Result<Option<Model>> {
+        Self::transition_status_if(db, id, SAFE_CANCEL_STATUSES, "cancelled").await
+    }
+
+    pub fn is_retryable(&self) -> bool {
+        RETRYABLE_STATUSES.contains(&self.status.as_str())
+    }
+
+    pub fn is_cancelled(&self) -> bool {
+        self.status == "cancelled"
     }
 
     pub async fn update_status(db: &DatabaseConnection, id: i64, status: &str) -> Result<Model> {
