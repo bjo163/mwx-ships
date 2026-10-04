@@ -224,7 +224,7 @@ Settings are configured via `config/*.yaml` and environment variables:
    - Add an environment (e.g. `production`).
 3. **Create Application**:
    - Navigate to **Applications** -> **Create Application**.
-   - Provide Git repo URL (`https://github.com/bjo163/mwx-ships.git`) and branch (`master`).
+   - Provide Git repo URL (`https://github.com/bjo163/mwx-ships.git`) and branch (`main`).
    - Specify internal port (e.g. `80`) and optional published port.
 4. **Trigger Deployment**:
    - Click **Deploy**. The request returns `202 Accepted` and enqueues into SQLite.
@@ -291,6 +291,8 @@ Comprehensive technical guides are available in the [`docs/`](docs/) directory:
 - [Operations Runbook](docs/operations.md)
 - [Troubleshooting Runbook](docs/troubleshooting.md)
 - [Platform Roadmap](docs/roadmap.md)
+- [v1.0 Grand Plan](docs/grand-plan-v1.md)
+- [Branch Strategy](docs/branch-strategy.md)
 - [ADR 0001: Control Plane Architecture](docs/adr/0001-control-plane.md)
 - [ADR 0002: SQLite-First Canonical Storage](docs/adr/0002-sqlite-first.md)
 - [ADR 0003: SQLite Worker Queue](docs/adr/0003-sqlite-worker-queue.md)
@@ -314,6 +316,17 @@ If you intentionally expose Moonships beyond localhost, use TLS and a trusted ne
 - **Authorization Model**: v0.2 authenticates operational routes with JWT, but multi-tenant organizations and role-based authorization remain a later milestone.
 - **SSH Trust Bootstrap**: Without an explicit pinned fingerprint, first host-key discovery is trust-on-first-use. Pin fingerprints for production targets.
 - **Deployment Replacement**: The current state machine stops the previous container before starting the replacement; zero-downtime rollout is not yet implemented.
+
+---
+
+## Development Branches
+
+The canonical repository intentionally uses only two working branches:
+
+- `dev` — integration/development; all normal work lands here.
+- `main` — production; only green `dev -> main` promotions are merged.
+
+Release branches and feature branches are intentionally avoided. See [Branch Strategy](docs/branch-strategy.md).
 
 ---
 

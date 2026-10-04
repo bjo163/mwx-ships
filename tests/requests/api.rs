@@ -114,7 +114,7 @@ async fn test_full_api_workflow_and_security() {
             "server_id": server_id,
             "build_type": "dockerfile",
             "git_repository": "https://github.com/bjo163/mwx-ships.git",
-            "git_branch": "master",
+            "git_branch": "main",
             "container_port": 3000
         });
         let res = authed!(
