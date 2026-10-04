@@ -428,10 +428,9 @@ async fn test_models_lifecycle_and_constraints() {
     assert_eq!(retry.trigger_kind, "retry");
     assert_eq!(retry.source_deployment_id, Some(cancelled.id));
 
-    let retry_cancelled = DeploymentModel::cancel_if_safe(db, retry.id)
+    let retry_cancelled = DeploymentService::cancel_deployment(db, retry.id)
         .await
-        .expect("cancel retry")
-        .expect("retry should still be in safe queued phase");
+        .expect("cancel retry through service");
     assert_eq!(retry_cancelled.status, "cancelled");
 
     // 11. Rollback queues the previous immutable known-good revision as a new attempt.
@@ -444,10 +443,9 @@ async fn test_models_lifecycle_and_constraints() {
     assert_eq!(rollback.commit_hash.as_deref(), Some("c0ffee1"));
     assert_eq!(rollback.source_deployment_id, Some(second_dep.id));
 
-    DeploymentModel::cancel_if_safe(db, rollback.id)
+    DeploymentService::cancel_deployment(db, rollback.id)
         .await
-        .expect("cancel queued rollback")
-        .expect("rollback should be cancellable before execution");
+        .expect("cancel queued rollback through service");
 
     // 12. Cancellation is rejected once destructive replacement begins.
     let destructive = DeploymentModel::create_deployment(
