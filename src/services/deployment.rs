@@ -1,6 +1,5 @@
 use crate::models::{
-    applications, deployment_logs, deployment_revisions, deployments, domains,
-    environment_variables, servers,
+    applications, deployment_logs, deployment_revisions, deployments, servers,
 };
 use crate::services::{
     crypto::CryptoService,
@@ -306,13 +305,33 @@ impl DeploymentService {
         )
         .await;
 
+        let requested_snapshot = match requested_revision.as_ref() {
+            Some(revision) => Some(revision.snapshot().map_err(|err| DeploymentError::StepFailed {
+                step: "decode_requested_revision".to_string(),
+                message: err.to_string(),
+            })?),
+            None => None,
+        };
+
         let requested_commit = requested_revision
             .as_ref()
             .map(|revision| revision.source_commit_hash.as_str())
             .or(dep.commit_hash.as_deref());
 
-        let (commit_sha, commit_message) =
-            match runtime.sync_repository(&app, requested_commit).await {
+        let (git_repository, git_branch) = requested_snapshot
+            .as_ref()
+            .map(|snapshot| {
+                (
+                    snapshot.git_repository.as_str(),
+                    snapshot.git_branch.as_str(),
+                )
+            })
+            .unwrap_or((&app.git_repository, &app.git_branch));
+
+        let (commit_sha, commit_message) = match runtime
+            .sync_repository_config(app.id, git_repository, git_branch, requested_commit)
+            .await
+        {
             Ok(revision) => revision,
             Err(err) => {
                 let exit_code = err.exit_code();
@@ -382,6 +401,13 @@ impl DeploymentService {
             }
         };
 
+        let revision_snapshot = revision
+            .snapshot()
+            .map_err(|err| DeploymentError::StepFailed {
+                step: "decode_revision_snapshot".to_string(),
+                message: err.to_string(),
+            })?;
+
         if let Err(err) = deployments::Model::attach_revision(
             db,
             dep.id,
@@ -418,16 +444,23 @@ impl DeploymentService {
         Self::transition_phase(db, dep.id, &["cloning"], "building").await?;
         let _ = applications::Model::update_status(db, app.id, "building").await;
 
-        let build_result = if app.build_type == "prebuilt_image" {
+        let build_result = if revision_snapshot.build_type == "prebuilt_image" {
             runtime.pull_image(&revision.image_reference).await
         } else {
-            runtime.build_image(&app, &revision.image_reference).await
+            runtime
+                .build_image_config(
+                    app.id,
+                    &revision_snapshot.docker_context,
+                    &revision_snapshot.dockerfile_path,
+                    &revision.image_reference,
+                )
+                .await
         };
 
         if let Err(err) = build_result {
             let exit_code = err.exit_code();
             let message = err.to_string();
-            let error_code = if app.build_type == "prebuilt_image" {
+            let error_code = if revision_snapshot.build_type == "prebuilt_image" {
                 "REMOTE_DOCKER_PULL_FAILED"
             } else {
                 "REMOTE_DOCKER_BUILD_FAILED"
@@ -476,15 +509,35 @@ impl DeploymentService {
         Self::transition_phase(db, dep.id, &["stopping_old"], "starting_new").await?;
         let _ = applications::Model::update_status(db, app.id, "starting").await;
 
-        let raw_env_vars = environment_variables::Model::by_application(db, app.id)
-            .await
-            .unwrap_or_default();
         let mut decrypted_envs = Vec::new();
         let mut secret_values = Vec::new();
 
-        for env in raw_env_vars {
+        for env in &revision_snapshot.environment {
             let value = if env.is_secret {
-                match CryptoService::decrypt(&env.encrypted_value) {
+                let encrypted = env.encrypted_value.as_deref().ok_or_else(|| {
+                    DeploymentError::StepFailed {
+                        step: "revision_secret_resolve".to_string(),
+                        message: format!(
+                            "revision secret '{}' has no encrypted value",
+                            env.key
+                        ),
+                    }
+                })?;
+
+                if deployment_revisions::sha256_hex(encrypted) != env.value_fingerprint {
+                    return Err(Self::record_failure(
+                        db,
+                        dep.id,
+                        app.id,
+                        "REVISION_SECRET_INTEGRITY_FAILED",
+                        "starting_new",
+                        &format!("encrypted revision secret '{}' failed integrity check", env.key),
+                        None,
+                    )
+                    .await);
+                }
+
+                match CryptoService::decrypt(encrypted) {
                     Ok(value) => {
                         secret_values.push(value.clone());
                         value
@@ -503,31 +556,48 @@ impl DeploymentService {
                     }
                 }
             } else {
-                env.encrypted_value
+                let value = env.value.clone().ok_or_else(|| DeploymentError::StepFailed {
+                    step: "revision_env_resolve".to_string(),
+                    message: format!("revision environment '{}' has no value", env.key),
+                })?;
+                if deployment_revisions::sha256_hex(&value) != env.value_fingerprint {
+                    return Err(Self::record_failure(
+                        db,
+                        dep.id,
+                        app.id,
+                        "REVISION_ENV_INTEGRITY_FAILED",
+                        "starting_new",
+                        &format!("revision environment '{}' failed integrity check", env.key),
+                        None,
+                    )
+                    .await);
+                }
+                value
             };
-            decrypted_envs.push((env.key, value));
+            decrypted_envs.push((env.key.clone(), value));
         }
 
-        let app_domains = domains::Model::by_application(db, app.id)
-            .await
-            .unwrap_or_default();
-        let domain_names: Vec<String> = app_domains
+        let domain_names: Vec<String> = revision_snapshot
+            .domains
             .iter()
             .map(|domain| domain.hostname.clone())
             .collect();
-        let has_https = app_domains.iter().any(|domain| domain.https_enabled);
+        let has_https = revision_snapshot
+            .domains
+            .iter()
+            .any(|domain| domain.https_enabled);
         let labels = ProxyService::generate_traefik_labels(
             &app.slug,
             &domain_names,
-            app.container_port,
+            revision_snapshot.container_port,
             has_https,
         );
 
         let container_config = ContainerConfig {
-            name: app.container_name.clone(),
+            name: revision_snapshot.container_name.clone(),
             image: revision.image_reference.clone(),
-            container_port: app.container_port,
-            published_port: app.published_port,
+            container_port: revision_snapshot.container_port,
+            published_port: revision_snapshot.published_port,
             env_vars: decrypted_envs,
             labels,
             restart_policy: "unless-stopped".to_string(),
@@ -564,7 +634,7 @@ impl DeploymentService {
             }
         }
 
-        if let Some(path) = &app.healthcheck_path {
+        if let Some(path) = &revision_snapshot.healthcheck_path {
             Self::transition_phase(db, dep.id, &["starting_new"], "healthchecking").await?;
             let _ = applications::Model::update_status(db, app.id, "healthchecking").await;
             let _ = deployment_logs::Model::append(
@@ -577,12 +647,19 @@ impl DeploymentService {
 
             let retries = 5;
             let mut last_error = None;
-            let host_port = app.healthcheck_port.or(app.published_port);
+            let host_port = revision_snapshot
+                .healthcheck_port
+                .or(revision_snapshot.published_port);
 
             for attempt in 1..=retries {
                 sleep(Duration::from_secs(2)).await;
                 match runtime
-                    .healthcheck_once(&app.container_name, host_port, app.container_port, path)
+                    .healthcheck_once(
+                        &revision_snapshot.container_name,
+                        host_port,
+                        revision_snapshot.container_port,
+                        path,
+                    )
                     .await
                 {
                     Ok(()) => {
@@ -645,7 +722,7 @@ impl DeploymentService {
             .await);
         }
 
-        let success_from = if app.healthcheck_path.is_some() {
+        let success_from = if revision_snapshot.healthcheck_path.is_some() {
             &["healthchecking"][..]
         } else {
             &["starting_new"][..]
