@@ -4,7 +4,7 @@ use serde_json::{Map, Value};
 
 use crate::models::{
     api_tokens, applications, deployments,
-    organization_memberships::{self, Model as MembershipModel},
+    organization_memberships::Model as MembershipModel,
     organizations::Model as OrganizationModel,
     projects, servers, users,
 };
