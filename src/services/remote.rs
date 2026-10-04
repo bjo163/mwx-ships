@@ -78,9 +78,38 @@ impl RemoteRuntime {
         git_branch: &str,
         requested_commit: Option<&str>,
     ) -> Result<(String, String), RemoteError> {
+        self.sync_repository_config_with_credentials(
+            application_id,
+            git_repository,
+            git_branch,
+            requested_commit,
+            None,
+            None,
+        )
+        .await
+    }
+
+    pub async fn sync_repository_config_with_credentials(
+        &self,
+        application_id: i64,
+        git_repository: &str,
+        git_branch: &str,
+        requested_commit: Option<&str>,
+        git_username: Option<&str>,
+        git_token: Option<&str>,
+    ) -> Result<(String, String), RemoteError> {
         if git_repository.trim().is_empty() || git_branch.trim().is_empty() {
             return Err(RemoteError::Validation(
                 "git repository and branch must not be empty".to_string(),
+            ));
+        }
+
+        if git_token.is_some()
+            && !(git_repository.starts_with("https://") || git_repository.starts_with("http://"))
+        {
+            return Err(RemoteError::Validation(
+                "provider token authentication requires an HTTP(S) Git repository URL"
+                    .to_string(),
             ));
         }
 
@@ -89,7 +118,7 @@ impl RemoteRuntime {
         let remote_branch = shell_quote(&format!("origin/{git_branch}"));
         let repository = shell_quote(git_repository);
 
-        let sync_command = format!(
+        let git_sync = format!(
             "mkdir -p \"$HOME/.moonships/apps\" && \
              if [ -d {workspace}/.git ]; then \
                git -C {workspace} fetch --prune origin {branch} && \
@@ -99,8 +128,51 @@ impl RemoteRuntime {
                git clone --single-branch --branch {branch} {repository} {workspace}; \
              fi"
         );
-        self.exec_checked("git_sync", &sync_command, Duration::from_secs(600))
+
+        if let Some(token) = git_token {
+            let username = git_username.ok_or_else(|| {
+                RemoteError::Validation(
+                    "Git username is required when provider token authentication is enabled"
+                        .to_string(),
+                )
+            })?;
+            validate_git_username(username)?;
+
+            let command = format!(
+                "set -eu; \
+                 umask 077; \
+                 token_file=$(mktemp \"$HOME/.moonships-git-token.XXXXXX\"); \
+                 askpass_file=$(mktemp \"$HOME/.moonships-git-askpass.XXXXXX\"); \
+                 cleanup() {{ rm -f \"$token_file\" \"$askpass_file\"; }}; \
+                 trap cleanup EXIT HUP INT TERM; \
+                 cat > \"$token_file\"; \
+                 cat > \"$askpass_file\" <<'MOONSHIPS_ASKPASS'\n\
+#!/bin/sh\n\
+case \"$1\" in\n\
+  *Username*) printf '%s\\n' \"$MOONSHIPS_GIT_USERNAME\" ;;\n\
+  *Password*) cat \"$MOONSHIPS_GIT_TOKEN_FILE\" ;;\n\
+  *) exit 1 ;;\n\
+esac\n\
+MOONSHIPS_ASKPASS\n\
+                 chmod 700 \"$askpass_file\"; \
+                 export GIT_ASKPASS=\"$askpass_file\" GIT_TERMINAL_PROMPT=0 \
+                        MOONSHIPS_GIT_TOKEN_FILE=\"$token_file\" \
+                        MOONSHIPS_GIT_USERNAME={}; \
+                 {git_sync}",
+                shell_quote(username)
+            );
+
+            self.exec_checked_with_input(
+                "git_sync",
+                &command,
+                token,
+                Duration::from_secs(600),
+            )
             .await?;
+        } else {
+            self.exec_checked("git_sync", &git_sync, Duration::from_secs(600))
+                .await?;
+        }
 
         if let Some(commit) = requested_commit {
             validate_git_commit(commit)?;
@@ -598,6 +670,28 @@ impl RemoteRuntime {
         Ok(())
     }
 
+    async fn exec_checked_with_input(
+        &self,
+        operation: &str,
+        command: &str,
+        input: &str,
+        timeout: Duration,
+    ) -> Result<String, RemoteError> {
+        let (code, stdout, stderr) = self
+            .session
+            .execute_with_input_timeout(command, input, timeout)
+            .await
+            .map_err(RemoteError::Ssh)?;
+        if code != 0 {
+            return Err(RemoteError::CommandFailed {
+                operation: operation.to_string(),
+                exit_code: code,
+                message: stderr.trim().to_string(),
+            });
+        }
+        Ok(stdout)
+    }
+
     async fn exec_checked(
         &self,
         operation: &str,
@@ -657,6 +751,20 @@ fn validate_relative_path(value: &str) -> Result<(), RemoteError> {
     Ok(())
 }
 
+fn validate_git_username(value: &str) -> Result<(), RemoteError> {
+    let valid = !value.trim().is_empty()
+        && !value.starts_with('-')
+        && value
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '.' | '-' | '_'));
+    if !valid {
+        return Err(RemoteError::Validation(
+            "Git username contains unsupported characters".to_string(),
+        ));
+    }
+    Ok(())
+}
+
 fn validate_git_commit(value: &str) -> Result<(), RemoteError> {
     let valid = (7..=64).contains(&value.len()) && value.chars().all(|c| c.is_ascii_hexdigit());
     if !valid {
@@ -700,6 +808,16 @@ mod tests {
         assert!(validate_relative_path("docker/app").is_ok());
         assert!(validate_relative_path("../secret").is_err());
         assert!(validate_relative_path("/etc").is_err());
+    }
+
+    #[test]
+    fn validates_git_usernames() {
+        assert!(validate_git_username("x-access-token").is_ok());
+        assert!(validate_git_username("oauth2").is_ok());
+        assert!(validate_git_username("user_name").is_ok());
+        assert!(validate_git_username("-bad").is_err());
+        assert!(validate_git_username("bad user").is_err());
+        assert!(validate_git_username("user@example.com").is_err());
     }
 
     #[test]
