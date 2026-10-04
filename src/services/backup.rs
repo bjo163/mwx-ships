@@ -283,7 +283,17 @@ pub fn database_path_from_env() -> Result<PathBuf, BackupError> {
 fn backup_dir() -> PathBuf {
     env::var("MOONSHIPS_BACKUP_DIR")
         .map(PathBuf::from)
-        .unwrap_or_else(|_| PathBuf::from("backups"))
+        .unwrap_or_else(|_| {
+            if env::var("LOCO_ENV")
+                .ok()
+                .map(|value| value.eq_ignore_ascii_case("production"))
+                .unwrap_or(false)
+            {
+                PathBuf::from("/app/data/backups")
+            } else {
+                PathBuf::from("backups")
+            }
+        })
 }
 
 fn env_flag(name: &str, default: bool) -> bool {
