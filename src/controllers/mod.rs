@@ -1,5 +1,6 @@
 pub mod applications;
 pub mod auth;
+pub mod deployment_plans;
 pub mod deployments;
 pub mod health;
 pub mod operations;
