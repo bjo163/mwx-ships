@@ -32,7 +32,11 @@ impl MigrationTrait for Migration {
                         .string()
                         .not_null(),
                 )
-                .col(ColumnDef::new(DeploymentRevisions::SourceCommitMessage).text().null())
+                .col(
+                    ColumnDef::new(DeploymentRevisions::SourceCommitMessage)
+                        .text()
+                        .null(),
+                )
                 .col(
                     ColumnDef::new(DeploymentRevisions::ImageReference)
                         .string()
