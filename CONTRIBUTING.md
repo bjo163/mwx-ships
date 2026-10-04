@@ -43,3 +43,17 @@ Moonships is an independent, self-hosted deployment control plane built with Rus
 - Fill out the complete pull request template (`.github/pull_request_template.md`).
 - Ensure no secret tokens or SSH private keys are ever committed.
 - Keep commits concise and descriptive.
+
+
+## Canonical Branch Strategy
+
+Moonships intentionally keeps the canonical repository to two working branches:
+
+- **`dev`**: continuous integration and day-to-day engineering.
+- **`main`**: production-only branch. Promotions are made through a single `dev -> main` pull request after all release gates are green.
+
+Do not create long-lived feature, release, dependency, or hotfix branches in this repository. Normal changes are committed directly to `dev`. External contributors should use forks and target `dev`.
+
+Dependency upgrades are batched directly on `dev` after audit/test review rather than using automated dependency PR branches.
+
+A release is prepared on `dev` by updating version metadata and the changelog. Merging the green `dev -> main` promotion triggers generic release automation when the package version changes.
