@@ -12,7 +12,7 @@ Moonships deliberately keeps the canonical repository to **two working branches*
 ## `main` — production
 
 - `main` represents the latest production-approved code.
-- The only normal promotion path is a reviewed, green pull request from `dev` to `main`.
+- The only normal promotion path is a validated fast-forward promotion from `dev` to `main`.
 - Version/changelog changes are prepared on `dev`.
 - Release automation runs from `main` and publishes only when the root Cargo package version changes.
 
@@ -23,7 +23,7 @@ Do not create `feature/*`, `fix/*`, `release/*`, or dependency-update branches i
 For urgent production fixes:
 1. fix directly on `dev`;
 2. run the complete release gates;
-3. promote `dev -> main`;
+3. fast-forward `main` to that verified `dev` commit;
 4. publish the patch release from `main`.
 
 This intentionally trades parallel branch fan-out for a simple, highly visible integration stream.
