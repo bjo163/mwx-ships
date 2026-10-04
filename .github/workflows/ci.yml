@@ -74,6 +74,41 @@ jobs:
       - name: PostgreSQL migration and test suite
         run: cargo test --all-targets --all-features
 
+      - name: SQLite to PostgreSQL verified migration drill
+        shell: bash
+        env:
+          PGPASSWORD: moonships_test
+          MIGRATION_SQLITE_URL: sqlite:///tmp/moonships-migrate.sqlite?mode=rwc
+          MIGRATION_POSTGRES_URL: postgres://moonships:moonships_test@localhost:5432/moonships_migrate
+        run: |
+          set -euo pipefail
+
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq sqlite3 postgresql-client
+
+          rm -f /tmp/moonships-migrate.sqlite
+          psql -h localhost -U moonships -d postgres             -c "DROP DATABASE IF EXISTS moonships_migrate WITH (FORCE)"
+          psql -h localhost -U moonships -d postgres             -c "CREATE DATABASE moonships_migrate"
+
+          LOCO_ENV=development DATABASE_URL="$MIGRATION_SQLITE_URL"             cargo run --quiet --bin moonships-cli -- db migrate
+          LOCO_ENV=development DATABASE_URL="$MIGRATION_POSTGRES_URL"             cargo run --quiet --bin moonships-cli -- db migrate
+
+          sqlite3 /tmp/moonships-migrate.sqlite             "INSERT INTO organizations(name, slug, created_at, updated_at)
+             VALUES(
+               'Migration CI',
+               'migration-ci',
+               '2026-10-05T00:00:00+00:00',
+               '2026-10-05T00:00:00+00:00'
+             );"
+
+          python3 scripts/migrate_sqlite_to_postgres.py             --sqlite /tmp/moonships-migrate.sqlite             --postgres "$MIGRATION_POSTGRES_URL"             --dry-run
+
+          python3 scripts/migrate_sqlite_to_postgres.py             --sqlite /tmp/moonships-migrate.sqlite             --postgres "$MIGRATION_POSTGRES_URL"             --confirm MIGRATE
+
+          test "$(
+            psql -h localhost -U moonships -d moonships_migrate -At               -c "SELECT count(*) FROM organizations WHERE slug='migration-ci'"
+          )" = "1"
+
   frontend-checks:
     name: Frontend Quality & Build
     runs-on: ubuntu-latest
