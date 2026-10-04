@@ -80,6 +80,7 @@ impl DeploymentPlanService {
         commit_hash: &str,
         commit_message: Option<String>,
     ) -> Result<DeploymentPlan> {
+        let commit_hash = commit_hash.trim();
         validate_commit_hash(commit_hash)?;
 
         let app = applications::Model::find_by_id(db, application_id).await?;
@@ -150,6 +151,16 @@ impl DeploymentPlanService {
             .map_err(|error| Error::BadRequest(error.to_string()))?;
         GitService::validate_branch(&app.git_branch)
             .map_err(|error| Error::BadRequest(error.to_string()))?;
+        if matches!(
+            app.git_repository.split_once("://"),
+            Some((scheme, rest))
+                if matches!(scheme, "http" | "https")
+                    && rest.split('/').next().map(|authority| authority.contains('@')).unwrap_or(false)
+        ) {
+            return Err(Error::BadRequest(
+                "embedded HTTP Git credentials are not allowed in deployment plans".to_string(),
+            ));
+        }
         DockerService::validate_container_name(&app.container_name)
             .map_err(|error| Error::BadRequest(error.to_string()))?;
 
