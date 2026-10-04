@@ -30,7 +30,10 @@ GitHub Issues are the canonical source of truth.
   - [x] #78 metrics and operational health
   - [x] #79 scheduled backup + verified restore
   - [x] #80 notifications + retention visibility + runbooks
-- [ ] #62 v0.7 Organizations, RBAC, API Tokens & Audit Trail
+- [x] #62 v0.7 Organizations, RBAC, API Tokens & Audit Trail
+  - [x] #81 organizations + memberships + route RBAC
+  - [x] #82 scoped API tokens + session revocation
+  - [x] #83 immutable audit + auth abuse controls
 - [ ] #63 v0.8 PostgreSQL Scale Adapter, Multi-Worker & Advanced Workloads
   - [ ] #31 PostgreSQL scale adapter
 - [ ] #64 v0.9 GA Hardening, Upgrade Safety & Release Candidate
