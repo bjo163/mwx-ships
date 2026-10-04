@@ -1,3 +1,4 @@
+pub mod access_control;
 pub mod backup;
 pub mod crypto;
 pub mod deployment;
