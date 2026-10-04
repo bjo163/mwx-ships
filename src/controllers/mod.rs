@@ -3,6 +3,7 @@ pub mod auth;
 pub mod deployments;
 pub mod health;
 pub mod operations;
+pub mod organizations;
 pub mod projects;
 pub mod servers;
 pub mod webhooks;
