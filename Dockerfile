@@ -44,8 +44,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     openssh-client \
     && rm -rf /var/lib/apt/lists/*
 
-# Create persistent data directory
-RUN mkdir -p /app/data && chown -R 1000:1000 /app
+# Create an explicit non-root runtime identity. OpenSSH needs a valid
+# passwd/home entry for the effective UID when opening remote sessions.
+RUN groupadd --gid 1000 moonships \
+    && useradd --uid 1000 --gid 1000 --create-home --shell /usr/sbin/nologin moonships \
+    && mkdir -p /app/data \
+    && chown -R moonships:moonships /app
 
 # Copy binary from builder
 COPY --from=backend-builder /app/target/release/moonships-cli /usr/local/bin/moonships-cli
@@ -66,6 +70,6 @@ VOLUME ["/app/data"]
 
 # v0.2 executes application workloads on selected remote servers via SSH.
 # The control plane therefore does not need root or access to a Docker socket.
-USER 1000:1000
+USER moonships
 
 CMD ["moonships-cli", "start", "--server-and-worker"]
