@@ -133,7 +133,7 @@ Traditional PaaS platforms require spinning up PostgreSQL, Redis, and message br
 
 ### Host Control Plane
 - **OS**: Linux, macOS, or Windows
-- **Rust**: 1.80+ (for native compilation)
+- **Rust**: 1.94+ (required by the current Loco/SeaORM dependency set)
 - **Node.js**: 20+ (for building frontend assets)
 - **Docker**: Optional (required if running Moonships in a container)
 
