@@ -752,10 +752,7 @@ MOONSHIPS_ASKPASS\n\
         Ok(())
     }
 
-    pub async fn compose_project_status(
-        &self,
-        project_name: &str,
-    ) -> Result<String, RemoteError> {
+    pub async fn compose_project_status(&self, project_name: &str) -> Result<String, RemoteError> {
         validate_compose_project_name(project_name)?;
         let filter = shell_quote(&format!("label=com.docker.compose.project={project_name}"));
         self.exec_checked(
@@ -768,10 +765,7 @@ MOONSHIPS_ASKPASS\n\
         .await
     }
 
-    pub async fn compose_project_healthy(
-        &self,
-        project_name: &str,
-    ) -> Result<(), RemoteError> {
+    pub async fn compose_project_healthy(&self, project_name: &str) -> Result<(), RemoteError> {
         validate_compose_project_name(project_name)?;
         let filter = shell_quote(&format!("label=com.docker.compose.project={project_name}"));
         let command = format!(
@@ -780,12 +774,8 @@ MOONSHIPS_ASKPASS\n\
              running=$(docker ps -q --filter {filter} --filter status=running | wc -l | tr -d ' '); \
              [ \"$total\" -gt 0 ] && [ \"$running\" -eq \"$total\" ]"
         );
-        self.exec_checked(
-            "compose_project_health",
-            &command,
-            Duration::from_secs(60),
-        )
-        .await?;
+        self.exec_checked("compose_project_health", &command, Duration::from_secs(60))
+            .await?;
         Ok(())
     }
 
@@ -804,14 +794,9 @@ MOONSHIPS_ASKPASS\n\
                docker logs --tail {tail} \"$name\" 2>&1 || true; \
              done; [ \"$found\" -eq 1 ]"
         );
-        self.exec_checked(
-            "compose_project_logs",
-            &command,
-            Duration::from_secs(120),
-        )
-        .await
+        self.exec_checked("compose_project_logs", &command, Duration::from_secs(120))
+            .await
     }
-
 
     pub async fn stop_and_remove_container(&self, name: &str) -> Result<(), RemoteError> {
         DockerService::validate_container_name(name)

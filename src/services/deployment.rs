@@ -789,7 +789,9 @@ impl DeploymentService {
                 .compose_prepare(
                     app.id,
                     compose_file,
-                    compose_project.as_deref().expect("compose project resolved"),
+                    compose_project
+                        .as_deref()
+                        .expect("compose project resolved"),
                     &decrypted_envs,
                     registry_tuple,
                 )
@@ -865,7 +867,11 @@ impl DeploymentService {
             "stdout",
             &format!(
                 "{} prepared successfully on {}",
-                if is_compose { "Compose workload" } else { "Image" },
+                if is_compose {
+                    "Compose workload"
+                } else {
+                    "Image"
+                },
                 runtime.target()
             ),
         )
@@ -1295,7 +1301,9 @@ impl DeploymentService {
             .await;
         } else if is_compose {
             let compose_file = compose_file.expect("validated compose file");
-            let compose_project = compose_project.as_deref().expect("validated compose project");
+            let compose_project = compose_project
+                .as_deref()
+                .expect("validated compose project");
 
             Self::transition_phase(db, dep.id, &execution_token, &["building"], "stopping_old")
                 .await?;
@@ -1306,7 +1314,9 @@ impl DeploymentService {
                 {
                     if let Ok(current_snapshot) = current_revision.snapshot() {
                         if current_snapshot.workload_type == "compose" {
-                            if let Some(current_file) = current_snapshot.compose_file_path.as_deref() {
+                            if let Some(current_file) =
+                                current_snapshot.compose_file_path.as_deref()
+                            {
                                 let current_project = app.resolved_runtime_name();
                                 let _ = runtime
                                     .compose_down(app.id, current_file, &current_project)
@@ -1373,7 +1383,9 @@ impl DeploymentService {
                     .compose_project_status(compose_project)
                     .await
                     .unwrap_or_default();
-                let _ = runtime.compose_down(app.id, compose_file, compose_project).await;
+                let _ = runtime
+                    .compose_down(app.id, compose_file, compose_project)
+                    .await;
                 let message = redact_secrets(
                     &format!(
                         "{}; project status: {}",
@@ -1446,14 +1458,8 @@ impl DeploymentService {
                 .await);
             }
 
-            Self::transition_phase(
-                db,
-                dep.id,
-                &execution_token,
-                &["healthchecking"],
-                "success",
-            )
-            .await?;
+            Self::transition_phase(db, dep.id, &execution_token, &["healthchecking"], "success")
+                .await?;
         } else {
             Self::transition_phase(db, dep.id, &execution_token, &["building"], "stopping_old")
                 .await?;
