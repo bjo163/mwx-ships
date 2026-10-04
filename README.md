@@ -160,6 +160,7 @@ cp .env.example .env
 # ENCRYPTION_KEY: generate with `openssl rand -hex 32` (64 hex chars)
 # JWT_SECRET: generate a separate strong random value
 # docker compose intentionally refuses to start when either value is missing
+# v0.1 also publishes port 5150 to 127.0.0.1 only by default
 
 # 3. Launch control plane
 docker compose up -d
@@ -294,11 +295,19 @@ Comprehensive technical guides are available in the [`docs/`](docs/) directory:
 
 ---
 
+## Network Exposure & v0.1 Security Boundary
+
+The v0.1 management API is not yet protected by JWT on every operational route ([#47](https://github.com/bjo163/mwx-ships/issues/47)). For that reason, Docker Compose publishes Moonships to **127.0.0.1:5150 only** by default.
+
+Do not set `MOONSHIPS_BIND_IP=0.0.0.0` on an untrusted network. If remote access is required before #47 lands, place Moonships behind an authenticated TLS reverse proxy or a private VPN/tunnel.
+
+---
+
 ## Known Limitations
 
 - **Single Active Deployment per Application**: Concurrent deployments to the same application return 409 Conflict.
 - **Single-Node Control Plane**: SQLite is optimized for single-node deployments; multi-writer active-active control planes are deferred to the PostgreSQL scale adapter (Milestone M7).
-- **Authentication**: MVP implements single-operator administration; multi-tenant teams and RBAC are scheduled for Milestone M8.
+- **Management API Authentication**: Authentication endpoints exist, but operational routes do not yet enforce JWT on every request. Compose is loopback-only by default until [#47](https://github.com/bjo163/mwx-ships/issues/47) is completed. Multi-tenant teams and RBAC remain a later milestone.
 - **Remote Execution**: Registered servers support SSH preflight, but v0.1 deploys containers on the control-plane Docker host. Remote target execution is tracked in [#46](https://github.com/bjo163/mwx-ships/issues/46).
 - **Deployment Replacement**: The current state machine stops the previous container before starting the replacement; zero-downtime rollout is not yet implemented.
 
