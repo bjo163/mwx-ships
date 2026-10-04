@@ -42,9 +42,31 @@ impl Model {
         Ok(list)
     }
 
+    pub async fn all_for_organizations(
+        db: &DatabaseConnection,
+        organization_ids: &[i64],
+    ) -> Result<Vec<Model>> {
+        if organization_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        Ok(Entity::find()
+            .filter(projects::Column::OrganizationId.is_in(organization_ids.iter().copied()))
+            .order_by_asc(projects::Column::Name)
+            .all(db)
+            .await?)
+    }
+
     pub async fn create_project(
         db: &DatabaseConnection,
         params: &CreateProjectParams,
+    ) -> Result<Model> {
+        Self::create_project_for_organization(db, params, None).await
+    }
+
+    pub async fn create_project_for_organization(
+        db: &DatabaseConnection,
+        params: &CreateProjectParams,
+        organization_id: Option<i64>,
     ) -> Result<Model> {
         let slug = params.slug.clone().unwrap_or_else(|| {
             params
@@ -57,6 +79,7 @@ impl Model {
 
         let now = Utc::now();
         let active = ActiveModel {
+            organization_id: Set(organization_id),
             name: Set(params.name.clone()),
             slug: Set(slug),
             description: Set(params.description.clone()),
