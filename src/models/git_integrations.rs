@@ -258,7 +258,9 @@ pub fn normalize_git_username(provider: &str, value: Option<&str>) -> Result<Opt
 
     if username.starts_with('-')
         || username.contains(char::is_whitespace)
-        || username.contains(['\n', '\r', ':', '@', '/', '\\'])
+        || username
+            .chars()
+            .any(|ch| matches!(ch, '\n' | '\r' | ':' | '@' | '/' | '\\'))
     {
         return Err(Error::BadRequest("git_username is malformed".to_string()));
     }
