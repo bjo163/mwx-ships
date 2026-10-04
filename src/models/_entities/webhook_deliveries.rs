@@ -9,6 +9,7 @@ pub struct Model {
     pub application_id: i64,
     pub provider: String,
     pub delivery_id: String,
+    pub dedupe_key: Option<String>,
     pub event_kind: String,
     pub source_ref: Option<String>,
     pub commit_sha: Option<String>,
