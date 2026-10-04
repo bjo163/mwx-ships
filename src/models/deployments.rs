@@ -51,6 +51,20 @@ impl Model {
         Ok(list)
     }
 
+    pub async fn all_for_applications(
+        db: &DatabaseConnection,
+        application_ids: &[i64],
+    ) -> Result<Vec<Model>> {
+        if application_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        Ok(Entity::find()
+            .filter(deployments::Column::ApplicationId.is_in(application_ids.iter().copied()))
+            .order_by_desc(deployments::Column::QueuedAt)
+            .all(db)
+            .await?)
+    }
+
     pub async fn by_application(
         db: &DatabaseConnection,
         application_id: i64,
