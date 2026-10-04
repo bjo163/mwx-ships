@@ -23,3 +23,6 @@ pub mod server_health_checks;
 pub mod servers;
 pub mod users;
 pub mod webhook_deliveries;
+pub mod registry_credentials;
+pub mod server_pool_members;
+pub mod server_pools;
