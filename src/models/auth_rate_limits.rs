@@ -20,6 +20,7 @@ impl Model {
         block_seconds: i64,
     ) -> Result<RateLimitDecision> {
         let now = Utc::now();
+        let now_fixed = now.fixed_offset();
         let key_hash = hash_key(raw_key);
         let existing = Entity::find()
             .filter(auth_rate_limits::Column::Action.eq(action))
@@ -29,18 +30,18 @@ impl Model {
 
         if let Some(model) = existing {
             if let Some(blocked_until) = model.blocked_until {
-                if blocked_until > now.into() {
+                if blocked_until > now_fixed {
                     return Ok(RateLimitDecision {
                         allowed: false,
                         retry_after_seconds: Some(
-                            (blocked_until - now.fixed_offset()).num_seconds().max(1),
+                            (blocked_until - now_fixed).num_seconds().max(1),
                         ),
                     });
                 }
             }
 
             let window_expired =
-                model.window_started_at + Duration::seconds(window_seconds) <= now.into();
+                model.window_started_at + Duration::seconds(window_seconds) <= now_fixed;
             let attempts = if window_expired {
                 1
             } else {
@@ -63,7 +64,7 @@ impl Model {
             return Ok(RateLimitDecision {
                 allowed: blocked_until.is_none(),
                 retry_after_seconds: blocked_until
-                    .map(|until| (until - now.fixed_offset()).num_seconds().max(1)),
+                    .map(|until| (until - now_fixed).num_seconds().max(1)),
             });
         }
 
