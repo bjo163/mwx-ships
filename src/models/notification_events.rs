@@ -40,12 +40,13 @@ impl Model {
                 });
             }
 
+            let attempts = existing.attempts.saturating_add(1);
             let mut active: ActiveModel = existing.into();
             active.event_kind = Set(event_kind.to_string());
             active.severity = Set(severity.to_string());
             active.message = Set(message.to_string());
             active.status = Set("pending".to_string());
-            active.attempts = Set(active.attempts.unwrap_or_default().saturating_add(1));
+            active.attempts = Set(attempts);
             active.cooldown_until =
                 Set(Some((now + Duration::seconds(cooldown_seconds.max(60))).into()));
             active.updated_at = Set(now.into());
@@ -85,6 +86,18 @@ impl Model {
         let mut active: ActiveModel = model.into();
         active.status = Set("sent".to_string());
         active.last_sent_at = Set(Some(Utc::now().into()));
+        active.last_error = Set(None);
+        active.updated_at = Set(Utc::now().into());
+        Ok(active.update(db).await?)
+    }
+
+    pub async fn mark_skipped(db: &DatabaseConnection, id: i64) -> Result<Model> {
+        let model = Entity::find_by_id(id)
+            .one(db)
+            .await?
+            .ok_or_else(|| ModelError::EntityNotFound)?;
+        let mut active: ActiveModel = model.into();
+        active.status = Set("skipped".to_string());
         active.last_error = Set(None);
         active.updated_at = Set(Utc::now().into());
         Ok(active.update(db).await?)
