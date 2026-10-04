@@ -3,12 +3,12 @@ use crate::models::{
 };
 use crate::services::{
     crypto::CryptoService,
-    docker::{ContainerConfig, DockerService},
-    git::GitService,
+    docker::ContainerConfig,
     proxy::ProxyService,
+    remote::{redact_secrets, RemoteRuntime},
 };
 use loco_rs::prelude::*;
-use std::{path::PathBuf, time::Duration};
+use std::time::Duration;
 use tokio::time::sleep;
 
 #[derive(Debug, thiserror::Error)]
@@ -28,7 +28,6 @@ pub enum DeploymentError {
 pub struct DeploymentService;
 
 impl DeploymentService {
-    /// Verifies concurrency and enqueues a new deployment
     pub async fn trigger_deploy(
         db: &DatabaseConnection,
         app_id: i64,
@@ -38,6 +37,9 @@ impl DeploymentService {
         let app = applications::Model::find_by_id(db, app_id)
             .await
             .map_err(|_| DeploymentError::AppNotFound(app_id))?;
+        let server = servers::Model::find_by_id(db, app.server_id)
+            .await
+            .map_err(|_| DeploymentError::ServerNotFound(app.server_id))?;
 
         if deployments::Model::has_active_deployment(db, app_id)
             .await
@@ -52,7 +54,7 @@ impl DeploymentService {
         let dep = deployments::Model::create_deployment(
             db,
             app.id,
-            app.server_id,
+            server.id,
             commit_hash,
             commit_message,
         )
@@ -62,16 +64,14 @@ impl DeploymentService {
             message: e.to_string(),
         })?;
 
-        // Update application state to queued
         let _ = applications::Model::update_status(db, app.id, "queued").await;
-
         let _ = deployment_logs::Model::append(
             db,
             dep.id,
             "system",
             &format!(
-                "Deployment #{} queued for application '{}'",
-                dep.id, app.name
+                "Deployment #{} queued for application '{}' on target server '{}' ({}@{}:{})",
+                dep.id, app.name, server.name, server.username, server.host, server.port
             ),
         )
         .await;
@@ -79,7 +79,6 @@ impl DeploymentService {
         Ok(dep)
     }
 
-    /// Full asynchronous deployment pipeline orchestrated by DeploymentWorker
     pub async fn execute_deployment(
         db: &DatabaseConnection,
         deployment_id: i64,
@@ -94,19 +93,67 @@ impl DeploymentService {
         let app = applications::Model::find_by_id(db, dep.application_id)
             .await
             .map_err(|_| DeploymentError::AppNotFound(dep.application_id))?;
-
-        let _server = servers::Model::find_by_id(db, app.server_id)
+        let server = servers::Model::find_by_id(db, dep.server_id)
             .await
-            .map_err(|_| DeploymentError::ServerNotFound(app.server_id))?;
+            .map_err(|_| DeploymentError::ServerNotFound(dep.server_id))?;
 
-        let workspace_dir = PathBuf::from("data")
-            .join("workspaces")
-            .join(format!("app-{}", app.id));
-        let _ = tokio::fs::create_dir_all(&workspace_dir).await;
+        let _ = deployments::Model::update_status(db, dep.id, "connecting").await;
+        let _ = applications::Model::update_status(db, app.id, "connecting").await;
+        let _ = deployment_logs::Model::append(
+            db,
+            dep.id,
+            "system",
+            &format!(
+                "Connecting to selected target server '{}' ({}@{}:{})",
+                server.name, server.username, server.host, server.port
+            ),
+        )
+        .await;
 
-        // ==========================================
-        // 1. CLONING
-        // ==========================================
+        let runtime = match RemoteRuntime::connect(&server).await {
+            Ok(runtime) => runtime,
+            Err(err) => {
+                let message = err.to_string();
+                return Err(
+                    Self::record_failure(
+                        db,
+                        dep.id,
+                        app.id,
+                        "SSH_CONNECT_FAILED",
+                        "connecting",
+                        &message,
+                        None,
+                    )
+                    .await,
+                );
+            }
+        };
+
+        if let Err(err) = runtime.ensure_docker().await {
+            let exit_code = err.exit_code();
+            let message = err.to_string();
+            return Err(
+                Self::record_failure(
+                    db,
+                    dep.id,
+                    app.id,
+                    "REMOTE_DOCKER_UNAVAILABLE",
+                    "connecting",
+                    &message,
+                    exit_code,
+                )
+                .await,
+            );
+        }
+
+        let _ = deployment_logs::Model::append(
+            db,
+            dep.id,
+            "stdout",
+            &format!("Connected to {}; remote Docker is available", runtime.target()),
+        )
+        .await;
+
         let _ = deployments::Model::update_status(db, dep.id, "cloning").await;
         let _ = applications::Model::update_status(db, app.id, "cloning").await;
         let _ = deployment_logs::Model::append(
@@ -114,52 +161,44 @@ impl DeploymentService {
             dep.id,
             "system",
             &format!(
-                "Cloning repository '{}' (branch: '{}')...",
-                app.git_repository, app.git_branch
+                "Synchronizing branch '{}' on target server",
+                app.git_branch
             ),
         )
         .await;
 
-        let git_result = if workspace_dir.join(".git").exists() {
-            let _ = GitService::fetch_repository(&workspace_dir).await;
-            GitService::checkout_branch(&workspace_dir, &app.git_branch).await
-        } else {
-            GitService::clone_repository(&app.git_repository, &app.git_branch, &workspace_dir).await
+        let (commit_sha, commit_message) = match runtime.sync_repository(&app).await {
+            Ok(revision) => revision,
+            Err(err) => {
+                let exit_code = err.exit_code();
+                let message = err.to_string();
+                return Err(
+                    Self::record_failure(
+                        db,
+                        dep.id,
+                        app.id,
+                        "REMOTE_GIT_FAILED",
+                        "cloning",
+                        &message,
+                        exit_code,
+                    )
+                    .await,
+                );
+            }
         };
-
-        if let Err(e) = git_result {
-            let msg = format!("Git operation failed: {}", e);
-            let _ = deployment_logs::Model::append(db, dep.id, "stderr", &msg).await;
-            let _ =
-                deployments::Model::record_failure(db, dep.id, "GIT_CLONE_FAILED", &msg, Some(1))
-                    .await;
-            let _ = applications::Model::update_status(db, app.id, "failed").await;
-            return Err(DeploymentError::StepFailed {
-                step: "cloning".to_string(),
-                message: msg,
-            });
-        }
-
-        // Record actual commit hash & message
-        let (commit_sha, commit_msg) = GitService::get_current_commit(&workspace_dir)
-            .await
-            .unwrap_or_else(|_| ("HEAD".to_string(), "Deployment".to_string()));
 
         let _ = deployment_logs::Model::append(
             db,
             dep.id,
             "stdout",
             &format!(
-                "Checked out commit {} - {}",
+                "Target checked out commit {} - {}",
                 &commit_sha[..7.min(commit_sha.len())],
-                commit_msg
+                commit_message
             ),
         )
         .await;
 
-        // ==========================================
-        // 2. BUILDING
-        // ==========================================
         let _ = deployments::Model::update_status(db, dep.id, "building").await;
         let _ = applications::Model::update_status(db, app.id, "building").await;
 
@@ -170,100 +209,128 @@ impl DeploymentService {
         );
 
         let build_result = if app.build_type == "prebuilt_image" {
-            let img = app.docker_image.as_deref().unwrap_or("nginx:alpine");
-            let _ = deployment_logs::Model::append(
-                db,
-                dep.id,
-                "system",
-                &format!("Pulling prebuilt image '{}'...", img),
-            )
-            .await;
-            DockerService::pull_image(img).await
+            match app.docker_image.as_deref() {
+                Some(image) if !image.trim().is_empty() => runtime.pull_image(image).await,
+                _ => {
+                    return Err(
+                        Self::record_failure(
+                            db,
+                            dep.id,
+                            app.id,
+                            "DEPLOYMENT_CONFIG_INVALID",
+                            "building",
+                            "prebuilt_image deployment requires docker_image",
+                            None,
+                        )
+                        .await,
+                    );
+                }
+            }
         } else {
-            let context = workspace_dir.join(&app.docker_context);
-            let dockerfile = context.join(&app.dockerfile_path);
-            let _ = deployment_logs::Model::append(
-                db,
-                dep.id,
-                "system",
-                &format!(
-                    "Building Docker image '{}' with context '{}'...",
-                    image_tag,
-                    context.display()
-                ),
-            )
-            .await;
-            DockerService::build_image(&context, &dockerfile, &image_tag).await
+            runtime.build_image(&app, &image_tag).await
         };
 
-        match build_result {
-            Ok(output) => {
-                let _ = deployment_logs::Model::append(db, dep.id, "stdout", &output).await;
-            }
-            Err(e) => {
-                let msg = format!("Docker build failed: {}", e);
-                let _ = deployment_logs::Model::append(db, dep.id, "stderr", &msg).await;
-                let _ = deployments::Model::record_failure(
+        if let Err(err) = build_result {
+            let exit_code = err.exit_code();
+            let message = err.to_string();
+            let error_code = if app.build_type == "prebuilt_image" {
+                "REMOTE_DOCKER_PULL_FAILED"
+            } else {
+                "REMOTE_DOCKER_BUILD_FAILED"
+            };
+            return Err(
+                Self::record_failure(
                     db,
                     dep.id,
-                    "DOCKER_BUILD_FAILED",
-                    &msg,
-                    Some(2),
+                    app.id,
+                    error_code,
+                    "building",
+                    &message,
+                    exit_code,
                 )
-                .await;
-                let _ = applications::Model::update_status(db, app.id, "failed").await;
-                return Err(DeploymentError::StepFailed {
-                    step: "building".to_string(),
-                    message: msg,
-                });
-            }
+                .await,
+            );
         }
 
-        // ==========================================
-        // 3. STOPPING OLD CONTAINER
-        // ==========================================
+        let _ = deployment_logs::Model::append(
+            db,
+            dep.id,
+            "stdout",
+            &format!("Image prepared successfully on {}", runtime.target()),
+        )
+        .await;
+
         let _ = deployments::Model::update_status(db, dep.id, "stopping_old").await;
         let _ = deployment_logs::Model::append(
             db,
             dep.id,
             "system",
             &format!(
-                "Stopping existing container '{}' if running...",
+                "Replacing existing container '{}' on target server",
                 app.container_name
             ),
         )
         .await;
 
-        let _ = DockerService::stop_container(&app.container_name).await;
-        let _ = DockerService::remove_container(&app.container_name).await;
+        if let Err(err) = runtime.stop_and_remove_container(&app.container_name).await {
+            let exit_code = err.exit_code();
+            let message = err.to_string();
+            return Err(
+                Self::record_failure(
+                    db,
+                    dep.id,
+                    app.id,
+                    "REMOTE_DOCKER_REPLACE_FAILED",
+                    "stopping_old",
+                    &message,
+                    exit_code,
+                )
+                .await,
+            );
+        }
 
-        // ==========================================
-        // 4. STARTING NEW CONTAINER
-        // ==========================================
         let _ = deployments::Model::update_status(db, dep.id, "starting_new").await;
         let _ = applications::Model::update_status(db, app.id, "starting").await;
 
-        // Decrypt environment variables safely
         let raw_env_vars = environment_variables::Model::by_application(db, app.id)
             .await
             .unwrap_or_default();
         let mut decrypted_envs = Vec::new();
-        for ev in raw_env_vars {
-            let val = if ev.is_secret {
-                CryptoService::decrypt(&ev.encrypted_value).unwrap_or(ev.encrypted_value)
+        let mut secret_values = Vec::new();
+
+        for env in raw_env_vars {
+            let value = if env.is_secret {
+                match CryptoService::decrypt(&env.encrypted_value) {
+                    Ok(value) => {
+                        secret_values.push(value.clone());
+                        value
+                    }
+                    Err(err) => {
+                        return Err(
+                            Self::record_failure(
+                                db,
+                                dep.id,
+                                app.id,
+                                "SECRET_DECRYPT_FAILED",
+                                "starting_new",
+                                &err.to_string(),
+                                None,
+                            )
+                            .await,
+                        );
+                    }
+                }
             } else {
-                ev.encrypted_value
+                env.encrypted_value
             };
-            decrypted_envs.push((ev.key, val));
+            decrypted_envs.push((env.key, value));
         }
 
-        // Fetch domains for Traefik label generation
         let app_domains = domains::Model::by_application(db, app.id)
             .await
             .unwrap_or_default();
-        let domain_names: Vec<String> = app_domains.iter().map(|d| d.hostname.clone()).collect();
-        let has_https = app_domains.iter().any(|d| d.https_enabled);
-
+        let domain_names: Vec<String> = app_domains.iter().map(|domain| domain.hostname.clone()).collect();
+        let has_https = app_domains.iter().any(|domain| domain.https_enabled);
         let labels = ProxyService::generate_traefik_labels(
             &app.slug,
             &domain_names,
@@ -275,7 +342,8 @@ impl DeploymentService {
             name: app.container_name.clone(),
             image: if app.build_type == "prebuilt_image" {
                 app.docker_image
-                    .unwrap_or_else(|| "nginx:alpine".to_string())
+                    .clone()
+                    .expect("validated prebuilt image before container start")
             } else {
                 image_tag
             },
@@ -287,111 +355,98 @@ impl DeploymentService {
             network: None,
         };
 
-        let run_result = DockerService::run_container(&container_config).await;
-        match run_result {
-            Ok(cid) => {
+        match runtime.run_container(app.id, &container_config).await {
+            Ok(container_id) => {
                 let _ = deployment_logs::Model::append(
                     db,
                     dep.id,
                     "stdout",
                     &format!(
-                        "Container started successfully with ID: {}",
-                        &cid[..12.min(cid.len())]
+                        "Remote container started with ID {} on {}",
+                        &container_id[..12.min(container_id.len())],
+                        runtime.target()
                     ),
                 )
                 .await;
             }
-            Err(e) => {
-                let msg = format!("Failed to run container: {}", e);
-                let _ = deployment_logs::Model::append(db, dep.id, "stderr", &msg).await;
-                let _ = deployments::Model::record_failure(
-                    db,
-                    dep.id,
-                    "CONTAINER_RUN_FAILED",
-                    &msg,
-                    Some(3),
-                )
-                .await;
-                let _ = applications::Model::update_status(db, app.id, "failed").await;
-                return Err(DeploymentError::StepFailed {
-                    step: "starting_new".to_string(),
-                    message: msg,
-                });
+            Err(err) => {
+                let exit_code = err.exit_code();
+                let message = redact_secrets(&err.to_string(), &secret_values);
+                return Err(
+                    Self::record_failure(
+                        db,
+                        dep.id,
+                        app.id,
+                        "REMOTE_DOCKER_RUN_FAILED",
+                        "starting_new",
+                        &message,
+                        exit_code,
+                    )
+                    .await,
+                );
             }
         }
 
-        // ==========================================
-        // 5. HEALTHCHECKING
-        // ==========================================
         if let Some(path) = &app.healthcheck_path {
             let _ = deployments::Model::update_status(db, dep.id, "healthchecking").await;
-            let port = app
-                .healthcheck_port
-                .or(app.published_port)
-                .unwrap_or(app.container_port);
+            let _ = applications::Model::update_status(db, app.id, "healthchecking").await;
             let _ = deployment_logs::Model::append(
                 db,
                 dep.id,
                 "system",
-                &format!(
-                    "Running HTTP healthcheck on port {} with path '{}'...",
-                    port, path
-                ),
+                &format!("Running healthcheck on target server at path '{path}'"),
             )
             .await;
 
-            let mut passed = false;
             let retries = 5;
-            let target_url = format!("http://localhost:{}{}", port, path);
+            let mut last_error = None;
+            let host_port = app.healthcheck_port.or(app.published_port);
 
             for attempt in 1..=retries {
                 sleep(Duration::from_secs(2)).await;
-                let res = tokio::process::Command::new("curl")
-                    .arg("-f")
-                    .arg("-s")
-                    .arg("-m")
-                    .arg("3")
-                    .arg(&target_url)
-                    .output()
-                    .await;
-
-                if let Ok(out) = res {
-                    if out.status.success() {
-                        passed = true;
+                match runtime
+                    .healthcheck_once(
+                        &app.container_name,
+                        host_port,
+                        app.container_port,
+                        path,
+                    )
+                    .await
+                {
+                    Ok(()) => {
                         let _ = deployment_logs::Model::append(
                             db,
                             dep.id,
                             "stdout",
-                            &format!("Healthcheck passed on attempt {}/{}", attempt, retries),
+                            &format!("Healthcheck passed on attempt {attempt}/{retries}"),
                         )
                         .await;
+                        last_error = None;
                         break;
+                    }
+                    Err(err) => {
+                        last_error = Some(err);
                     }
                 }
             }
 
-            if !passed {
-                let msg = format!(
-                    "Healthcheck failed on {} after {} attempts",
-                    target_url, retries
-                );
-                let _ = deployment_logs::Model::append(db, dep.id, "stderr", &msg).await;
-                let _ = deployments::Model::record_failure(
+            if let Some(err) = last_error {
+                let exit_code = err.exit_code();
+                let message = redact_secrets(&err.to_string(), &secret_values);
+                let _ = Self::record_failure(
                     db,
                     dep.id,
-                    "HEALTHCHECK_FAILED",
-                    &msg,
-                    Some(4),
+                    app.id,
+                    "REMOTE_HEALTHCHECK_FAILED",
+                    "healthchecking",
+                    &message,
+                    exit_code,
                 )
                 .await;
-                let _ = applications::Model::update_status(db, app.id, "failed").await;
-                return Err(DeploymentError::HealthcheckFailed(msg));
+                return Err(DeploymentError::HealthcheckFailed(message));
             }
         }
 
-        // ==========================================
-        // 6. SUCCESS
-        // ==========================================
         let _ = deployments::Model::update_status(db, dep.id, "success").await;
         let _ = applications::Model::update_status(db, app.id, "running").await;
         let _ = deployment_logs::Model::append(
@@ -399,12 +454,38 @@ impl DeploymentService {
             dep.id,
             "system",
             &format!(
-                "Deployment #{} completed successfully! Application '{}' is running.",
-                dep.id, app.name
+                "Deployment #{} completed successfully on target server '{}'",
+                dep.id, server.name
             ),
         )
         .await;
 
         Ok(())
+    }
+
+    async fn record_failure(
+        db: &DatabaseConnection,
+        deployment_id: i64,
+        application_id: i64,
+        error_code: &str,
+        step: &str,
+        message: &str,
+        exit_code: Option<i32>,
+    ) -> DeploymentError {
+        let _ = deployment_logs::Model::append(db, deployment_id, "stderr", message).await;
+        let _ = deployments::Model::record_failure(
+            db,
+            deployment_id,
+            error_code,
+            message,
+            exit_code,
+        )
+        .await;
+        let _ = applications::Model::update_status(db, application_id, "failed").await;
+
+        DeploymentError::StepFailed {
+            step: step.to_string(),
+            message: message.to_string(),
+        }
     }
 }

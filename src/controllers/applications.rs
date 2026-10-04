@@ -10,12 +10,13 @@ use crate::{
         deployments::{Model as DeploymentModel, TriggerDeployParams},
         domains::{CreateDomainParams, Model as DomainModel},
         environment_variables::{Model as EnvVarModel, SetEnvVarParams},
+        servers::Model as ServerModel,
     },
     services::{
         crypto::CryptoService,
         deployment::{DeploymentError, DeploymentService},
-        docker::DockerService,
         proxy::ProxyService,
+        remote::{redact_secrets, RemoteRuntime},
     },
     workers::deployment::{DeploymentWorker, DeploymentWorkerArgs},
 };
@@ -44,6 +45,18 @@ pub fn routes() -> Routes {
         .add("{id}/domains", get(list_domains))
         .add("{id}/domains", post(add_domain))
         .add("{id}/domains/{domain_id}", delete(remove_domain))
+}
+
+
+async fn remote_runtime(
+    db: &DatabaseConnection,
+    app: &ApplicationModel,
+) -> Result<(ServerModel, RemoteRuntime)> {
+    let server = ServerModel::find_by_id(db, app.server_id).await?;
+    let runtime = RemoteRuntime::connect(&server)
+        .await
+        .map_err(|err| Error::BadRequest(err.to_string()))?;
+    Ok((server, runtime))
 }
 
 #[debug_handler]
@@ -155,8 +168,11 @@ pub async fn remove(
     State(ctx): State<AppContext>,
 ) -> Result<Response> {
     let app = ApplicationModel::find_by_id(&ctx.db, id).await?;
-    let _ = DockerService::stop_container(&app.container_name).await;
-    let _ = DockerService::remove_container(&app.container_name).await;
+    let (_, runtime) = remote_runtime(&ctx.db, &app).await?;
+    runtime
+        .stop_and_remove_container(&app.container_name)
+        .await
+        .map_err(|err| Error::BadRequest(err.to_string()))?;
     Entity::delete_by_id(app.id).exec(&ctx.db).await?;
 
     format::json(serde_json::json!({
@@ -164,7 +180,6 @@ pub async fn remove(
         "message": "ok"
     }))
 }
-
 #[debug_handler]
 pub async fn deploy(
     _auth: auth::JWT,
@@ -222,16 +237,17 @@ pub async fn start(
     State(ctx): State<AppContext>,
 ) -> Result<Response> {
     let app = ApplicationModel::find_by_id(&ctx.db, id).await?;
-    DockerService::start_container(&app.container_name)
+    let (_, runtime) = remote_runtime(&ctx.db, &app).await?;
+    runtime
+        .start_container(&app.container_name)
         .await
-        .map_err(|e| Error::BadRequest(e.to_string()))?;
+        .map_err(|err| Error::BadRequest(err.to_string()))?;
     let updated = ApplicationModel::update_status(&ctx.db, app.id, "running").await?;
     format::json(serde_json::json!({
         "data": updated,
         "message": "ok"
     }))
 }
-
 #[debug_handler]
 pub async fn stop(
     _auth: auth::JWT,
@@ -239,16 +255,17 @@ pub async fn stop(
     State(ctx): State<AppContext>,
 ) -> Result<Response> {
     let app = ApplicationModel::find_by_id(&ctx.db, id).await?;
-    DockerService::stop_container(&app.container_name)
+    let (_, runtime) = remote_runtime(&ctx.db, &app).await?;
+    runtime
+        .stop_container(&app.container_name)
         .await
-        .map_err(|e| Error::BadRequest(e.to_string()))?;
+        .map_err(|err| Error::BadRequest(err.to_string()))?;
     let updated = ApplicationModel::update_status(&ctx.db, app.id, "stopped").await?;
     format::json(serde_json::json!({
         "data": updated,
         "message": "ok"
     }))
 }
-
 #[debug_handler]
 pub async fn restart(
     _auth: auth::JWT,
@@ -256,16 +273,17 @@ pub async fn restart(
     State(ctx): State<AppContext>,
 ) -> Result<Response> {
     let app = ApplicationModel::find_by_id(&ctx.db, id).await?;
-    DockerService::restart_container(&app.container_name)
+    let (_, runtime) = remote_runtime(&ctx.db, &app).await?;
+    runtime
+        .restart_container(&app.container_name)
         .await
-        .map_err(|e| Error::BadRequest(e.to_string()))?;
+        .map_err(|err| Error::BadRequest(err.to_string()))?;
     let updated = ApplicationModel::update_status(&ctx.db, app.id, "running").await?;
     format::json(serde_json::json!({
         "data": updated,
         "message": "ok"
     }))
 }
-
 #[debug_handler]
 pub async fn status(
     _auth: auth::JWT,
@@ -273,7 +291,9 @@ pub async fn status(
     State(ctx): State<AppContext>,
 ) -> Result<Response> {
     let app = ApplicationModel::find_by_id(&ctx.db, id).await?;
-    let container_status = DockerService::container_status(&app.container_name)
+    let (server, runtime) = remote_runtime(&ctx.db, &app).await?;
+    let container_status = runtime
+        .container_status(&app.container_name)
         .await
         .unwrap_or_else(|_| "unknown".to_string());
     format::json(serde_json::json!({
@@ -281,11 +301,12 @@ pub async fn status(
             "application_id": app.id,
             "status": app.status,
             "container_status": container_status,
+            "target_server_id": server.id,
+            "target_server": server.name,
         },
         "message": "ok"
     }))
 }
-
 #[debug_handler]
 pub async fn logs(
     _auth: auth::JWT,
@@ -293,19 +314,33 @@ pub async fn logs(
     State(ctx): State<AppContext>,
 ) -> Result<Response> {
     let app = ApplicationModel::find_by_id(&ctx.db, id).await?;
-    let logs = DockerService::container_logs(&app.container_name, 200)
+    let (server, runtime) = remote_runtime(&ctx.db, &app).await?;
+    let logs = runtime
+        .container_logs(&app.container_name, 200)
         .await
         .unwrap_or_default();
+
+    let vars = EnvVarModel::by_application(&ctx.db, app.id)
+        .await
+        .unwrap_or_default();
+    let secrets: Vec<String> = vars
+        .into_iter()
+        .filter(|var| var.is_secret)
+        .filter_map(|var| CryptoService::decrypt(&var.encrypted_value).ok())
+        .collect();
+    let safe_logs = redact_secrets(&logs, &secrets);
+
     format::json(serde_json::json!({
         "data": {
             "application_id": app.id,
             "container_name": app.container_name,
-            "logs": logs,
+            "target_server_id": server.id,
+            "target_server": server.name,
+            "logs": safe_logs,
         },
         "message": "ok"
     }))
 }
-
 #[debug_handler]
 pub async fn get_env(
     _auth: auth::JWT,

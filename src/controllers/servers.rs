@@ -35,6 +35,7 @@ pub async fn list(_auth: auth::JWT, State(ctx): State<AppContext>) -> Result<Res
                 "port": s.port,
                 "username": s.username,
                 "authentication_type": s.authentication_type,
+                "known_host_fingerprint": s.known_host_fingerprint,
                 "status": s.status,
                 "last_seen_at": s.last_seen_at,
                 "created_at": s.created_at,
@@ -71,6 +72,7 @@ pub async fn create(
             .authentication_type
             .unwrap_or_else(|| "ssh_key".to_string())),
         encrypted_private_key: Set(encrypted_key),
+        known_host_fingerprint: Set(params.known_host_fingerprint),
         status: Set("unknown".to_string()),
         created_at: Set(now.into()),
         updated_at: Set(now.into()),
@@ -86,6 +88,7 @@ pub async fn create(
             "host": model.host,
             "port": model.port,
             "username": model.username,
+            "known_host_fingerprint": model.known_host_fingerprint,
             "status": model.status,
             "created_at": model.created_at,
         },
@@ -108,6 +111,7 @@ pub async fn get_one(
             "port": server.port,
             "username": server.username,
             "authentication_type": server.authentication_type,
+            "known_host_fingerprint": server.known_host_fingerprint,
             "status": server.status,
             "last_seen_at": server.last_seen_at,
             "created_at": server.created_at,
@@ -146,6 +150,9 @@ pub async fn update(
         let enc = CryptoService::encrypt(&key).map_err(|e| Error::BadRequest(e.to_string()))?;
         active.encrypted_private_key = Set(Some(enc));
     }
+    if let Some(fingerprint) = params.known_host_fingerprint {
+        active.known_host_fingerprint = Set(Some(fingerprint));
+    }
 
     active.updated_at = Set(Utc::now().into());
     let updated = active.update(&ctx.db).await?;
@@ -157,6 +164,7 @@ pub async fn update(
             "host": updated.host,
             "port": updated.port,
             "username": updated.username,
+            "known_host_fingerprint": updated.known_host_fingerprint,
             "status": updated.status,
         },
         "message": "ok"
@@ -185,10 +193,7 @@ pub async fn test_conn(
     State(ctx): State<AppContext>,
 ) -> Result<Response> {
     let server = ServerModel::find_by_id(&ctx.db, id).await?;
-    let is_connected =
-        SshService::test_connection(&server.host, server.port, &server.username, None)
-            .await
-            .unwrap_or(false);
+    let is_connected = SshService::connect(&server).await.is_ok();
 
     let new_status = if is_connected { "online" } else { "offline" };
     let _ = ServerModel::update_status(&ctx.db, server.id, new_status).await;
@@ -202,7 +207,6 @@ pub async fn test_conn(
         "message": "ok"
     }))
 }
-
 #[debug_handler]
 pub async fn preflight(
     _auth: auth::JWT,
@@ -210,10 +214,9 @@ pub async fn preflight(
     State(ctx): State<AppContext>,
 ) -> Result<Response> {
     let server = ServerModel::find_by_id(&ctx.db, id).await?;
-    let report =
-        SshService::run_preflight(server.id, &server.host, server.port, &server.username, None)
-            .await
-            .map_err(|_e| Error::InternalServerError)?;
+    let report = SshService::run_preflight(&server)
+        .await
+        .map_err(|_| Error::InternalServerError)?;
 
     let status = if report.healthy {
         "online"
