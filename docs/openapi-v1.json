@@ -2455,6 +2455,69 @@
           }
         }
       }
+    },
+    "/api/source-inspection/": {
+      "post": {
+        "operationId": "post_api_source_inspection",
+        "x-moonships-stability": "v1-additive",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "project_id",
+                  "server_id",
+                  "git_repository"
+                ],
+                "properties": {
+                  "project_id": {
+                    "type": "integer",
+                    "format": "int64"
+                  },
+                  "server_id": {
+                    "type": "integer",
+                    "format": "int64"
+                  },
+                  "git_repository": {
+                    "type": "string"
+                  },
+                  "git_branch": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "default": "main"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Source inspection result"
+          },
+          "400": {
+            "description": "Invalid source or inspection failure"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Project or server not found"
+          }
+        }
+      }
     }
   }
 }
