@@ -50,11 +50,8 @@ async fn supported_schema_versions_upgrade_to_latest_without_data_loss() {
             "encrypted secret bytes must not be rewritten while upgrading from v{version}"
         );
 
-        let migration_rows = scalar_i64(
-            &db,
-            "SELECT COUNT(*) AS value FROM seaql_migrations",
-        )
-        .await;
+        let migration_rows =
+            scalar_i64(&db, "SELECT COUNT(*) AS value FROM seaql_migrations").await;
         assert_eq!(
             migration_rows, 15,
             "fixture v{version} must reach every current migration"
