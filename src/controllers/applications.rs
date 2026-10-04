@@ -34,6 +34,7 @@ pub fn routes() -> Routes {
         .add("{id}", put(update))
         .add("{id}", delete(remove))
         .add("{id}/deploy", post(deploy))
+        .add("{id}/rollback", post(rollback))
         .add("{id}/start", post(start))
         .add("{id}/stop", post(stop))
         .add("{id}/restart", post(restart))
@@ -226,6 +227,65 @@ pub async fn deploy(
             Ok(res.into_response())
         }
         Err(e) => Err(Error::BadRequest(e.to_string())),
+    }
+}
+
+#[debug_handler]
+pub async fn rollback(
+    _auth: auth::JWT,
+    Path(id): Path<i64>,
+    State(ctx): State<AppContext>,
+) -> Result<Response> {
+    match DeploymentService::rollback_application(&ctx.db, id).await {
+        Ok(dep) => {
+            DeploymentWorker::perform_later(
+                &ctx,
+                DeploymentWorkerArgs {
+                    deployment_id: dep.id,
+                },
+            )
+            .await?;
+
+            let res = (
+                StatusCode::ACCEPTED,
+                format::json(serde_json::json!({
+                    "data": {
+                        "deployment_id": dep.id,
+                        "application_id": dep.application_id,
+                        "revision_id": dep.revision_id,
+                        "status": dep.status,
+                        "trigger_kind": dep.trigger_kind,
+                    },
+                    "message": "Rollback accepted and queued"
+                }))?,
+            );
+            Ok(res.into_response())
+        }
+        Err(DeploymentError::Conflict) => {
+            let res = (
+                StatusCode::CONFLICT,
+                format::json(serde_json::json!({
+                    "error": {
+                        "code": "DEPLOYMENT_CONFLICT",
+                        "message": "A deployment is already actively running for this application"
+                    }
+                }))?,
+            );
+            Ok(res.into_response())
+        }
+        Err(DeploymentError::RollbackNotAvailable { .. }) => {
+            let res = (
+                StatusCode::CONFLICT,
+                format::json(serde_json::json!({
+                    "error": {
+                        "code": "ROLLBACK_NOT_AVAILABLE",
+                        "message": "No previous known-good revision is available"
+                    }
+                }))?,
+            );
+            Ok(res.into_response())
+        }
+        Err(error) => Err(Error::BadRequest(error.to_string())),
     }
 }
 
