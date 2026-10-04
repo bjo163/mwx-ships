@@ -22,6 +22,18 @@ impl Model {
             .ok_or_else(|| ModelError::EntityNotFound)?)
     }
 
+    pub async fn find_by_application_hostname(
+        db: &DatabaseConnection,
+        application_id: i64,
+        hostname: &str,
+    ) -> Result<Option<Model>> {
+        Ok(Entity::find()
+            .filter(domains::Column::ApplicationId.eq(application_id))
+            .filter(domains::Column::Hostname.eq(hostname.trim().to_lowercase()))
+            .one(db)
+            .await?)
+    }
+
     pub async fn by_application(
         db: &DatabaseConnection,
         application_id: i64,
