@@ -106,19 +106,23 @@ impl BackgroundWorker<DeploymentWorkerArgs> for DeploymentWorker {
                 if let Ok(deployment) =
                     deployments::Model::find_by_id(&self.ctx.db, args.deployment_id).await
                 {
+                    let failure_message = deployment
+                        .error_message
+                        .clone()
+                        .unwrap_or_else(|| err.to_string());
                     let _ = NotificationService::notify(
                         &self.ctx,
                         "deployment_failed",
                         "critical",
-                        &format!("Deployment failure for application #{}", deployment.application_id),
+                        &format!(
+                            "Deployment failure for application #{}",
+                            deployment.application_id
+                        ),
                         &format!(
                             "Deployment #{} failed with code {}: {}",
                             deployment.id,
                             deployment.error_code.as_deref().unwrap_or("UNKNOWN"),
-                            deployment
-                                .error_message
-                                .as_deref()
-                                .unwrap_or_else(|| err.to_string().as_str())
+                            failure_message
                         ),
                     )
                     .await;
