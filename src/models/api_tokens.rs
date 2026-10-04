@@ -25,6 +25,21 @@ pub struct CreatedApiToken {
     pub record: Model,
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct SafeApiToken {
+    pub id: i64,
+    pub organization_id: i64,
+    pub user_id: i64,
+    pub name: String,
+    pub token_prefix: String,
+    pub scopes: Vec<String>,
+    pub expires_at: Option<DateTimeWithTimeZone>,
+    pub revoked_at: Option<DateTimeWithTimeZone>,
+    pub last_used_at: Option<DateTimeWithTimeZone>,
+    pub created_at: DateTimeWithTimeZone,
+    pub updated_at: DateTimeWithTimeZone,
+}
+
 impl Model {
     pub async fn create_token(
         db: &DatabaseConnection,
@@ -110,6 +125,24 @@ impl Model {
             .await?)
     }
 
+    pub async fn revoke_for_organization(
+        db: &DatabaseConnection,
+        id: i64,
+        organization_id: i64,
+    ) -> Result<Model> {
+        let model = Entity::find()
+            .filter(api_tokens::Column::Id.eq(id))
+            .filter(api_tokens::Column::OrganizationId.eq(organization_id))
+            .one(db)
+            .await?
+            .ok_or_else(|| ModelError::EntityNotFound)?;
+        let mut active: ActiveModel = model.into();
+        let now = Utc::now();
+        active.revoked_at = Set(Some(now.into()));
+        active.updated_at = Set(now.into());
+        Ok(active.update(db).await?)
+    }
+
     pub async fn revoke(db: &DatabaseConnection, id: i64, user_id: i64) -> Result<Model> {
         let model = Entity::find()
             .filter(api_tokens::Column::Id.eq(id))
@@ -122,6 +155,22 @@ impl Model {
         active.revoked_at = Set(Some(now.into()));
         active.updated_at = Set(now.into());
         Ok(active.update(db).await?)
+    }
+
+    pub fn to_safe(&self) -> SafeApiToken {
+        SafeApiToken {
+            id: self.id,
+            organization_id: self.organization_id,
+            user_id: self.user_id,
+            name: self.name.clone(),
+            token_prefix: self.token_prefix.clone(),
+            scopes: self.scopes(),
+            expires_at: self.expires_at,
+            revoked_at: self.revoked_at,
+            last_used_at: self.last_used_at,
+            created_at: self.created_at,
+            updated_at: self.updated_at,
+        }
     }
 
     pub fn scopes(&self) -> Vec<String> {
