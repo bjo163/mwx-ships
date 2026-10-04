@@ -10,6 +10,7 @@ use crate::{
         deployments::{Model as DeploymentModel, TriggerDeployParams},
         domains::{CreateDomainParams, Model as DomainModel},
         environment_variables::{Model as EnvVarModel, SetEnvVarParams},
+        git_integrations::{Model as GitIntegrationModel, UpsertGitIntegrationParams},
         servers::Model as ServerModel,
     },
     services::{
@@ -47,6 +48,12 @@ pub fn routes() -> Routes {
         .add("{id}/domains", post(add_domain))
         .add("{id}/domains/{domain_id}/verify", post(verify_domain))
         .add("{id}/domains/{domain_id}", delete(remove_domain))
+        .add("{id}/git-integrations", get(list_git_integrations))
+        .add("{id}/git-integrations", put(upsert_git_integration))
+        .add(
+            "{id}/git-integrations/{provider}",
+            delete(remove_git_integration),
+        )
 }
 
 async fn remote_runtime(
@@ -593,5 +600,59 @@ pub async fn remove_domain(
     format::json(serde_json::json!({
         "data": null,
         "message": "ok"
+    }))
+}
+
+
+#[debug_handler]
+pub async fn list_git_integrations(
+    _auth: auth::JWT,
+    Path(id): Path<i64>,
+    State(ctx): State<AppContext>,
+) -> Result<Response> {
+    ApplicationModel::find_by_id(&ctx.db, id).await?;
+    let integrations = GitIntegrationModel::list_for_application(&ctx.db, id).await?;
+    let safe = integrations
+        .iter()
+        .map(GitIntegrationModel::to_safe)
+        .collect::<Vec<_>>();
+    format::json(serde_json::json!({
+        "data": safe,
+        "message": "ok"
+    }))
+}
+
+#[debug_handler]
+pub async fn upsert_git_integration(
+    _auth: auth::JWT,
+    Path(id): Path<i64>,
+    State(ctx): State<AppContext>,
+    Json(params): Json<UpsertGitIntegrationParams>,
+) -> Result<Response> {
+    ApplicationModel::find_by_id(&ctx.db, id).await?;
+    let integration = GitIntegrationModel::upsert(&ctx.db, id, &params).await?;
+    format::json(serde_json::json!({
+        "data": integration.to_safe(),
+        "message": "Git integration saved"
+    }))
+}
+
+#[debug_handler]
+pub async fn remove_git_integration(
+    _auth: auth::JWT,
+    Path((id, provider)): Path<(i64, String)>,
+    State(ctx): State<AppContext>,
+) -> Result<Response> {
+    use crate::models::_entities::git_integrations;
+
+    git_integrations::Entity::delete_many()
+        .filter(git_integrations::Column::ApplicationId.eq(id))
+        .filter(git_integrations::Column::Provider.eq(provider.to_ascii_lowercase()))
+        .exec(&ctx.db)
+        .await?;
+
+    format::json(serde_json::json!({
+        "data": null,
+        "message": "Git integration removed"
     }))
 }
