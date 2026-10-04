@@ -155,6 +155,33 @@ impl Principal {
             .collect())
     }
 
+    pub async fn resolve_organization(
+        &self,
+        db: &DatabaseConnection,
+        requested: Option<i64>,
+    ) -> Result<i64> {
+        let organization_ids = self.organization_ids(db).await?;
+        if let Some(organization_id) = requested {
+            if !organization_ids.contains(&organization_id) {
+                return Err(Error::Unauthorized(
+                    "requested organization is not accessible".to_string(),
+                ));
+            }
+            return Ok(organization_id);
+        }
+
+        match organization_ids.as_slice() {
+            [organization_id] => Ok(*organization_id),
+            [] => Err(Error::Unauthorized(
+                "user has no active organization membership".to_string(),
+            )),
+            _ => Err(Error::BadRequest(
+                "organization_id is required when multiple organizations are available"
+                    .to_string(),
+            )),
+        }
+    }
+
     pub async fn project_organization(
         &self,
         db: &DatabaseConnection,
