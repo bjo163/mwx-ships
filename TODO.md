@@ -12,17 +12,20 @@ GitHub Issues are the canonical source of truth.
 
 ## Grand Plan to v1
 - [ ] #57 Grand Plan: Moonships v1.0 Production GA
-- [ ] #58 v0.3 Deployment Reliability, Revisions, Cancellation & Rollback
-  - [ ] #66 immutable deployment revisions
-  - [ ] #67 cancel and retry
-  - [ ] #68 one-click rollback
-  - [ ] #69 idempotent/restart-safe worker
-  - [ ] #70 retention and cleanup
+- [x] #58 v0.3 Deployment Reliability, Revisions, Cancellation & Rollback
+  - [x] #66 immutable deployment revisions
+  - [x] #67 cancel and retry
+  - [x] #68 one-click rollback
+  - [x] #69 idempotent/restart-safe worker
+  - [x] #70 retention and cleanup
 - [x] #59 v0.4 Managed Ingress, TLS & Zero-Downtime
   - [x] #72 managed Traefik runtime/network
   - [x] #73 blue/green health-before-switch
   - [x] #74 domain verification + ACME TLS lifecycle
-- [ ] #60 v0.5 Git Provider Automation & Preview Deployments
+- [x] #60 v0.5 Git Provider Automation & Preview Deployments
+  - [x] #75 Git provider abstraction + encrypted credentials
+  - [x] #76 signed webhooks + dedupe + status callbacks
+  - [x] #77 pull/merge-request preview lifecycle
 - [ ] #61 v0.6 Production Operations, Backup, Restore & Observability
 - [ ] #62 v0.7 Organizations, RBAC, API Tokens & Audit Trail
 - [ ] #63 v0.8 PostgreSQL Scale Adapter, Multi-Worker & Advanced Workloads
