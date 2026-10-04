@@ -12,3 +12,7 @@ pub mod projects;
 pub mod servers;
 pub mod users;
 pub mod webhook_deliveries;
+pub mod backup_runs;
+pub mod notification_events;
+pub mod operational_events;
+pub mod server_health_checks;
