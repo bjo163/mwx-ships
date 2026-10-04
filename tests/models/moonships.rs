@@ -200,6 +200,19 @@ async fn test_models_lifecycle_and_constraints() {
     .expect("create deployment");
     assert_eq!(dep.status, "queued");
 
+    assert!(
+        ApplicationModel::claim_active_deployment(db, app.id, dep.id)
+            .await
+            .expect("claim active deployment"),
+        "first deployment intent must atomically claim application ownership"
+    );
+    assert!(
+        !ApplicationModel::claim_active_deployment(db, app.id, dep.id + 999)
+            .await
+            .expect("competing deployment claim"),
+        "competing deployment intent must lose the application CAS lock"
+    );
+
     // has_active_deployment MUST now return true because status is 'queued'
     assert!(
         DeploymentModel::has_active_deployment(db, app.id)
@@ -302,6 +315,12 @@ async fn test_models_lifecycle_and_constraints() {
         .await
         .expect("update deployment status");
     assert_eq!(finished_dep.status, "success");
+    assert!(
+        ApplicationModel::release_active_deployment(db, app.id, dep.id)
+            .await
+            .expect("release active deployment"),
+        "terminal deployment must release application ownership"
+    );
 
     // Lock is now released
     assert!(
