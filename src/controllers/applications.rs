@@ -8,7 +8,6 @@ use crate::{
             CreateApplicationParams, Model as ApplicationModel, UpdateApplicationParams,
         },
         audit_events::{AuditEventInput, Model as AuditEventModel},
-        deployment_revisions::Model as DeploymentRevisionModel,
         deployments::{Model as DeploymentModel, TriggerDeployParams},
         domains::{CreateDomainParams, Model as DomainModel},
         environment_variables::{Model as EnvVarModel, SetEnvVarParams},
