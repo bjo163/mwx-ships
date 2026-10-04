@@ -31,6 +31,7 @@ pub struct Model {
     pub previous_revision_id: Option<i64>,
     pub active_runtime_name: Option<String>,
     pub candidate_runtime_name: Option<String>,
+    pub active_deployment_id: Option<i64>,
     pub status: String,
     pub created_at: DateTimeWithTimeZone,
     pub updated_at: DateTimeWithTimeZone,
