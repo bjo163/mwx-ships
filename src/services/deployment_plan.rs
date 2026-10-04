@@ -48,6 +48,14 @@ pub struct DeploymentPlanDomain {
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct DeploymentPlanVolume {
+    pub volume_id: i64,
+    pub docker_volume_name: String,
+    pub mount_path: String,
+    pub read_only: bool,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub struct DeploymentPlan {
     pub plan_version: u32,
     pub plan_fingerprint: String,
@@ -67,6 +75,7 @@ pub struct DeploymentPlan {
     pub healthcheck_port: Option<i32>,
     pub environment: Vec<DeploymentPlanEnvironmentVariable>,
     pub domains: Vec<DeploymentPlanDomain>,
+    pub volumes: Vec<DeploymentPlanVolume>,
 }
 
 pub struct DeploymentPlanService;
@@ -136,6 +145,16 @@ impl DeploymentPlanService {
                     hostname: domain.hostname.clone(),
                     port: domain.port,
                     https_enabled: domain.https_enabled,
+                })
+                .collect(),
+            volumes: snapshot
+                .volumes
+                .iter()
+                .map(|volume| DeploymentPlanVolume {
+                    volume_id: volume.volume_id,
+                    docker_volume_name: volume.docker_volume_name.clone(),
+                    mount_path: volume.mount_path.clone(),
+                    read_only: volume.read_only,
                 })
                 .collect(),
         })
@@ -239,6 +258,16 @@ impl DeploymentPlanService {
                     domain.hostname
                 )));
             }
+        }
+
+        let volume_count = crate::models::volume_attachments::Model::by_application(db, app.id)
+            .await?
+            .len();
+        if app.workload_type == "compose" && volume_count > 0 {
+            return Err(Error::BadRequest(
+                "Moonships-managed persistent volume attachments are not supported for Compose workloads"
+                    .to_string(),
+            ));
         }
 
         if app.workload_type == "compose"
