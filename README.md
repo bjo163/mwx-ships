@@ -6,7 +6,7 @@ Moonships is an independent, self-hosted **Mini-PaaS and deployment control plan
 
 > **Important Architecture Principle:**  
 > **Moonships MVP is strictly SQLite-first.**  
-> Zero external database infrastructure (no PostgreSQL, no Redis) is required for local development, CI testing, or single-node production deployment. PostgreSQL is planned as a future scale adapter for multi-operator clusters.
+> Zero external database infrastructure (no PostgreSQL, no Redis) is required for local development, CI testing, or single-node production deployment. PostgreSQL is available as the optional scale adapter for shared-state multi-worker control planes; SQLite remains the first-class single-node default.
 
 ---
 
@@ -131,7 +131,7 @@ Traditional PaaS platforms require spinning up PostgreSQL, Redis, and message br
 | **M9 Git Automation** | Signed webhooks, provider status, previews | Complete (v0.5) |
 | **M10 Production Operations** | Backup/restore, observability, notifications | Complete (v0.6) |
 | **M11 Teams & RBAC** | Organizations, roles, API tokens, audit | Complete (v0.7) |
-| **M12 Scale Adapter** | PostgreSQL multi-worker, Compose, registries, placement | Release candidate (v0.8) |
+| **M12 Scale Adapter** | PostgreSQL multi-worker, Compose, registries, placement | Complete (v0.8) |
 
 ---
 
@@ -312,6 +312,10 @@ Comprehensive technical guides are available in the [`docs/`](docs/) directory:
 - [ADR 0003: SQLite Worker Queue](docs/adr/0003-sqlite-worker-queue.md)
 - [ADR 0004: Docker Runtime & Traefik](docs/adr/0004-docker-runtime.md)
 - [PostgreSQL Scale Mode](docs/postgresql-scale.md)
+- [v1 Upgrade & Compatibility Policy](docs/upgrade-policy.md)
+- [v1 Threat Model](docs/threat-model-v1.md)
+- [v1 Reliability Budgets](docs/reliability-budgets.md)
+- [Frozen v1 OpenAPI Contract](docs/openapi-v1.json)
 - [ADR 0005: PostgreSQL Scale Adapter](docs/adr/0005-postgresql-future-adapter.md)
 
 ---
