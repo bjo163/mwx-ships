@@ -91,10 +91,7 @@ impl SourceInspectionService {
         let package_json = files
             .get("package.json")
             .and_then(|content| serde_json::from_str::<Value>(content).ok());
-        let vite = package_json
-            .as_ref()
-            .map(has_vite_build)
-            .unwrap_or(false);
+        let vite = package_json.as_ref().map(has_vite_build).unwrap_or(false);
         let root_index = files.contains_key("index.html");
         let static_candidate = root_index || vite;
 
@@ -137,9 +134,9 @@ impl SourceInspectionService {
                     .first()
                     .and_then(|path| files.get(path))
                     .and_then(|content| dockerfile_healthcheck_path(content)),
-                static_output_dir_hint: vite.then(|| "dist".to_string()).or_else(|| {
-                    root_index.then(|| ".".to_string())
-                }),
+                static_output_dir_hint: vite
+                    .then(|| "dist".to_string())
+                    .or_else(|| root_index.then(|| ".".to_string())),
                 package_manager,
                 framework_hint,
                 reasons,
@@ -200,9 +197,9 @@ impl SourceInspectionService {
                 docker_context: Some(".".to_string()),
                 container_port_hint: None,
                 healthcheck_path_hint: None,
-                static_output_dir_hint: vite.then(|| "dist".to_string()).or_else(|| {
-                    root_index.then(|| ".".to_string())
-                }),
+                static_output_dir_hint: vite
+                    .then(|| "dist".to_string())
+                    .or_else(|| root_index.then(|| ".".to_string())),
                 package_manager,
                 framework_hint,
                 reasons,
@@ -410,9 +407,7 @@ fn dockerfile_healthcheck_path(content: &str) -> Option<String> {
                     .next()
                     .unwrap_or("/")
                     .trim_matches(|ch| matches!(ch, '\'' | '"' | ')' | ']' | ';'));
-                if path.starts_with('/')
-                    && path.len() <= 256
-                    && !path.contains(['\n', '\r', '\0'])
+                if path.starts_with('/') && path.len() <= 256 && !path.contains(['\n', '\r', '\0'])
                 {
                     return Some(path.to_string());
                 }
