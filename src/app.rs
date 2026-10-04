@@ -126,6 +126,7 @@ impl Hooks for App {
             .add_route(controllers::projects::routes())
             .add_route(controllers::source_inspection::routes())
             .add_route(controllers::applications::routes())
+            .add_route(controllers::deployment_plans::routes())
             .add_route(controllers::deployments::routes())
             .add_route(controllers::webhooks::routes())
             .add_route(controllers::operations::routes())
