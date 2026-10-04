@@ -1,4 +1,4 @@
-use chrono::Utc;
+use chrono::{Duration, Utc};
 use loco_rs::testing::prelude::*;
 use moonships::{
     app::App,
@@ -416,4 +416,80 @@ async fn test_models_lifecycle_and_constraints() {
     DeploymentModel::record_failure(db, destructive.id, "TEST_CLEANUP", "test cleanup", None)
         .await
         .expect("finish destructive-phase test deployment");
+
+    // 13. Execution leases reject duplicate workers and allow stale recovery.
+    let leased = DeploymentModel::create_deployment(
+        db,
+        app.id,
+        server.id,
+        Some("feed123".to_string()),
+        Some("Lease test".to_string()),
+    )
+    .await
+    .expect("create lease test deployment");
+
+    let first_claim = DeploymentModel::claim_for_execution(db, leased.id, 7200)
+        .await
+        .expect("claim deployment")
+        .expect("first worker should acquire execution lease");
+    assert_eq!(first_claim.deployment.status, "connecting");
+    assert_eq!(first_claim.deployment.attempt_count, 1);
+    assert!(first_claim.recovered_from.is_none());
+
+    let duplicate_claim = DeploymentModel::claim_for_execution(db, leased.id, 7200)
+        .await
+        .expect("duplicate claim check");
+    assert!(
+        duplicate_claim.is_none(),
+        "second worker must not acquire an unexpired lease"
+    );
+
+    let mut stale: moonships::models::deployments::ActiveModel =
+        first_claim.deployment.clone().into();
+    stale.status = Set("building".to_string());
+    stale.lease_expires_at = Set(Some((Utc::now() - Duration::minutes(1)).into()));
+    let stale = stale.update(db).await.expect("make lease stale");
+
+    let recovered = DeploymentModel::claim_for_execution(db, stale.id, 7200)
+        .await
+        .expect("reclaim stale deployment")
+        .expect("stale execution must be recoverable");
+    assert_eq!(recovered.recovered_from.as_deref(), Some("building"));
+    assert_eq!(recovered.deployment.status, "connecting");
+    assert_eq!(recovered.deployment.attempt_count, 2);
+    assert_ne!(recovered.token, first_claim.token);
+
+    let old_owner_transition = DeploymentModel::transition_status_if_owned(
+        db,
+        leased.id,
+        &["connecting"],
+        "cloning",
+        Some(&first_claim.token),
+    )
+    .await
+    .expect("old owner transition");
+    assert!(
+        old_owner_transition.is_none(),
+        "superseded worker token must not advance deployment state"
+    );
+
+    let new_owner_transition = DeploymentModel::transition_status_if_owned(
+        db,
+        leased.id,
+        &["connecting"],
+        "cloning",
+        Some(&recovered.token),
+    )
+    .await
+    .expect("new owner transition")
+    .expect("current lease owner should advance state");
+    assert_eq!(new_owner_transition.status, "cloning");
+
+    let cancelled = DeploymentModel::cancel_if_safe(db, leased.id)
+        .await
+        .expect("cancel lease test")
+        .expect("cloning remains a safe cancellation phase");
+    assert_eq!(cancelled.status, "cancelled");
+    assert!(cancelled.execution_token.is_none());
+    assert!(cancelled.lease_expires_at.is_none());
 }
