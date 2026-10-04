@@ -523,6 +523,7 @@ async fn test_models_lifecycle_and_constraints() {
             provider: "github".to_string(),
             repository_ref: "bjo163/mwx-ships".to_string(),
             api_base_url: None,
+            git_username: None,
             token: Some("github-token-super-secret".to_string()),
             webhook_secret: "webhook-secret-1234567890".to_string(),
             enabled: Some(true),
