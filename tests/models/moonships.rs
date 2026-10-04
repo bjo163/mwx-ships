@@ -27,7 +27,7 @@ use moonships::{
         deployment::DeploymentService,
     },
 };
-use sea_orm::{ActiveModelTrait, ActiveValue::Set};
+use sea_orm::{ActiveModelTrait, ActiveValue::Set, DatabaseConnection};
 use serial_test::serial;
 
 #[tokio::test]
