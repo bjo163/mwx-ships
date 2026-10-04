@@ -278,15 +278,23 @@ async fn handle_pull_request(
         {
             Ok(preview) => {
                 let delivery = WebhookDeliveryModel::mark_completed(&ctx.db, delivery.id).await?;
+                let close_status = preview
+                    .as_ref()
+                    .map(|value| value.status.as_str())
+                    .unwrap_or("closed");
                 response(
                     StatusCode::ACCEPTED,
                     serde_json::json!({
                         "data":{
                             "delivery_id":delivery.delivery_id,
                             "preview":preview,
-                            "status":"closed"
+                            "status":close_status
                         },
-                        "message":"Preview runtime removed"
+                        "message": if close_status == "closing" {
+                            "Preview close accepted; cleanup will finalize after the active deployment"
+                        } else {
+                            "Preview runtime removed"
+                        }
                     }),
                 )
             }
