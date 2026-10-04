@@ -39,8 +39,7 @@ impl Model {
         }
         Ok(Entity::find()
             .filter(
-                persistent_volumes::Column::OrganizationId
-                    .is_in(organization_ids.iter().copied()),
+                persistent_volumes::Column::OrganizationId.is_in(organization_ids.iter().copied()),
             )
             .order_by_asc(persistent_volumes::Column::Name)
             .all(db)
