@@ -170,10 +170,17 @@ pub async fn remove(
 ) -> Result<Response> {
     let app = ApplicationModel::find_by_id(&ctx.db, id).await?;
     let (_, runtime) = remote_runtime(&ctx.db, &app).await?;
+    let runtime_name = app.resolved_runtime_name();
     runtime
-        .stop_and_remove_container(&app.container_name)
+        .stop_and_remove_container(&runtime_name)
         .await
         .map_err(|err| Error::BadRequest(err.to_string()))?;
+    if let Some(candidate) = app.candidate_runtime_name.as_deref() {
+        if candidate != runtime_name {
+            let _ = runtime.stop_and_remove_container(candidate).await;
+        }
+    }
+    let _ = runtime.remove_managed_route(app.id).await;
     Entity::delete_by_id(app.id).exec(&ctx.db).await?;
 
     format::json(serde_json::json!({
@@ -298,8 +305,9 @@ pub async fn start(
 ) -> Result<Response> {
     let app = ApplicationModel::find_by_id(&ctx.db, id).await?;
     let (_, runtime) = remote_runtime(&ctx.db, &app).await?;
+    let runtime_name = app.resolved_runtime_name();
     runtime
-        .start_container(&app.container_name)
+        .start_container(&runtime_name)
         .await
         .map_err(|err| Error::BadRequest(err.to_string()))?;
     let updated = ApplicationModel::update_status(&ctx.db, app.id, "running").await?;
@@ -316,8 +324,9 @@ pub async fn stop(
 ) -> Result<Response> {
     let app = ApplicationModel::find_by_id(&ctx.db, id).await?;
     let (_, runtime) = remote_runtime(&ctx.db, &app).await?;
+    let runtime_name = app.resolved_runtime_name();
     runtime
-        .stop_container(&app.container_name)
+        .stop_container(&runtime_name)
         .await
         .map_err(|err| Error::BadRequest(err.to_string()))?;
     let updated = ApplicationModel::update_status(&ctx.db, app.id, "stopped").await?;
@@ -334,8 +343,9 @@ pub async fn restart(
 ) -> Result<Response> {
     let app = ApplicationModel::find_by_id(&ctx.db, id).await?;
     let (_, runtime) = remote_runtime(&ctx.db, &app).await?;
+    let runtime_name = app.resolved_runtime_name();
     runtime
-        .restart_container(&app.container_name)
+        .restart_container(&runtime_name)
         .await
         .map_err(|err| Error::BadRequest(err.to_string()))?;
     let updated = ApplicationModel::update_status(&ctx.db, app.id, "running").await?;
@@ -352,8 +362,9 @@ pub async fn status(
 ) -> Result<Response> {
     let app = ApplicationModel::find_by_id(&ctx.db, id).await?;
     let (server, runtime) = remote_runtime(&ctx.db, &app).await?;
+    let runtime_name = app.resolved_runtime_name();
     let container_status = runtime
-        .container_status(&app.container_name)
+        .container_status(&runtime_name)
         .await
         .unwrap_or_else(|_| "unknown".to_string());
     format::json(serde_json::json!({
@@ -375,8 +386,9 @@ pub async fn logs(
 ) -> Result<Response> {
     let app = ApplicationModel::find_by_id(&ctx.db, id).await?;
     let (server, runtime) = remote_runtime(&ctx.db, &app).await?;
+    let runtime_name = app.resolved_runtime_name();
     let logs = runtime
-        .container_logs(&app.container_name, 200)
+        .container_logs(&runtime_name, 200)
         .await
         .unwrap_or_default();
 
@@ -393,7 +405,7 @@ pub async fn logs(
     format::json(serde_json::json!({
         "data": {
             "application_id": app.id,
-            "container_name": app.container_name,
+            "container_name": runtime_name,
             "target_server_id": server.id,
             "target_server": server.name,
             "logs": safe_logs,
