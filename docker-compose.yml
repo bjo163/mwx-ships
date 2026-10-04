@@ -7,7 +7,7 @@ services:
     container_name: moonships-control-plane
     restart: unless-stopped
     ports:
-      - "5150:5150"
+      - "${MOONSHIPS_BIND_IP:-127.0.0.1}:5150:5150"
     environment:
       - LOCO_ENV=production
       - PORT=5150
