@@ -113,6 +113,13 @@ impl MigrationTrait for Migration {
                         .big_integer()
                         .null(),
                 )
+                .to_owned(),
+        )
+        .await?;
+
+        m.alter_table(
+            Table::alter()
+                .table(Applications::Table)
                 .add_column(
                     ColumnDef::new(Applications::PreviousRevisionId)
                         .big_integer()
@@ -163,6 +170,13 @@ impl MigrationTrait for Migration {
             Table::alter()
                 .table(Applications::Table)
                 .drop_column(Applications::PreviousRevisionId)
+                .to_owned(),
+        )
+        .await?;
+
+        m.alter_table(
+            Table::alter()
+                .table(Applications::Table)
                 .drop_column(Applications::CurrentRevisionId)
                 .to_owned(),
         )
