@@ -1,0 +1,362 @@
+use sea_orm_migration::prelude::*;
+
+#[derive(DeriveMigrationName)]
+pub struct Migration;
+
+#[async_trait::async_trait]
+impl MigrationTrait for Migration {
+    async fn up(&self, m: &SchemaManager) -> Result<(), DbErr> {
+        m.create_table(
+            Table::create()
+                .table(Organizations::Table)
+                .if_not_exists()
+                .col(
+                    ColumnDef::new(Organizations::Id)
+                        .big_integer()
+                        .not_null()
+                        .auto_increment()
+                        .primary_key(),
+                )
+                .col(ColumnDef::new(Organizations::Name).string().not_null())
+                .col(ColumnDef::new(Organizations::Slug).string().not_null().unique_key())
+                .col(
+                    ColumnDef::new(Organizations::CreatedAt)
+                        .timestamp_with_time_zone()
+                        .not_null(),
+                )
+                .col(
+                    ColumnDef::new(Organizations::UpdatedAt)
+                        .timestamp_with_time_zone()
+                        .not_null(),
+                )
+                .to_owned(),
+        )
+        .await?;
+
+        m.create_table(
+            Table::create()
+                .table(OrganizationMemberships::Table)
+                .if_not_exists()
+                .col(
+                    ColumnDef::new(OrganizationMemberships::Id)
+                        .big_integer()
+                        .not_null()
+                        .auto_increment()
+                        .primary_key(),
+                )
+                .col(
+                    ColumnDef::new(OrganizationMemberships::OrganizationId)
+                        .big_integer()
+                        .not_null(),
+                )
+                .col(
+                    ColumnDef::new(OrganizationMemberships::UserId)
+                        .big_integer()
+                        .not_null(),
+                )
+                .col(
+                    ColumnDef::new(OrganizationMemberships::Role)
+                        .string()
+                        .not_null(),
+                )
+                .col(
+                    ColumnDef::new(OrganizationMemberships::IsActive)
+                        .boolean()
+                        .not_null()
+                        .default(true),
+                )
+                .col(
+                    ColumnDef::new(OrganizationMemberships::CreatedAt)
+                        .timestamp_with_time_zone()
+                        .not_null(),
+                )
+                .col(
+                    ColumnDef::new(OrganizationMemberships::UpdatedAt)
+                        .timestamp_with_time_zone()
+                        .not_null(),
+                )
+                .foreign_key(
+                    ForeignKey::create()
+                        .name("fk_membership_org")
+                        .from(
+                            OrganizationMemberships::Table,
+                            OrganizationMemberships::OrganizationId,
+                        )
+                        .to(Organizations::Table, Organizations::Id)
+                        .on_delete(ForeignKeyAction::Cascade),
+                )
+                .foreign_key(
+                    ForeignKey::create()
+                        .name("fk_membership_user")
+                        .from(
+                            OrganizationMemberships::Table,
+                            OrganizationMemberships::UserId,
+                        )
+                        .to(Users::Table, Users::Id)
+                        .on_delete(ForeignKeyAction::Cascade),
+                )
+                .to_owned(),
+        )
+        .await?;
+
+        m.create_index(
+            Index::create()
+                .name("idx_membership_org_user")
+                .table(OrganizationMemberships::Table)
+                .col(OrganizationMemberships::OrganizationId)
+                .col(OrganizationMemberships::UserId)
+                .unique()
+                .to_owned(),
+        )
+        .await?;
+
+        m.create_table(
+            Table::create()
+                .table(ApiTokens::Table)
+                .if_not_exists()
+                .col(
+                    ColumnDef::new(ApiTokens::Id)
+                        .big_integer()
+                        .not_null()
+                        .auto_increment()
+                        .primary_key(),
+                )
+                .col(ColumnDef::new(ApiTokens::OrganizationId).big_integer().not_null())
+                .col(ColumnDef::new(ApiTokens::UserId).big_integer().not_null())
+                .col(ColumnDef::new(ApiTokens::Name).string().not_null())
+                .col(ColumnDef::new(ApiTokens::TokenPrefix).string().not_null())
+                .col(ColumnDef::new(ApiTokens::TokenHash).string().not_null().unique_key())
+                .col(ColumnDef::new(ApiTokens::Scopes).text().not_null())
+                .col(ColumnDef::new(ApiTokens::ExpiresAt).timestamp_with_time_zone().null())
+                .col(ColumnDef::new(ApiTokens::RevokedAt).timestamp_with_time_zone().null())
+                .col(ColumnDef::new(ApiTokens::LastUsedAt).timestamp_with_time_zone().null())
+                .col(ColumnDef::new(ApiTokens::CreatedAt).timestamp_with_time_zone().not_null())
+                .col(ColumnDef::new(ApiTokens::UpdatedAt).timestamp_with_time_zone().not_null())
+                .foreign_key(
+                    ForeignKey::create()
+                        .name("fk_api_token_org")
+                        .from(ApiTokens::Table, ApiTokens::OrganizationId)
+                        .to(Organizations::Table, Organizations::Id)
+                        .on_delete(ForeignKeyAction::Cascade),
+                )
+                .foreign_key(
+                    ForeignKey::create()
+                        .name("fk_api_token_user")
+                        .from(ApiTokens::Table, ApiTokens::UserId)
+                        .to(Users::Table, Users::Id)
+                        .on_delete(ForeignKeyAction::Cascade),
+                )
+                .to_owned(),
+        )
+        .await?;
+
+        m.create_table(
+            Table::create()
+                .table(AuditEvents::Table)
+                .if_not_exists()
+                .col(
+                    ColumnDef::new(AuditEvents::Id)
+                        .big_integer()
+                        .not_null()
+                        .auto_increment()
+                        .primary_key(),
+                )
+                .col(ColumnDef::new(AuditEvents::OrganizationId).big_integer().null())
+                .col(ColumnDef::new(AuditEvents::ActorKind).string().not_null())
+                .col(ColumnDef::new(AuditEvents::ActorId).string().not_null())
+                .col(ColumnDef::new(AuditEvents::Action).string().not_null())
+                .col(ColumnDef::new(AuditEvents::ResourceType).string().null())
+                .col(ColumnDef::new(AuditEvents::ResourceId).string().null())
+                .col(ColumnDef::new(AuditEvents::Outcome).string().not_null())
+                .col(ColumnDef::new(AuditEvents::RequestId).string().null())
+                .col(ColumnDef::new(AuditEvents::MetadataJson).text().null())
+                .col(ColumnDef::new(AuditEvents::CreatedAt).timestamp_with_time_zone().not_null())
+                .foreign_key(
+                    ForeignKey::create()
+                        .name("fk_audit_org")
+                        .from(AuditEvents::Table, AuditEvents::OrganizationId)
+                        .to(Organizations::Table, Organizations::Id)
+                        .on_delete(ForeignKeyAction::SetNull),
+                )
+                .to_owned(),
+        )
+        .await?;
+
+        m.create_index(
+            Index::create()
+                .name("idx_audit_org_created")
+                .table(AuditEvents::Table)
+                .col(AuditEvents::OrganizationId)
+                .col(AuditEvents::CreatedAt)
+                .to_owned(),
+        )
+        .await?;
+
+        m.create_table(
+            Table::create()
+                .table(AuthRateLimits::Table)
+                .if_not_exists()
+                .col(
+                    ColumnDef::new(AuthRateLimits::Id)
+                        .big_integer()
+                        .not_null()
+                        .auto_increment()
+                        .primary_key(),
+                )
+                .col(ColumnDef::new(AuthRateLimits::Action).string().not_null())
+                .col(ColumnDef::new(AuthRateLimits::KeyHash).string().not_null())
+                .col(
+                    ColumnDef::new(AuthRateLimits::Attempts)
+                        .integer()
+                        .not_null()
+                        .default(0),
+                )
+                .col(
+                    ColumnDef::new(AuthRateLimits::WindowStartedAt)
+                        .timestamp_with_time_zone()
+                        .not_null(),
+                )
+                .col(
+                    ColumnDef::new(AuthRateLimits::BlockedUntil)
+                        .timestamp_with_time_zone()
+                        .null(),
+                )
+                .col(
+                    ColumnDef::new(AuthRateLimits::UpdatedAt)
+                        .timestamp_with_time_zone()
+                        .not_null(),
+                )
+                .to_owned(),
+        )
+        .await?;
+
+        m.create_index(
+            Index::create()
+                .name("idx_auth_rate_limit_key")
+                .table(AuthRateLimits::Table)
+                .col(AuthRateLimits::Action)
+                .col(AuthRateLimits::KeyHash)
+                .unique()
+                .to_owned(),
+        )
+        .await?;
+
+        m.alter_table(
+            Table::alter()
+                .table(Users::Table)
+                .add_column(
+                    ColumnDef::new(Users::SessionVersion)
+                        .integer()
+                        .not_null()
+                        .default(0),
+                )
+                .to_owned(),
+        )
+        .await?;
+
+        m.alter_table(
+            Table::alter()
+                .table(Projects::Table)
+                .add_column(ColumnDef::new(Projects::OrganizationId).big_integer().null())
+                .to_owned(),
+        )
+        .await?;
+
+        m.alter_table(
+            Table::alter()
+                .table(Servers::Table)
+                .add_column(ColumnDef::new(Servers::OrganizationId).big_integer().null())
+                .to_owned(),
+        )
+        .await?;
+
+        m.create_index(
+            Index::create()
+                .name("idx_projects_organization")
+                .table(Projects::Table)
+                .col(Projects::OrganizationId)
+                .to_owned(),
+        )
+        .await?;
+
+        m.create_index(
+            Index::create()
+                .name("idx_servers_organization")
+                .table(Servers::Table)
+                .col(Servers::OrganizationId)
+                .to_owned(),
+        )
+        .await?;
+
+        Ok(())
+    }
+
+    async fn down(&self, m: &SchemaManager) -> Result<(), DbErr> {
+        m.drop_index(
+            Index::drop()
+                .name("idx_servers_organization")
+                .table(Servers::Table)
+                .to_owned(),
+        )
+        .await?;
+        m.drop_index(
+            Index::drop()
+                .name("idx_projects_organization")
+                .table(Projects::Table)
+                .to_owned(),
+        )
+        .await?;
+
+        m.alter_table(
+            Table::alter()
+                .table(Servers::Table)
+                .drop_column(Servers::OrganizationId)
+                .to_owned(),
+        )
+        .await?;
+        m.alter_table(
+            Table::alter()
+                .table(Projects::Table)
+                .drop_column(Projects::OrganizationId)
+                .to_owned(),
+        )
+        .await?;
+        m.alter_table(
+            Table::alter()
+                .table(Users::Table)
+                .drop_column(Users::SessionVersion)
+                .to_owned(),
+        )
+        .await?;
+
+        for table in [
+            AuthRateLimits::Table,
+            AuditEvents::Table,
+            ApiTokens::Table,
+            OrganizationMemberships::Table,
+            Organizations::Table,
+        ] {
+            m.drop_table(Table::drop().table(table).if_exists().to_owned())
+                .await?;
+        }
+
+        Ok(())
+    }
+}
+
+#[derive(DeriveIden)]
+enum Organizations { Table, Id, Name, Slug, CreatedAt, UpdatedAt }
+#[derive(DeriveIden)]
+enum OrganizationMemberships { Table, Id, OrganizationId, UserId, Role, IsActive, CreatedAt, UpdatedAt }
+#[derive(DeriveIden)]
+enum ApiTokens { Table, Id, OrganizationId, UserId, Name, TokenPrefix, TokenHash, Scopes, ExpiresAt, RevokedAt, LastUsedAt, CreatedAt, UpdatedAt }
+#[derive(DeriveIden)]
+enum AuditEvents { Table, Id, OrganizationId, ActorKind, ActorId, Action, ResourceType, ResourceId, Outcome, RequestId, MetadataJson, CreatedAt }
+#[derive(DeriveIden)]
+enum AuthRateLimits { Table, Id, Action, KeyHash, Attempts, WindowStartedAt, BlockedUntil, UpdatedAt }
+#[derive(DeriveIden)]
+enum Users { Table, Id, SessionVersion }
+#[derive(DeriveIden)]
+enum Projects { Table, OrganizationId }
+#[derive(DeriveIden)]
+enum Servers { Table, OrganizationId }
