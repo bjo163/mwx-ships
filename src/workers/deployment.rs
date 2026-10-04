@@ -1,4 +1,7 @@
-use crate::services::deployment::{DeploymentError, DeploymentService};
+use crate::services::{
+    deployment::{DeploymentError, DeploymentService},
+    preview::PreviewService,
+};
 use loco_rs::prelude::*;
 use serde::{Deserialize, Serialize};
 
@@ -25,6 +28,19 @@ impl BackgroundWorker<DeploymentWorkerArgs> for DeploymentWorker {
 
         match DeploymentService::execute_deployment(&self.ctx.db, args.deployment_id).await {
             Ok(()) => {
+                if let Err(error) =
+                    PreviewService::finalize_pending_close_for_deployment(
+                        &self.ctx.db,
+                        args.deployment_id,
+                    )
+                    .await
+                {
+                    tracing::warn!(
+                        deployment_id = args.deployment_id,
+                        error = %error,
+                        "Deferred preview cleanup remains pending"
+                    );
+                }
                 tracing::info!(
                     deployment_id = args.deployment_id,
                     "DeploymentWorker completed deployment successfully"
@@ -32,6 +48,19 @@ impl BackgroundWorker<DeploymentWorkerArgs> for DeploymentWorker {
                 Ok(())
             }
             Err(DeploymentError::Cancelled) => {
+                if let Err(error) =
+                    PreviewService::finalize_pending_close_for_deployment(
+                        &self.ctx.db,
+                        args.deployment_id,
+                    )
+                    .await
+                {
+                    tracing::warn!(
+                        deployment_id = args.deployment_id,
+                        error = %error,
+                        "Deferred preview cleanup remains pending after cancellation"
+                    );
+                }
                 tracing::info!(
                     deployment_id = args.deployment_id,
                     "DeploymentWorker observed a user-cancelled deployment"
@@ -54,6 +83,19 @@ impl BackgroundWorker<DeploymentWorkerArgs> for DeploymentWorker {
                 Ok(())
             }
             Err(err) => {
+                if let Err(cleanup_error) =
+                    PreviewService::finalize_pending_close_for_deployment(
+                        &self.ctx.db,
+                        args.deployment_id,
+                    )
+                    .await
+                {
+                    tracing::warn!(
+                        deployment_id = args.deployment_id,
+                        error = %cleanup_error,
+                        "Deferred preview cleanup remains pending after deployment failure"
+                    );
+                }
                 tracing::error!(
                     deployment_id = args.deployment_id,
                     error = %err,
