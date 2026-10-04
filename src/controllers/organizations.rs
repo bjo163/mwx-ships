@@ -12,7 +12,7 @@ use crate::{
 };
 use axum::http::HeaderMap;
 use loco_rs::prelude::*;
-use sea_orm::{ActiveValue::Set, ColumnTrait, EntityTrait, QueryFilter};
+use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
 use serde::Deserialize;
 
 pub fn routes() -> Routes {
