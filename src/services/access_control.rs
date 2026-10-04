@@ -39,11 +39,15 @@ pub struct Principal {
     pub actor_kind: &'static str,
     pub actor_id: String,
     pub api_token: Option<api_tokens::Model>,
+    pub request_id: String,
+    pub confirmation: Option<String>,
 }
 
 impl Principal {
     pub async fn authenticate(ctx: &AppContext, headers: &HeaderMap) -> Result<Self> {
         let token = bearer_token(headers)?;
+        let request_id = request_id(headers);
+        let confirmation = confirmation(headers);
         if token.starts_with("msk_") {
             let record = api_tokens::Model::authenticate(&ctx.db, token)
                 .await?
@@ -57,6 +61,8 @@ impl Principal {
                 actor_id: record.id.to_string(),
                 user,
                 api_token: Some(record),
+                request_id,
+                confirmation,
             });
         }
 
@@ -83,6 +89,8 @@ impl Principal {
             actor_id: user.pid.to_string(),
             user,
             api_token: None,
+            request_id,
+            confirmation,
         })
     }
 
@@ -265,6 +273,32 @@ impl Principal {
     pub fn audit_actor(&self) -> (&'static str, String) {
         (self.actor_kind, self.actor_id.clone())
     }
+
+    pub fn audit_metadata(
+        &self,
+        metadata: Option<serde_json::Value>,
+    ) -> Option<serde_json::Value> {
+        let mut object = match metadata {
+            Some(serde_json::Value::Object(map)) => map,
+            Some(value) => {
+                let mut map = serde_json::Map::new();
+                map.insert("details".to_string(), value);
+                map
+            }
+            None => serde_json::Map::new(),
+        };
+        object.insert(
+            "confirmation_present".to_string(),
+            serde_json::Value::Bool(self.confirmation.is_some()),
+        );
+        if let Some(confirmation) = &self.confirmation {
+            object.insert(
+                "confirmation".to_string(),
+                serde_json::Value::String(confirmation.clone()),
+            );
+        }
+        Some(serde_json::Value::Object(object))
+    }
 }
 
 pub fn session_claims(session_version: i32) -> Map<String, Value> {
@@ -285,4 +319,24 @@ fn bearer_token(headers: &HeaderMap) -> Result<&str> {
         .strip_prefix("Bearer ")
         .filter(|token| !token.trim().is_empty())
         .ok_or_else(|| Error::Unauthorized("authorization bearer token is malformed".to_string()))
+}
+
+
+fn request_id(headers: &HeaderMap) -> String {
+    headers
+        .get("x-request-id")
+        .and_then(|value| value.to_str().ok())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| value.chars().take(128).collect())
+        .unwrap_or_else(|| uuid::Uuid::new_v4().to_string())
+}
+
+fn confirmation(headers: &HeaderMap) -> Option<String> {
+    headers
+        .get("x-moonships-confirmation")
+        .and_then(|value| value.to_str().ok())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| value.chars().take(128).collect())
 }
