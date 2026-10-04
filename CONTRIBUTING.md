@@ -50,10 +50,10 @@ Moonships is an independent, self-hosted deployment control plane built with Rus
 Moonships intentionally keeps the canonical repository to two working branches:
 
 - **`dev`**: continuous integration and day-to-day engineering.
-- **`main`**: production-only branch. Promotions are made through a single `dev -> main` pull request after all release gates are green.
+- **`main`**: production-only branch. Promotions are made through a fast-forward `main` to the exact green `dev` commit after all release gates pass.
 
 Do not create long-lived feature, release, dependency, or hotfix branches in this repository. Normal changes are committed directly to `dev`. External contributors should use forks and target `dev`.
 
 Dependency upgrades are batched directly on `dev` after audit/test review rather than using automated dependency PR branches.
 
-A release is prepared on `dev` by updating version metadata and the changelog. Merging the green `dev -> main` promotion triggers generic release automation when the package version changes.
+A release is prepared on `dev` by updating version metadata and the changelog. Fast-forwarding `main` to the green `dev` commit triggers generic release automation when the package version changes.
