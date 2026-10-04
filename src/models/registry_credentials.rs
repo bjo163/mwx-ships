@@ -60,6 +60,11 @@ impl Model {
                 "registry credential name and password are required".to_string(),
             ));
         }
+        if params.password.contains(['\n', '\r', '\0']) {
+            return Err(Error::BadRequest(
+                "registry password contains unsupported control characters".to_string(),
+            ));
+        }
 
         let now = Utc::now();
         let encrypted_password = CryptoService::encrypt(&params.password)
