@@ -46,8 +46,8 @@ impl Model {
             } else {
                 model.attempts.saturating_add(1)
             };
-            let blocked_until = (attempts > max_attempts)
-                .then(|| (now + Duration::seconds(block_seconds)).into());
+            let blocked_until =
+                (attempts > max_attempts).then(|| (now + Duration::seconds(block_seconds)).into());
 
             let mut active: ActiveModel = model.into();
             active.attempts = Set(attempts);
@@ -62,9 +62,8 @@ impl Model {
 
             return Ok(RateLimitDecision {
                 allowed: blocked_until.is_none(),
-                retry_after_seconds: blocked_until.map(|until| {
-                    (until - now.fixed_offset()).num_seconds().max(1)
-                }),
+                retry_after_seconds: blocked_until
+                    .map(|until| (until - now.fixed_offset()).num_seconds().max(1)),
             });
         }
 
