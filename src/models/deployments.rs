@@ -52,6 +52,18 @@ impl Model {
         Ok(list)
     }
 
+    pub async fn latest_success_for_application(
+        db: &DatabaseConnection,
+        application_id: i64,
+    ) -> Result<Option<Model>> {
+        Ok(Entity::find()
+            .filter(deployments::Column::ApplicationId.eq(application_id))
+            .filter(deployments::Column::Status.eq("success"))
+            .order_by_desc(deployments::Column::FinishedAt)
+            .one(db)
+            .await?)
+    }
+
     pub async fn latest_for_application(
         db: &DatabaseConnection,
         application_id: i64,
@@ -87,10 +99,37 @@ impl Model {
         commit_hash: Option<String>,
         commit_message: Option<String>,
     ) -> Result<Model> {
+        Self::create_deployment_attempt(
+            db,
+            application_id,
+            server_id,
+            commit_hash,
+            commit_message,
+            "manual",
+            None,
+            None,
+        )
+        .await
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub async fn create_deployment_attempt(
+        db: &DatabaseConnection,
+        application_id: i64,
+        server_id: i64,
+        commit_hash: Option<String>,
+        commit_message: Option<String>,
+        trigger_kind: &str,
+        source_deployment_id: Option<i64>,
+        revision_id: Option<i64>,
+    ) -> Result<Model> {
         let now = Utc::now();
         let active = ActiveModel {
             application_id: Set(application_id),
             server_id: Set(server_id),
+            revision_id: Set(revision_id),
+            trigger_kind: Set(trigger_kind.to_string()),
+            source_deployment_id: Set(source_deployment_id),
             commit_hash: Set(commit_hash),
             commit_message: Set(commit_message),
             status: Set("queued".to_string()),
@@ -100,8 +139,7 @@ impl Model {
             ..Default::default()
         };
 
-        let model = active.insert(db).await?;
-        Ok(model)
+        Ok(active.insert(db).await?)
     }
 
     pub async fn transition_status_if(
