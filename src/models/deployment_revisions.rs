@@ -6,7 +6,10 @@ use sea_orm::{
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-use super::{applications, domains, environment_variables, registry_credentials, servers};
+use super::{
+    applications, domains, environment_variables, registry_credentials, servers,
+    volume_attachments,
+};
 
 pub use super::_entities::deployment_revisions::{self, ActiveModel, Entity, Model};
 
@@ -25,6 +28,14 @@ pub struct RevisionDomain {
     pub hostname: String,
     pub port: i32,
     pub https_enabled: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct RevisionVolume {
+    pub volume_id: i64,
+    pub docker_volume_name: String,
+    pub mount_path: String,
+    pub read_only: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -65,6 +76,8 @@ pub struct RuntimeSnapshot {
     pub healthcheck_port: Option<i32>,
     pub environment: Vec<RevisionEnvironmentVariable>,
     pub domains: Vec<RevisionDomain>,
+    #[serde(default)]
+    pub volumes: Vec<RevisionVolume>,
 }
 
 impl Model {
@@ -208,6 +221,17 @@ impl Model {
             })
             .collect();
 
+        let volumes = volume_attachments::Model::resolved_for_application(db, app.id)
+            .await?
+            .into_iter()
+            .map(|resolved| RevisionVolume {
+                volume_id: resolved.volume.id,
+                docker_volume_name: resolved.volume.docker_volume_name,
+                mount_path: resolved.attachment.mount_path,
+                read_only: resolved.attachment.read_only,
+            })
+            .collect::<Vec<_>>();
+
         let registry_credential = match app.registry_credential_id {
             Some(id) => {
                 let credential = registry_credentials::Model::find_by_id(db, id).await?;
@@ -222,7 +246,7 @@ impl Model {
         };
 
         Ok(RuntimeSnapshot {
-            schema_version: 2,
+            schema_version: 3,
             server_id: server.id,
             git_repository: app.git_repository.clone(),
             git_branch: app.git_branch.clone(),
@@ -242,6 +266,7 @@ impl Model {
             healthcheck_port: app.healthcheck_port,
             environment,
             domains,
+            volumes,
         })
     }
 }
