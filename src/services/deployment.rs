@@ -1,6 +1,6 @@
 use crate::models::{
     applications, deployment_logs, deployment_revisions, deployments, domains, git_integrations,
-    servers, webhook_deliveries,
+    operational_events, servers, webhook_deliveries,
 };
 use crate::services::{
     crypto::CryptoService,
@@ -1378,8 +1378,24 @@ impl DeploymentService {
                     ),
                 )
                 .await;
-                for warning in report.warnings {
-                    let _ = deployment_logs::Model::append(db, dep.id, "stderr", &warning).await;
+                let _ = operational_events::Model::record(
+                    db,
+                    "retention_cleanup",
+                    if report.warnings.is_empty() { "info" } else { "warning" },
+                    Some("application"),
+                    Some(app.id),
+                    "Post-deployment retention cleanup completed",
+                    Some(&serde_json::json!({
+                        "revision_artifacts_considered": report.revision_artifacts_considered,
+                        "images_pruned": report.images_pruned,
+                        "logs_pruned": report.logs_pruned,
+                        "disk_available_gb": report.disk_available_gb,
+                        "warnings": report.warnings,
+                    })),
+                )
+                .await;
+                for warning in &report.warnings {
+                    let _ = deployment_logs::Model::append(db, dep.id, "stderr", warning).await;
                 }
             }
             Err(err) => {
@@ -1388,6 +1404,16 @@ impl DeploymentService {
                     dep.id,
                     "stderr",
                     &format!("Retention cleanup skipped: {err}"),
+                )
+                .await;
+                let _ = operational_events::Model::record(
+                    db,
+                    "retention_cleanup_failed",
+                    "warning",
+                    Some("application"),
+                    Some(app.id),
+                    "Post-deployment retention cleanup failed",
+                    Some(&serde_json::json!({"error": err.to_string()})),
                 )
                 .await;
             }
