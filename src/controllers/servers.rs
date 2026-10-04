@@ -4,8 +4,14 @@ use crate::{
         operational_events, server_health_checks,
         servers::{CreateServerParams, Model as ServerModel, UpdateServerParams},
     },
-    services::{crypto::CryptoService, notification::NotificationService, ssh::SshService},
+    services::{
+        access_control::{Permission, Principal},
+        crypto::CryptoService,
+        notification::NotificationService,
+        ssh::SshService,
+    },
 };
+use axum::http::HeaderMap;
 use chrono::Utc;
 use loco_rs::prelude::*;
 use sea_orm::{ActiveValue::Set, EntityTrait};
@@ -23,8 +29,10 @@ pub fn routes() -> Routes {
 }
 
 #[debug_handler]
-pub async fn list(_auth: auth::JWT, State(ctx): State<AppContext>) -> Result<Response> {
-    let servers = ServerModel::all(&ctx.db).await?;
+pub async fn list(headers: HeaderMap, State(ctx): State<AppContext>) -> Result<Response> {
+    let principal = Principal::authenticate(&ctx, &headers).await?;
+    let organization_ids = principal.organization_ids(&ctx.db).await?;
+    let servers = ServerModel::all_for_organizations(&ctx.db, &organization_ids).await?;
     // Mask private keys
     let safe_servers: Vec<serde_json::Value> = servers
         .into_iter()
