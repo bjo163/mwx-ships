@@ -19,7 +19,13 @@ pub struct Model {
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
 pub enum Relation {
-    #[sea_orm(belongs_to = "super::organizations::Entity", from = "Column::OrganizationId", to = "super::organizations::Column::Id", on_update = "NoAction", on_delete = "SetNull")]
+    #[sea_orm(
+        belongs_to = "super::organizations::Entity",
+        from = "Column::OrganizationId",
+        to = "super::organizations::Column::Id",
+        on_update = "NoAction",
+        on_delete = "SetNull"
+    )]
     Organizations,
     #[sea_orm(has_many = "super::environments::Entity")]
     Environments,
@@ -28,7 +34,9 @@ pub enum Relation {
 }
 
 impl Related<super::organizations::Entity> for Entity {
-    fn to() -> RelationDef { Relation::Organizations.def() }
+    fn to() -> RelationDef {
+        Relation::Organizations.def()
+    }
 }
 
 impl Related<super::environments::Entity> for Entity {
