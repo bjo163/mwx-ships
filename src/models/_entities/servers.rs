@@ -17,6 +17,8 @@ pub struct Model {
     pub encrypted_private_key: Option<String>,
     pub known_host_fingerprint: Option<String>,
     pub status: String,
+    pub tags_json: String,
+    pub capacity_units: i32,
     pub last_seen_at: Option<DateTimeWithTimeZone>,
     pub created_at: DateTimeWithTimeZone,
     pub updated_at: DateTimeWithTimeZone,
