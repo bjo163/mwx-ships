@@ -318,6 +318,7 @@ impl PreviewService {
         preview_environment_id: i64,
         source_ref: &str,
     ) -> Result<ApplicationModel, PreviewError> {
+        let preview_slug = preview.slug.clone();
         let mut active: applications::ActiveModel = preview.into();
         active.server_id = Set(base.server_id);
         active.server_pool_id = Set(None);
@@ -328,7 +329,7 @@ impl PreviewService {
         active.build_type = Set(base.build_type.clone());
         active.workload_type = Set(base.workload_type.clone());
         active.compose_file_path = Set(base.compose_file_path.clone());
-        active.compose_project_name = Set(Some(format!("moonships-{}", preview.preview_slug)));
+        active.compose_project_name = Set(Some(format!("moonships-{preview_slug}")));
         active.registry_credential_id = Set(base.registry_credential_id);
         active.dockerfile_path = Set(base.dockerfile_path.clone());
         active.docker_context = Set(base.docker_context.clone());
