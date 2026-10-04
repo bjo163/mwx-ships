@@ -68,6 +68,20 @@ impl Model {
         Ok(list)
     }
 
+    pub async fn all_for_projects(
+        db: &DatabaseConnection,
+        project_ids: &[i64],
+    ) -> Result<Vec<Model>> {
+        if project_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        Ok(Entity::find()
+            .filter(applications::Column::ProjectId.is_in(project_ids.iter().copied()))
+            .order_by_asc(applications::Column::Name)
+            .all(db)
+            .await?)
+    }
+
     pub async fn by_project(db: &DatabaseConnection, project_id: i64) -> Result<Vec<Model>> {
         let list = Entity::find()
             .filter(applications::Column::ProjectId.eq(project_id))
