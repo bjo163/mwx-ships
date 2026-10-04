@@ -2,6 +2,7 @@ use chrono::Utc;
 use loco_rs::testing::prelude::*;
 use moonships::{
     app::App,
+    services::deployment::DeploymentService,
     models::{
         applications::{CreateApplicationParams, Model as ApplicationModel},
         deployment_logs::Model as DeploymentLogModel,
@@ -302,4 +303,76 @@ async fn test_models_lifecycle_and_constraints() {
         .expect("promote second revision");
     assert_eq!(promoted.current_revision_id, Some(second_revision.id));
     assert_eq!(promoted.previous_revision_id, Some(revision.id));
+
+    // 9. Safe cancellation is terminal and releases the active lock.
+    let cancelled = DeploymentModel::cancel_if_safe(db, second_dep.id)
+        .await
+        .expect("cancel second deployment")
+        .expect("queued deployment should be cancellable");
+    assert_eq!(cancelled.status, "cancelled");
+    assert!(
+        !DeploymentModel::has_active_deployment(db, app.id)
+            .await
+            .expect("active lock after cancellation"),
+        "cancelled deployment must release the application lock"
+    );
+
+    let resurrect = DeploymentModel::transition_status_if(
+        db,
+        cancelled.id,
+        &["queued"],
+        "connecting",
+    )
+    .await
+    .expect("attempt transition from cancelled");
+    assert!(
+        resurrect.is_none(),
+        "cancelled deployment must not be resurrected by worker phase transition"
+    );
+
+    // 10. Retry creates a new attempt and preserves immutable revision/source intent.
+    let retry = DeploymentService::retry_deployment(db, cancelled.id)
+        .await
+        .expect("retry cancelled deployment");
+    assert_ne!(retry.id, cancelled.id);
+    assert_eq!(retry.status, "queued");
+    assert_eq!(retry.revision_id, Some(second_revision.id));
+    assert_eq!(retry.commit_hash.as_deref(), Some("decaf02"));
+
+    let retry_cancelled = DeploymentModel::cancel_if_safe(db, retry.id)
+        .await
+        .expect("cancel retry")
+        .expect("retry should still be in safe queued phase");
+    assert_eq!(retry_cancelled.status, "cancelled");
+
+    // 11. Cancellation is rejected once destructive replacement begins.
+    let destructive = DeploymentModel::create_deployment(
+        db,
+        app.id,
+        server.id,
+        Some("deadbee".to_string()),
+        Some("Destructive phase test".to_string()),
+    )
+    .await
+    .expect("create destructive-phase deployment");
+    let destructive = DeploymentModel::update_status(db, destructive.id, "stopping_old")
+        .await
+        .expect("move deployment to destructive phase");
+    assert_eq!(destructive.status, "stopping_old");
+    assert!(
+        DeploymentModel::cancel_if_safe(db, destructive.id)
+            .await
+            .expect("attempt unsafe cancel")
+            .is_none(),
+        "cancel must fail closed after destructive replacement begins"
+    );
+    DeploymentModel::record_failure(
+        db,
+        destructive.id,
+        "TEST_CLEANUP",
+        "test cleanup",
+        None,
+    )
+    .await
+    .expect("finish destructive-phase test deployment");
 }
