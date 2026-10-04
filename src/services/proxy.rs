@@ -160,6 +160,15 @@ impl ProxyService {
     }
 }
 
+fn host_rule(domains: &[String]) -> String {
+    let tick = char::from(96);
+    domains
+        .iter()
+        .map(|domain| format!("Host({tick}{}{tick})", domain.trim().to_lowercase()))
+        .collect::<Vec<_>>()
+        .join(" || ")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
