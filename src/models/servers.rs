@@ -1,6 +1,6 @@
 use chrono::Utc;
 use loco_rs::prelude::*;
-use sea_orm::{ActiveValue::Set, EntityTrait, QueryOrder};
+use sea_orm::{ActiveValue::Set, ColumnTrait, EntityTrait, QueryFilter, QueryOrder};
 use serde::{Deserialize, Serialize};
 
 pub use super::_entities::servers::{self, ActiveModel, Entity, Model};
@@ -41,6 +41,20 @@ impl Model {
             .all(db)
             .await?;
         Ok(servers)
+    }
+
+    pub async fn all_for_organizations(
+        db: &DatabaseConnection,
+        organization_ids: &[i64],
+    ) -> Result<Vec<Model>> {
+        if organization_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        Ok(Entity::find()
+            .filter(servers::Column::OrganizationId.is_in(organization_ids.iter().copied()))
+            .order_by_asc(servers::Column::Name)
+            .all(db)
+            .await?)
     }
 
     pub async fn update_status(db: &DatabaseConnection, id: i64, status: &str) -> Result<Model> {
