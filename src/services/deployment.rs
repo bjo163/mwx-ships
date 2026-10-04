@@ -4,6 +4,7 @@ use crate::services::{
     docker::ContainerConfig,
     proxy::ProxyService,
     remote::{redact_secrets, RemoteRuntime},
+    retention::RetentionService,
 };
 use loco_rs::prelude::*;
 use std::time::Duration;
@@ -758,6 +759,9 @@ impl DeploymentService {
             Err(err) => {
                 let exit_code = err.exit_code();
                 let message = redact_secrets(&err.to_string(), &secret_values);
+                if revision.status != "healthy" && revision.image_reference.starts_with("moonships/") {
+                    let _ = runtime.remove_image(&revision.image_reference).await;
+                }
                 return Err(Self::record_failure(
                     db,
                     &execution_token,
@@ -820,6 +824,12 @@ impl DeploymentService {
             if let Some(err) = last_error {
                 let exit_code = err.exit_code();
                 let message = redact_secrets(&err.to_string(), &secret_values);
+                let _ = runtime
+                    .stop_and_remove_container(&revision_snapshot.container_name)
+                    .await;
+                if revision.status != "healthy" && revision.image_reference.starts_with("moonships/") {
+                    let _ = runtime.remove_image(&revision.image_reference).await;
+                }
                 let _ = Self::record_failure(
                     db,
                     &execution_token,
@@ -881,6 +891,39 @@ impl DeploymentService {
             ),
         )
         .await;
+
+        match RetentionService::cleanup_after_success(db, app.id).await {
+            Ok(report) => {
+                let _ = deployment_logs::Model::append(
+                    db,
+                    dep.id,
+                    "system",
+                    &format!(
+                        "Retention cleanup: {} revision artifacts considered, {} images pruned, {} old log rows pruned{}",
+                        report.revision_artifacts_considered,
+                        report.images_pruned,
+                        report.logs_pruned,
+                        report
+                            .disk_available_gb
+                            .map(|gb| format!(", target disk {gb:.1} GB free"))
+                            .unwrap_or_default()
+                    ),
+                )
+                .await;
+                for warning in report.warnings {
+                    let _ = deployment_logs::Model::append(db, dep.id, "stderr", &warning).await;
+                }
+            }
+            Err(err) => {
+                let _ = deployment_logs::Model::append(
+                    db,
+                    dep.id,
+                    "stderr",
+                    &format!("Retention cleanup skipped: {err}"),
+                )
+                .await;
+            }
+        }
 
         Ok(())
     }
