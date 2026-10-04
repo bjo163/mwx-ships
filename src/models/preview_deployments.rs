@@ -65,6 +65,9 @@ impl Model {
                     source_ref: Set(input.source_ref.clone()),
                     commit_sha: Set(input.commit_sha.clone()),
                     preview_slug: Set(preview_slug),
+                    preview_application_id: Set(None),
+                    deployment_id: Set(None),
+                    preview_hostname: Set(None),
                     status: Set("active".to_string()),
                     created_at: Set(now.into()),
                     updated_at: Set(now.into()),
@@ -73,6 +76,26 @@ impl Model {
                 Ok(active.insert(db).await?)
             }
         }
+    }
+
+    pub async fn attach_runtime(
+        db: &DatabaseConnection,
+        id: i64,
+        preview_application_id: i64,
+        deployment_id: i64,
+        preview_hostname: Option<String>,
+    ) -> Result<Model> {
+        let model = Entity::find_by_id(id)
+            .one(db)
+            .await?
+            .ok_or_else(|| ModelError::EntityNotFound)?;
+        let mut active: ActiveModel = model.into();
+        active.preview_application_id = Set(Some(preview_application_id));
+        active.deployment_id = Set(Some(deployment_id));
+        active.preview_hostname = Set(preview_hostname);
+        active.status = Set("active".to_string());
+        active.updated_at = Set(Utc::now().into());
+        Ok(active.update(db).await?)
     }
 
     pub async fn close(
