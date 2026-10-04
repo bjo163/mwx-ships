@@ -8,4 +8,5 @@ pub mod organizations;
 pub mod projects;
 pub mod servers;
 pub mod source_inspection;
+pub mod volumes;
 pub mod webhooks;
