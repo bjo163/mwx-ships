@@ -590,8 +590,7 @@ async fn test_models_lifecycle_and_constraints() {
     .expect("dedupe same commit under new provider delivery id");
     assert!(!same_commit_new_delivery.inserted);
     assert_eq!(
-        same_commit_new_delivery.delivery.id,
-        first_delivery.delivery.id,
+        same_commit_new_delivery.delivery.id, first_delivery.delivery.id,
         "same push commit/ref must map to one deployment intent"
     );
 

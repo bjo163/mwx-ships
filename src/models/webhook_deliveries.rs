@@ -187,7 +187,6 @@ impl Model {
     }
 }
 
-
 fn intent_dedupe_key(input: &WebhookDeliveryInput) -> Option<String> {
     let raw = match input.event_kind.as_str() {
         "push" => {

@@ -108,8 +108,7 @@ impl RemoteRuntime {
             && !(git_repository.starts_with("https://") || git_repository.starts_with("http://"))
         {
             return Err(RemoteError::Validation(
-                "provider token authentication requires an HTTP(S) Git repository URL"
-                    .to_string(),
+                "provider token authentication requires an HTTP(S) Git repository URL".to_string(),
             ));
         }
 
@@ -162,13 +161,8 @@ MOONSHIPS_ASKPASS\n\
                 shell_quote(username)
             );
 
-            self.exec_checked_with_input(
-                "git_sync",
-                &command,
-                token,
-                Duration::from_secs(600),
-            )
-            .await?;
+            self.exec_checked_with_input("git_sync", &command, token, Duration::from_secs(600))
+                .await?;
         } else {
             self.exec_checked("git_sync", &git_sync, Duration::from_secs(600))
                 .await?;

@@ -99,7 +99,10 @@ impl Model {
                 let mut active: ActiveModel = model.into();
                 active.repository_ref = Set(repository_ref.clone());
                 active.api_base_url = Set(params.api_base_url.clone());
-                active.git_username = Set(normalize_git_username(&provider, params.git_username.as_deref())?);
+                active.git_username = Set(normalize_git_username(
+                    &provider,
+                    params.git_username.as_deref(),
+                )?);
                 if let Some(encrypted_token) = encrypted_token {
                     active.encrypted_token = Set(Some(encrypted_token));
                 }
@@ -114,7 +117,10 @@ impl Model {
                     provider: Set(provider.clone()),
                     repository_ref: Set(repository_ref),
                     api_base_url: Set(params.api_base_url.clone()),
-                    git_username: Set(normalize_git_username(&provider, params.git_username.as_deref())?),
+                    git_username: Set(normalize_git_username(
+                        &provider,
+                        params.git_username.as_deref(),
+                    )?),
                     encrypted_token: Set(encrypted_token),
                     encrypted_webhook_secret: Set(encrypted_webhook_secret),
                     enabled: Set(params.enabled.unwrap_or(true)),
@@ -244,7 +250,6 @@ pub fn normalize_repository_ref(provider: &str, raw: &str) -> Result<String> {
 
     Ok(segments.join("/"))
 }
-
 
 pub fn normalize_git_username(provider: &str, value: Option<&str>) -> Result<Option<String>> {
     let explicit = value.map(str::trim).filter(|value| !value.is_empty());

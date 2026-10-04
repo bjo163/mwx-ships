@@ -1,8 +1,6 @@
 use crate::{
     models::{
-        _entities::{
-            applications, domains, environment_variables, environments, git_integrations,
-        },
+        _entities::{applications, domains, environment_variables, environments, git_integrations},
         applications::{CreateApplicationParams, Model as ApplicationModel},
         deployments::Model as DeploymentModel,
         domains::{CreateDomainParams, Model as DomainModel},
@@ -145,13 +143,7 @@ impl PreviewService {
             .map_err(|err| PreviewError::Setup(err.to_string()))?
         };
 
-        Self::sync_git_integration(
-            db,
-            base_app.id,
-            preview_app.id,
-            provider,
-        )
-        .await?;
+        Self::sync_git_integration(db, base_app.id, preview_app.id, provider).await?;
         Self::sync_environment(db, base_app.id, preview_app.id).await?;
         Self::sync_domain(db, preview_app.id, &preview_hostname).await?;
 
@@ -285,13 +277,10 @@ impl PreviewService {
         preview_application_id: i64,
         provider: &str,
     ) -> Result<(), PreviewError> {
-        let source = GitIntegrationModel::find_for_application_provider(
-            db,
-            source_application_id,
-            provider,
-        )
-        .await
-        .map_err(|err| PreviewError::Setup(err.to_string()))?;
+        let source =
+            GitIntegrationModel::find_for_application_provider(db, source_application_id, provider)
+                .await
+                .map_err(|err| PreviewError::Setup(err.to_string()))?;
 
         let existing = git_integrations::Entity::find()
             .filter(git_integrations::Column::ApplicationId.eq(preview_application_id))

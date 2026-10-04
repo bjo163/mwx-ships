@@ -497,12 +497,12 @@ impl DeploymentService {
                 if git_repository.starts_with("https://")
                     || git_repository.starts_with("http://") =>
             {
-                let username = integration
-                    .resolved_git_username()
-                    .map_err(|err| DeploymentError::StepFailed {
+                let username = integration.resolved_git_username().map_err(|err| {
+                    DeploymentError::StepFailed {
                         step: "git_credential_username".to_string(),
                         message: err.to_string(),
-                    })?;
+                    }
+                })?;
                 let token = integration
                     .token()
                     .map_err(|err| DeploymentError::StepFailed {
