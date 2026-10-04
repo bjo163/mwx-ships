@@ -18,7 +18,12 @@ impl MigrationTrait for Migration {
                         .primary_key(),
                 )
                 .col(ColumnDef::new(Organizations::Name).string().not_null())
-                .col(ColumnDef::new(Organizations::Slug).string().not_null().unique_key())
+                .col(
+                    ColumnDef::new(Organizations::Slug)
+                        .string()
+                        .not_null()
+                        .unique_key(),
+                )
                 .col(
                     ColumnDef::new(Organizations::CreatedAt)
                         .timestamp_with_time_zone()
@@ -121,17 +126,46 @@ impl MigrationTrait for Migration {
                         .auto_increment()
                         .primary_key(),
                 )
-                .col(ColumnDef::new(ApiTokens::OrganizationId).big_integer().not_null())
+                .col(
+                    ColumnDef::new(ApiTokens::OrganizationId)
+                        .big_integer()
+                        .not_null(),
+                )
                 .col(ColumnDef::new(ApiTokens::UserId).big_integer().not_null())
                 .col(ColumnDef::new(ApiTokens::Name).string().not_null())
                 .col(ColumnDef::new(ApiTokens::TokenPrefix).string().not_null())
-                .col(ColumnDef::new(ApiTokens::TokenHash).string().not_null().unique_key())
+                .col(
+                    ColumnDef::new(ApiTokens::TokenHash)
+                        .string()
+                        .not_null()
+                        .unique_key(),
+                )
                 .col(ColumnDef::new(ApiTokens::Scopes).text().not_null())
-                .col(ColumnDef::new(ApiTokens::ExpiresAt).timestamp_with_time_zone().null())
-                .col(ColumnDef::new(ApiTokens::RevokedAt).timestamp_with_time_zone().null())
-                .col(ColumnDef::new(ApiTokens::LastUsedAt).timestamp_with_time_zone().null())
-                .col(ColumnDef::new(ApiTokens::CreatedAt).timestamp_with_time_zone().not_null())
-                .col(ColumnDef::new(ApiTokens::UpdatedAt).timestamp_with_time_zone().not_null())
+                .col(
+                    ColumnDef::new(ApiTokens::ExpiresAt)
+                        .timestamp_with_time_zone()
+                        .null(),
+                )
+                .col(
+                    ColumnDef::new(ApiTokens::RevokedAt)
+                        .timestamp_with_time_zone()
+                        .null(),
+                )
+                .col(
+                    ColumnDef::new(ApiTokens::LastUsedAt)
+                        .timestamp_with_time_zone()
+                        .null(),
+                )
+                .col(
+                    ColumnDef::new(ApiTokens::CreatedAt)
+                        .timestamp_with_time_zone()
+                        .not_null(),
+                )
+                .col(
+                    ColumnDef::new(ApiTokens::UpdatedAt)
+                        .timestamp_with_time_zone()
+                        .not_null(),
+                )
                 .foreign_key(
                     ForeignKey::create()
                         .name("fk_api_token_org")
@@ -161,7 +195,11 @@ impl MigrationTrait for Migration {
                         .auto_increment()
                         .primary_key(),
                 )
-                .col(ColumnDef::new(AuditEvents::OrganizationId).big_integer().null())
+                .col(
+                    ColumnDef::new(AuditEvents::OrganizationId)
+                        .big_integer()
+                        .null(),
+                )
                 .col(ColumnDef::new(AuditEvents::ActorKind).string().not_null())
                 .col(ColumnDef::new(AuditEvents::ActorId).string().not_null())
                 .col(ColumnDef::new(AuditEvents::Action).string().not_null())
@@ -170,7 +208,11 @@ impl MigrationTrait for Migration {
                 .col(ColumnDef::new(AuditEvents::Outcome).string().not_null())
                 .col(ColumnDef::new(AuditEvents::RequestId).string().null())
                 .col(ColumnDef::new(AuditEvents::MetadataJson).text().null())
-                .col(ColumnDef::new(AuditEvents::CreatedAt).timestamp_with_time_zone().not_null())
+                .col(
+                    ColumnDef::new(AuditEvents::CreatedAt)
+                        .timestamp_with_time_zone()
+                        .not_null(),
+                )
                 .foreign_key(
                     ForeignKey::create()
                         .name("fk_audit_org")
@@ -257,7 +299,11 @@ impl MigrationTrait for Migration {
         m.alter_table(
             Table::alter()
                 .table(Projects::Table)
-                .add_column(ColumnDef::new(Projects::OrganizationId).big_integer().null())
+                .add_column(
+                    ColumnDef::new(Projects::OrganizationId)
+                        .big_integer()
+                        .null(),
+                )
                 .to_owned(),
         )
         .await?;
@@ -265,7 +311,11 @@ impl MigrationTrait for Migration {
         m.alter_table(
             Table::alter()
                 .table(Servers::Table)
-                .add_column(ColumnDef::new(Servers::OrganizationId).big_integer().null())
+                .add_column(
+                    ColumnDef::new(Servers::OrganizationId)
+                        .big_integer()
+                        .null(),
+                )
                 .to_owned(),
         )
         .await?;
@@ -329,34 +379,121 @@ impl MigrationTrait for Migration {
         )
         .await?;
 
-        for table in [
-            AuthRateLimits::Table,
-            AuditEvents::Table,
-            ApiTokens::Table,
-            OrganizationMemberships::Table,
-            Organizations::Table,
-        ] {
-            m.drop_table(Table::drop().table(table).if_exists().to_owned())
-                .await?;
-        }
+        m.drop_table(
+            Table::drop()
+                .table(AuthRateLimits::Table)
+                .if_exists()
+                .to_owned(),
+        )
+        .await?;
+        m.drop_table(
+            Table::drop()
+                .table(AuditEvents::Table)
+                .if_exists()
+                .to_owned(),
+        )
+        .await?;
+        m.drop_table(
+            Table::drop()
+                .table(ApiTokens::Table)
+                .if_exists()
+                .to_owned(),
+        )
+        .await?;
+        m.drop_table(
+            Table::drop()
+                .table(OrganizationMemberships::Table)
+                .if_exists()
+                .to_owned(),
+        )
+        .await?;
+        m.drop_table(
+            Table::drop()
+                .table(Organizations::Table)
+                .if_exists()
+                .to_owned(),
+        )
+        .await?;
 
         Ok(())
     }
 }
 
 #[derive(DeriveIden)]
-enum Organizations { Table, Id, Name, Slug, CreatedAt, UpdatedAt }
+enum Organizations {
+    Table,
+    Id,
+    Name,
+    Slug,
+    CreatedAt,
+    UpdatedAt,
+}
 #[derive(DeriveIden)]
-enum OrganizationMemberships { Table, Id, OrganizationId, UserId, Role, IsActive, CreatedAt, UpdatedAt }
+enum OrganizationMemberships {
+    Table,
+    Id,
+    OrganizationId,
+    UserId,
+    Role,
+    IsActive,
+    CreatedAt,
+    UpdatedAt,
+}
 #[derive(DeriveIden)]
-enum ApiTokens { Table, Id, OrganizationId, UserId, Name, TokenPrefix, TokenHash, Scopes, ExpiresAt, RevokedAt, LastUsedAt, CreatedAt, UpdatedAt }
+enum ApiTokens {
+    Table,
+    Id,
+    OrganizationId,
+    UserId,
+    Name,
+    TokenPrefix,
+    TokenHash,
+    Scopes,
+    ExpiresAt,
+    RevokedAt,
+    LastUsedAt,
+    CreatedAt,
+    UpdatedAt,
+}
 #[derive(DeriveIden)]
-enum AuditEvents { Table, Id, OrganizationId, ActorKind, ActorId, Action, ResourceType, ResourceId, Outcome, RequestId, MetadataJson, CreatedAt }
+enum AuditEvents {
+    Table,
+    Id,
+    OrganizationId,
+    ActorKind,
+    ActorId,
+    Action,
+    ResourceType,
+    ResourceId,
+    Outcome,
+    RequestId,
+    MetadataJson,
+    CreatedAt,
+}
 #[derive(DeriveIden)]
-enum AuthRateLimits { Table, Id, Action, KeyHash, Attempts, WindowStartedAt, BlockedUntil, UpdatedAt }
+enum AuthRateLimits {
+    Table,
+    Id,
+    Action,
+    KeyHash,
+    Attempts,
+    WindowStartedAt,
+    BlockedUntil,
+    UpdatedAt,
+}
 #[derive(DeriveIden)]
-enum Users { Table, Id, SessionVersion }
+enum Users {
+    Table,
+    Id,
+    SessionVersion,
+}
 #[derive(DeriveIden)]
-enum Projects { Table, OrganizationId }
+enum Projects {
+    Table,
+    OrganizationId,
+}
 #[derive(DeriveIden)]
-enum Servers { Table, OrganizationId }
+enum Servers {
+    Table,
+    OrganizationId,
+}
