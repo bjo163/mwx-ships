@@ -5,6 +5,33 @@ All notable changes to **Moonships** will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.0] - 2026-10-05
+
+### Added
+- **Organizations & Workspaces**: projects and servers can be owned by organizations with a backward-compatible legacy-claim flow.
+- **Role-Based Access Control**: Owner, Admin, Deployer, and Viewer membership roles enforce route-level permissions across projects, servers, applications, deployments, domains, Git integrations, and operational actions.
+- **Scoped API Tokens**: hashed organization API tokens support least-privilege scopes, expiry, last-used tracking, reveal-once creation, and revocation.
+- **Session Revocation**: JWT sessions carry a session version; operators can invalidate previously issued sessions without changing a password.
+- **Immutable Administrative Audit Trail**: sensitive and destructive operations record actor, organization, resource, outcome, request correlation, and bounded metadata.
+- **Authentication Abuse Controls**: login/sensitive-action rate limiting and confirmation requirements protect high-impact organization operations.
+- **Organization Administration API/UI**: membership management, API-token lifecycle, audit history, and legacy resource claiming are available through authenticated organization routes.
+
+### Reliability
+- Cross-organization authorization fails closed.
+- Organizations must retain at least one active owner.
+- Revoked/expired API tokens stop authenticating and token plaintext is never persisted.
+- Existing single-admin installations can explicitly claim legacy unowned projects and servers into an organization.
+
+### Security
+- API-token authentication uses only stored token hashes and scoped authorization.
+- Sensitive organization actions require explicit confirmation metadata and are audit-attributed.
+- Viewer/Deployer/Admin/Owner permissions are tested independently; scoped API tokens cannot inherit permissions outside their declared scopes.
+- Authentication rate-limit keys are hashed before persistence.
+
+### Known limitations
+- v0.7 remains single-control-plane by default; PostgreSQL multi-worker scale mode is finalized in v0.8.
+- Enterprise identity federation/SSO is outside the v1.0 core scope.
+
 ## [0.6.0] - 2026-10-04
 
 ### Added
