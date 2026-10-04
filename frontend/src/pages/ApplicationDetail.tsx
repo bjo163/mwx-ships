@@ -56,7 +56,7 @@ export function ApplicationDetail() {
     if (!id) return;
     try {
       const data = await apiRequest<any>(`/api/applications/${id}`);
-      setApp(data);
+      setApp(data?.application ?? data);
     } catch (e) {
       console.error('Failed to load application:', e);
     } finally {
@@ -173,6 +173,28 @@ export function ApplicationDetail() {
       }
     } catch (e: any) {
       alert(`Deployment failed: ${e.message}`);
+    } finally {
+      setActionLoading(false);
+    }
+  }
+
+  async function handleRollback() {
+    if (!id || !app?.previous_revision_id) return;
+    if (!window.confirm(`Rollback to revision #${app.previous_revision_id}?`)) return;
+
+    setActionLoading(true);
+    try {
+      const res = await apiRequest<any>(`/api/applications/${id}/rollback`, {
+        method: 'POST',
+      });
+      setActiveTab('deployments');
+      await loadAppData();
+      await loadDeployments();
+      if (res.deployment_id) {
+        setActiveDeploymentId(res.deployment_id);
+      }
+    } catch (e: any) {
+      alert(`Rollback failed: ${e.message}`);
     } finally {
       setActionLoading(false);
     }
@@ -301,6 +323,17 @@ export function ApplicationDetail() {
             <Rocket size={16} />
             <span>Deploy</span>
           </button>
+          {app.previous_revision_id && (
+            <button
+              onClick={handleRollback}
+              disabled={actionLoading}
+              className="btn btn-secondary"
+              title={`Rollback to revision #${app.previous_revision_id}`}
+            >
+              <RotateCw size={16} />
+              <span>Rollback</span>
+            </button>
+          )}
           {isRunning ? (
             <>
               <button
@@ -425,6 +458,22 @@ export function ApplicationDetail() {
                   {app.container_name || `moonships-app-${app.id}`}
                 </div>
               </div>
+              <div>
+                <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', textTransform: 'uppercase' }}>
+                  Current Revision
+                </label>
+                <div style={{ marginTop: '4px', fontFamily: 'monospace', fontSize: '0.9rem' }}>
+                  {app.current_revision_id ? `#${app.current_revision_id}` : 'None'}
+                </div>
+              </div>
+              <div>
+                <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', textTransform: 'uppercase' }}>
+                  Previous Known-Good
+                </label>
+                <div style={{ marginTop: '4px', fontFamily: 'monospace', fontSize: '0.9rem' }}>
+                  {app.previous_revision_id ? `#${app.previous_revision_id}` : 'None'}
+                </div>
+              </div>
             </div>
           </div>
 
@@ -492,7 +541,8 @@ export function ApplicationDetail() {
                       <span className={`status-badge status-${d.status}`}>{d.status}</span>
                     </div>
                     <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
-                      {d.commit_hash ? `Commit ${d.commit_hash.substring(0, 7)}` : 'Manual Trigger'}
+                      {d.trigger_kind ? `${d.trigger_kind} · ` : ''}
+                      {d.commit_hash ? `Commit ${d.commit_hash.substring(0, 7)}` : 'No commit'}
                     </div>
                     <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '4px' }}>
                       {new Date(d.created_at || d.queued_at).toLocaleTimeString()}
