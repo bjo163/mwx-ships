@@ -8,6 +8,10 @@ on:
         required: true
         default: "0.1.0"
         type: string
+  push:
+    branches: [ "master" ]
+    paths:
+      - ".release/v0.1.0"
 
 permissions:
   contents: write
@@ -29,7 +33,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          VERSION="${{ inputs.version }}"
+
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            VERSION="${{ inputs.version }}"
+          else
+            VERSION="0.1.0"
+          fi
 
           if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+([+-][0-9A-Za-z.-]+)?$ ]]; then
             echo "Invalid SemVer: $VERSION" >&2
@@ -95,6 +104,43 @@ jobs:
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
             org.opencontainers.image.version=${{ steps.version.outputs.version }}
             org.opencontainers.image.revision=${{ github.sha }}
+
+      - name: Smoke test published production image
+        env:
+          IMAGE: ghcr.io/${{ github.repository }}:${{ steps.version.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          ENCRYPTION_KEY="$(openssl rand -hex 32)"
+          JWT_SECRET="$(openssl rand -hex 32)"
+
+          cleanup() {
+            docker rm -f moonships-release-smoke >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+
+          docker pull "$IMAGE"
+          docker run -d --name moonships-release-smoke \
+            -p 127.0.0.1:5150:5150 \
+            -e LOCO_ENV=production \
+            -e HOST=http://localhost:5150 \
+            -e ENCRYPTION_KEY="$ENCRYPTION_KEY" \
+            -e JWT_SECRET="$JWT_SECRET" \
+            "$IMAGE"
+
+          ready=0
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent http://localhost:5150/api/health >/dev/null; then
+              ready=1
+              break
+            fi
+            sleep 2
+          done
+
+          if [ "$ready" -ne 1 ]; then
+            docker logs moonships-release-smoke
+            exit 1
+          fi
 
       - name: Create annotated tag
         shell: bash
