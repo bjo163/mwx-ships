@@ -1,7 +1,8 @@
-use chrono::Utc;
+use chrono::{Duration, Utc};
 use loco_rs::prelude::*;
 use sea_orm::{ActiveValue::Set, ColumnTrait, EntityTrait, QueryFilter, QueryOrder};
 use serde::{Deserialize, Serialize};
+use uuid::Uuid;
 
 pub use super::_entities::deployments::{self, ActiveModel, Entity, Model};
 
@@ -17,6 +18,13 @@ pub const ACTIVE_STATUSES: &[&str] = &[
 
 pub const SAFE_CANCEL_STATUSES: &[&str] = &["queued", "connecting", "cloning", "building"];
 pub const RETRYABLE_STATUSES: &[&str] = &["failed", "cancelled"];
+
+#[derive(Debug, Clone)]
+pub struct ExecutionClaim {
+    pub deployment: Model,
+    pub token: String,
+    pub recovered_from: Option<String>,
+}
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct TriggerDeployParams {
@@ -148,6 +156,16 @@ impl Model {
         allowed_from: &[&str],
         status: &str,
     ) -> Result<Option<Model>> {
+        Self::transition_status_if_owned(db, id, allowed_from, status, None).await
+    }
+
+    pub async fn transition_status_if_owned(
+        db: &DatabaseConnection,
+        id: i64,
+        allowed_from: &[&str],
+        status: &str,
+        execution_token: Option<&str>,
+    ) -> Result<Option<Model>> {
         let now = Utc::now();
         let mut patch = ActiveModel {
             status: Set(status.to_string()),
@@ -161,23 +179,127 @@ impl Model {
 
         if matches!(status, "success" | "failed" | "cancelled") {
             patch.finished_at = Set(Some(now.into()));
+            patch.execution_token = Set(None);
+            patch.lease_expires_at = Set(None);
         }
 
-        let result = Entity::update_many()
+        let mut update = Entity::update_many()
             .set(patch)
             .filter(deployments::Column::Id.eq(id))
             .filter(
                 deployments::Column::Status
                     .is_in(allowed_from.iter().map(|value| value.to_string())),
-            )
-            .exec(db)
-            .await?;
+            );
 
+        if let Some(token) = execution_token {
+            update = update.filter(deployments::Column::ExecutionToken.eq(token));
+        }
+
+        let result = update.exec(db).await?;
         if result.rows_affected == 0 {
             return Ok(None);
         }
 
         Ok(Some(Self::find_by_id(db, id).await?))
+    }
+
+    pub async fn claim_for_execution(
+        db: &DatabaseConnection,
+        id: i64,
+        lease_seconds: i64,
+    ) -> Result<Option<ExecutionClaim>> {
+        let current = Self::find_by_id(db, id).await?;
+        if matches!(current.status.as_str(), "success" | "failed" | "cancelled") {
+            return Ok(None);
+        }
+        if !ACTIVE_STATUSES.contains(&current.status.as_str()) {
+            return Ok(None);
+        }
+
+        let now = Utc::now();
+        let queued = current.status == "queued";
+        let lease_expired = current
+            .lease_expires_at
+            .as_ref()
+            .map(|expires| expires < &now.into())
+            .unwrap_or(true);
+
+        if !queued && !lease_expired {
+            return Ok(None);
+        }
+
+        let token = Uuid::new_v4().to_string();
+        let lease_expires_at = now + Duration::seconds(lease_seconds.max(60));
+        let recovered_from = (!queued).then(|| current.status.clone());
+
+        let patch = ActiveModel {
+            status: Set("connecting".to_string()),
+            execution_token: Set(Some(token.clone())),
+            lease_expires_at: Set(Some(lease_expires_at.into())),
+            attempt_count: Set(current.attempt_count.saturating_add(1)),
+            started_at: Set(current.started_at.or(Some(now.into()))),
+            updated_at: Set(now.into()),
+            ..Default::default()
+        };
+
+        let mut update = Entity::update_many()
+            .set(patch)
+            .filter(deployments::Column::Id.eq(id))
+            .filter(deployments::Column::Status.eq(current.status.clone()));
+
+        update = match current.execution_token.as_deref() {
+            Some(existing_token) => {
+                update.filter(deployments::Column::ExecutionToken.eq(existing_token))
+            }
+            None => update.filter(deployments::Column::ExecutionToken.is_null()),
+        };
+
+        if !queued {
+            update = match current.lease_expires_at {
+                Some(_) => update.filter(deployments::Column::LeaseExpiresAt.lte(now)),
+                None => update.filter(deployments::Column::LeaseExpiresAt.is_null()),
+            };
+        }
+
+        let result = update.exec(db).await?;
+        if result.rows_affected == 0 {
+            return Ok(None);
+        }
+
+        Ok(Some(ExecutionClaim {
+            deployment: Self::find_by_id(db, id).await?,
+            token,
+            recovered_from,
+        }))
+    }
+
+    pub async fn renew_execution_lease(
+        db: &DatabaseConnection,
+        id: i64,
+        execution_token: &str,
+        lease_seconds: i64,
+    ) -> Result<bool> {
+        let now = Utc::now();
+        let patch = ActiveModel {
+            lease_expires_at: Set(Some(
+                (now + Duration::seconds(lease_seconds.max(60))).into(),
+            )),
+            updated_at: Set(now.into()),
+            ..Default::default()
+        };
+
+        let result = Entity::update_many()
+            .set(patch)
+            .filter(deployments::Column::Id.eq(id))
+            .filter(deployments::Column::ExecutionToken.eq(execution_token))
+            .filter(
+                deployments::Column::Status
+                    .is_in(ACTIVE_STATUSES.iter().map(|value| value.to_string())),
+            )
+            .exec(db)
+            .await?;
+
+        Ok(result.rows_affected == 1)
     }
 
     pub async fn cancel_if_safe(db: &DatabaseConnection, id: i64) -> Result<Option<Model>> {
@@ -203,6 +325,8 @@ impl Model {
 
         if status == "success" || status == "failed" || status == "cancelled" {
             active.finished_at = Set(Some(now.into()));
+            active.execution_token = Set(None);
+            active.lease_expires_at = Set(None);
         }
 
         active.status = Set(status.to_string());
@@ -243,6 +367,8 @@ impl Model {
         active.error_message = Set(Some(error_message.to_string()));
         active.exit_code = Set(exit_code);
         active.finished_at = Set(Some(now.into()));
+        active.execution_token = Set(None);
+        active.lease_expires_at = Set(None);
         active.updated_at = Set(now.into());
 
         let updated = active.update(db).await?;
