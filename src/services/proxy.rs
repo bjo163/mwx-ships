@@ -207,4 +207,3 @@ mod tests {
             .any(|(k, v)| k == "traefik.http.routers.moonships-my-app.tls" && v == "true"));
     }
 }
-
