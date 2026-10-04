@@ -15,6 +15,17 @@ pub struct UpsertPreviewInput {
 }
 
 impl Model {
+    pub async fn active_for_application(
+        db: &DatabaseConnection,
+        application_id: i64,
+    ) -> Result<Vec<Model>> {
+        Ok(Entity::find()
+            .filter(preview_deployments::Column::ApplicationId.eq(application_id))
+            .filter(preview_deployments::Column::Status.eq("active"))
+            .all(db)
+            .await?)
+    }
+
     pub async fn find_by_request(
         db: &DatabaseConnection,
         application_id: i64,
@@ -63,6 +74,7 @@ impl Model {
                     commit_sha: Set(input.commit_sha.clone()),
                     preview_slug: Set(preview_slug),
                     preview_application_id: Set(None),
+                    preview_environment_id: Set(None),
                     deployment_id: Set(None),
                     preview_hostname: Set(None),
                     status: Set("active".to_string()),
@@ -79,6 +91,7 @@ impl Model {
         db: &DatabaseConnection,
         id: i64,
         preview_application_id: i64,
+        preview_environment_id: i64,
         deployment_id: i64,
         preview_hostname: Option<String>,
     ) -> Result<Model> {
@@ -88,6 +101,7 @@ impl Model {
             .ok_or_else(|| ModelError::EntityNotFound)?;
         let mut active: ActiveModel = model.into();
         active.preview_application_id = Set(Some(preview_application_id));
+        active.preview_environment_id = Set(Some(preview_environment_id));
         active.deployment_id = Set(Some(deployment_id));
         active.preview_hostname = Set(preview_hostname);
         active.status = Set("active".to_string());
@@ -108,6 +122,9 @@ impl Model {
         };
         let mut active: ActiveModel = model.into();
         active.status = Set("closed".to_string());
+        active.preview_application_id = Set(None);
+        active.preview_environment_id = Set(None);
+        active.deployment_id = Set(None);
         active.updated_at = Set(Utc::now().into());
         Ok(Some(active.update(db).await?))
     }
