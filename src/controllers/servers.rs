@@ -1,6 +1,7 @@
 use crate::{
     models::{
         _entities::servers::{ActiveModel, Entity},
+        audit_events::{AuditEventInput, Model as AuditEventModel},
         operational_events, server_health_checks,
         servers::{CreateServerParams, Model as ServerModel, UpdateServerParams},
     },
@@ -105,6 +106,15 @@ pub async fn create(
     };
 
     let model = active.insert(&ctx.db).await?;
+    audit_server(
+        &ctx,
+        &principal,
+        organization_id,
+        "server.create",
+        model.id,
+        None,
+    )
+    .await;
 
     format::json(serde_json::json!({
         "data": {
@@ -158,7 +168,7 @@ pub async fn update(
     Json(params): Json<UpdateServerParams>,
 ) -> Result<Response> {
     let principal = Principal::authenticate(&ctx, &headers).await?;
-    principal
+    let organization_id = principal
         .server_organization(&ctx.db, id, Permission::ManageServers)
         .await?;
     let server = ServerModel::find_by_id(&ctx.db, id).await?;
@@ -190,6 +200,15 @@ pub async fn update(
     active.updated_at = Set(Utc::now().into());
     let updated = active.update(&ctx.db).await?;
 
+    audit_server(
+        &ctx,
+        &principal,
+        organization_id,
+        "server.update",
+        id,
+        None,
+    )
+    .await;
     format::json(serde_json::json!({
         "data": {
             "id": updated.id,
@@ -211,12 +230,21 @@ pub async fn remove(
     State(ctx): State<AppContext>,
 ) -> Result<Response> {
     let principal = Principal::authenticate(&ctx, &headers).await?;
-    principal
+    let organization_id = principal
         .server_organization(&ctx.db, id, Permission::ManageServers)
         .await?;
     let server = ServerModel::find_by_id(&ctx.db, id).await?;
     Entity::delete_by_id(server.id).exec(&ctx.db).await?;
 
+    audit_server(
+        &ctx,
+        &principal,
+        organization_id,
+        "server.delete",
+        id,
+        None,
+    )
+    .await;
     format::json(serde_json::json!({
         "data": null,
         "message": "ok"
@@ -230,7 +258,7 @@ pub async fn test_conn(
     State(ctx): State<AppContext>,
 ) -> Result<Response> {
     let principal = Principal::authenticate(&ctx, &headers).await?;
-    principal
+    let organization_id = principal
         .server_organization(&ctx.db, id, Permission::ManageServers)
         .await?;
     let server = ServerModel::find_by_id(&ctx.db, id).await?;
@@ -239,6 +267,15 @@ pub async fn test_conn(
     let new_status = if is_connected { "online" } else { "offline" };
     let _ = ServerModel::update_status(&ctx.db, server.id, new_status).await;
 
+    audit_server(
+        &ctx,
+        &principal,
+        organization_id,
+        "server.test_connection",
+        id,
+        None,
+    )
+    .await;
     format::json(serde_json::json!({
         "data": {
             "server_id": server.id,
@@ -255,7 +292,7 @@ pub async fn preflight(
     State(ctx): State<AppContext>,
 ) -> Result<Response> {
     let principal = Principal::authenticate(&ctx, &headers).await?;
-    principal
+    let organization_id = principal
         .server_organization(&ctx.db, id, Permission::ManageServers)
         .await?;
     let server = ServerModel::find_by_id(&ctx.db, id).await?;
@@ -303,8 +340,44 @@ pub async fn preflight(
         .await;
     }
 
+    audit_server(
+        &ctx,
+        &principal,
+        organization_id,
+        "server.preflight",
+        id,
+        None,
+    )
+    .await;
     format::json(serde_json::json!({
         "data": report,
         "message": "ok"
     }))
+}
+
+
+async fn audit_server(
+    ctx: &AppContext,
+    principal: &Principal,
+    organization_id: i64,
+    action: &str,
+    server_id: i64,
+    metadata: Option<serde_json::Value>,
+) {
+    let (actor_kind, actor_id) = principal.audit_actor();
+    let _ = AuditEventModel::append(
+        &ctx.db,
+        AuditEventInput {
+            organization_id: Some(organization_id),
+            actor_kind: actor_kind.to_string(),
+            actor_id,
+            action: action.to_string(),
+            resource_type: Some("server".to_string()),
+            resource_id: Some(server_id.to_string()),
+            outcome: "success".to_string(),
+            request_id: None,
+            metadata,
+        },
+    )
+    .await;
 }
