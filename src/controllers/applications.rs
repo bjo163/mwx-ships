@@ -574,10 +574,11 @@ pub async fn logs(
 }
 #[debug_handler]
 pub async fn get_env(
-    _auth: auth::JWT,
+    headers: HeaderMap,
     Path(id): Path<i64>,
     State(ctx): State<AppContext>,
 ) -> Result<Response> {
+    let (_, _, _) = authorized_application(&ctx, &headers, id, Permission::View).await?;
     let vars = EnvVarModel::by_application(&ctx.db, id).await?;
     let safe: Vec<_> = vars.into_iter().map(|v| v.to_safe()).collect();
     format::json(serde_json::json!({
@@ -588,11 +589,12 @@ pub async fn get_env(
 
 #[debug_handler]
 pub async fn set_env(
-    _auth: auth::JWT,
+    headers: HeaderMap,
     Path(id): Path<i64>,
     State(ctx): State<AppContext>,
     Json(params): Json<SetEnvVarParams>,
 ) -> Result<Response> {
+    let (principal, organization_id, _) = authorized_application(&ctx, &headers, id, Permission::ManageApplications).await?;
     let is_secret = params.is_secret.unwrap_or(false);
     let encrypted = if is_secret {
         CryptoService::encrypt(&params.value).map_err(|e| Error::BadRequest(e.to_string()))?
@@ -629,6 +631,15 @@ pub async fn set_env(
         }
     };
 
+    audit_application(
+        &ctx,
+        &principal,
+        organization_id,
+        "application.environment.set",
+        id,
+        Some(serde_json::json!({"key": model.key})),
+    )
+    .await;
     format::json(serde_json::json!({
         "data": model.to_safe(),
         "message": "ok"
@@ -637,10 +648,11 @@ pub async fn set_env(
 
 #[debug_handler]
 pub async fn remove_env(
-    _auth: auth::JWT,
+    headers: HeaderMap,
     Path((id, key)): Path<(i64, String)>,
     State(ctx): State<AppContext>,
 ) -> Result<Response> {
+    let (principal, organization_id, _) = authorized_application(&ctx, &headers, id, Permission::ManageApplications).await?;
     let existing = environment_variables::Entity::find()
         .filter(environment_variables::Column::ApplicationId.eq(id))
         .filter(environment_variables::Column::Key.eq(key))
@@ -653,6 +665,15 @@ pub async fn remove_env(
             .await?;
     }
 
+    audit_application(
+        &ctx,
+        &principal,
+        organization_id,
+        "application.environment.remove",
+        id,
+        Some(serde_json::json!({"key": key})),
+    )
+    .await;
     format::json(serde_json::json!({
         "data": null,
         "message": "ok"
@@ -661,10 +682,11 @@ pub async fn remove_env(
 
 #[debug_handler]
 pub async fn list_domains(
-    _auth: auth::JWT,
+    headers: HeaderMap,
     Path(id): Path<i64>,
     State(ctx): State<AppContext>,
 ) -> Result<Response> {
+    let (_, _, _) = authorized_application(&ctx, &headers, id, Permission::View).await?;
     let domains = DomainModel::by_application(&ctx.db, id).await?;
     format::json(serde_json::json!({
         "data": domains,
@@ -674,14 +696,24 @@ pub async fn list_domains(
 
 #[debug_handler]
 pub async fn add_domain(
-    _auth: auth::JWT,
+    headers: HeaderMap,
     Path(id): Path<i64>,
     State(ctx): State<AppContext>,
     Json(params): Json<CreateDomainParams>,
 ) -> Result<Response> {
+    let (principal, organization_id, _) = authorized_application(&ctx, &headers, id, Permission::ManageApplications).await?;
     ProxyService::validate_hostname(&params.hostname)
         .map_err(|e| Error::BadRequest(e.to_string()))?;
     let domain = DomainModel::create_domain(&ctx.db, id, &params).await?;
+    audit_application(
+        &ctx,
+        &principal,
+        organization_id,
+        "application.domain.add",
+        id,
+        Some(serde_json::json!({"domain_id": domain.id})),
+    )
+    .await;
     format::json(serde_json::json!({
         "data": domain,
         "message": "ok"
@@ -690,11 +722,11 @@ pub async fn add_domain(
 
 #[debug_handler]
 pub async fn verify_domain(
-    _auth: auth::JWT,
+    headers: HeaderMap,
     Path((id, domain_id)): Path<(i64, i64)>,
     State(ctx): State<AppContext>,
 ) -> Result<Response> {
-    let app = ApplicationModel::find_by_id(&ctx.db, id).await?;
+    let (principal, organization_id, app) = authorized_application(&ctx, &headers, id, Permission::ManageApplications).await?;
     let domain = DomainModel::find_by_id(&ctx.db, domain_id).await?;
     if domain.application_id != app.id {
         return Err(Error::BadRequest(
@@ -734,6 +766,15 @@ pub async fn verify_domain(
         domain
     };
 
+    audit_application(
+        &ctx,
+        &principal,
+        organization_id,
+        "application.domain.verify",
+        id,
+        Some(serde_json::json!({"domain_id": domain.id, "verified": domain.dns_verified})),
+    )
+    .await;
     format::json(serde_json::json!({
         "data": domain,
         "message": if verified { "Domain verified" } else { "Domain verification failed" }
@@ -746,9 +787,26 @@ pub async fn remove_domain(
     Path((_id, domain_id)): Path<(i64, i64)>,
     State(ctx): State<AppContext>,
 ) -> Result<Response> {
+    let (principal, organization_id, _) = authorized_application(&ctx, &headers, id, Permission::ManageApplications).await?;
+    let domain = DomainModel::find_by_id(&ctx.db, domain_id).await?;
+    if domain.application_id != id {
+        return Err(Error::BadRequest(
+            "domain does not belong to this application".to_string(),
+        ));
+    }
+
     domains::Entity::delete_by_id(domain_id)
         .exec(&ctx.db)
         .await?;
+    audit_application(
+        &ctx,
+        &principal,
+        organization_id,
+        "application.domain.remove",
+        id,
+        Some(serde_json::json!({"domain_id": domain_id})),
+    )
+    .await;
     format::json(serde_json::json!({
         "data": null,
         "message": "ok"
@@ -757,11 +815,11 @@ pub async fn remove_domain(
 
 #[debug_handler]
 pub async fn list_git_integrations(
-    _auth: auth::JWT,
+    headers: HeaderMap,
     Path(id): Path<i64>,
     State(ctx): State<AppContext>,
 ) -> Result<Response> {
-    ApplicationModel::find_by_id(&ctx.db, id).await?;
+    let (_, _, _) = authorized_application(&ctx, &headers, id, Permission::View).await?;
     let integrations = GitIntegrationModel::list_for_application(&ctx.db, id).await?;
     let safe = integrations
         .iter()
@@ -775,13 +833,22 @@ pub async fn list_git_integrations(
 
 #[debug_handler]
 pub async fn upsert_git_integration(
-    _auth: auth::JWT,
+    headers: HeaderMap,
     Path(id): Path<i64>,
     State(ctx): State<AppContext>,
     Json(params): Json<UpsertGitIntegrationParams>,
 ) -> Result<Response> {
-    ApplicationModel::find_by_id(&ctx.db, id).await?;
+    let (principal, organization_id, _) = authorized_application(&ctx, &headers, id, Permission::ManageApplications).await?;
     let integration = GitIntegrationModel::upsert(&ctx.db, id, &params).await?;
+    audit_application(
+        &ctx,
+        &principal,
+        organization_id,
+        "application.git_integration.upsert",
+        id,
+        Some(serde_json::json!({"provider": integration.provider})),
+    )
+    .await;
     format::json(serde_json::json!({
         "data": integration.to_safe(),
         "message": "Git integration saved"
@@ -790,10 +857,11 @@ pub async fn upsert_git_integration(
 
 #[debug_handler]
 pub async fn remove_git_integration(
-    _auth: auth::JWT,
+    headers: HeaderMap,
     Path((id, provider)): Path<(i64, String)>,
     State(ctx): State<AppContext>,
 ) -> Result<Response> {
+    let (principal, organization_id, _) = authorized_application(&ctx, &headers, id, Permission::ManageApplications).await?;
     use crate::models::_entities::git_integrations;
 
     git_integrations::Entity::delete_many()
@@ -802,6 +870,15 @@ pub async fn remove_git_integration(
         .exec(&ctx.db)
         .await?;
 
+    audit_application(
+        &ctx,
+        &principal,
+        organization_id,
+        "application.git_integration.remove",
+        id,
+        Some(serde_json::json!({"provider": provider})),
+    )
+    .await;
     format::json(serde_json::json!({
         "data": null,
         "message": "Git integration removed"
