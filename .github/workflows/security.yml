@@ -20,6 +20,9 @@ jobs:
       - uses: actions/checkout@v4
       - name: Install cargo-audit
         run: cargo install --locked cargo-audit
+      - name: Dependency provenance and license metadata
+        run: python3 scripts/check_dependency_policy.py
+
       - name: Run Advisory Audit
         # RUSTSEC-2023-0071 currently has no fixed rsa release.
         # It is an indirect dependency of jsonwebtoken pulled by Loco.
