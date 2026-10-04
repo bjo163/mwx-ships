@@ -58,6 +58,7 @@
 ## Release Follow-up
 
 - [ ] #46 Implement deployment execution on selected remote server
+- [ ] #47 Protect management API routes with JWT authentication
 
 ## Future Scale Phases
 
