@@ -11,5 +11,5 @@ pub mod preview;
 pub mod proxy;
 pub mod remote;
 pub mod retention;
-pub mod ssh;
 pub mod source_inspection;
+pub mod ssh;
