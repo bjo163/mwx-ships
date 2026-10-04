@@ -24,6 +24,12 @@ pub enum DeploymentError {
     StepFailed { step: String, message: String },
     #[error("Healthcheck failed after retries: {0}")]
     HealthcheckFailed(String),
+    #[error("Deployment was cancelled")]
+    Cancelled,
+    #[error("Deployment cannot be cancelled from status '{status}'")]
+    CancelNotAllowed { status: String },
+    #[error("Deployment cannot be retried from status '{status}'")]
+    RetryNotAllowed { status: String },
 }
 
 pub struct DeploymentService;
@@ -80,6 +86,117 @@ impl DeploymentService {
         Ok(dep)
     }
 
+    pub async fn cancel_deployment(
+        db: &DatabaseConnection,
+        deployment_id: i64,
+    ) -> Result<deployments::Model, DeploymentError> {
+        let deployment = deployments::Model::find_by_id(db, deployment_id)
+            .await
+            .map_err(|err| DeploymentError::StepFailed {
+                step: "load_deployment".to_string(),
+                message: err.to_string(),
+            })?;
+
+        match deployments::Model::cancel_if_safe(db, deployment_id)
+            .await
+            .map_err(|err| DeploymentError::StepFailed {
+                step: "cancel_deployment".to_string(),
+                message: err.to_string(),
+            })?
+        {
+            Some(cancelled) => {
+                let _ = deployment_logs::Model::append(
+                    db,
+                    deployment_id,
+                    "system",
+                    "Deployment cancelled before destructive replacement began",
+                )
+                .await;
+
+                if let Ok(app) = applications::Model::find_by_id(db, deployment.application_id).await
+                {
+                    let restored_status = if app.current_revision_id.is_some() {
+                        "running"
+                    } else {
+                        "stopped"
+                    };
+                    let _ =
+                        applications::Model::update_status(db, app.id, restored_status).await;
+                }
+
+                Ok(cancelled)
+            }
+            None => {
+                let latest = deployments::Model::find_by_id(db, deployment_id)
+                    .await
+                    .map_err(|err| DeploymentError::StepFailed {
+                        step: "reload_deployment".to_string(),
+                        message: err.to_string(),
+                    })?;
+                Err(DeploymentError::CancelNotAllowed {
+                    status: latest.status,
+                })
+            }
+        }
+    }
+
+    pub async fn retry_deployment(
+        db: &DatabaseConnection,
+        deployment_id: i64,
+    ) -> Result<deployments::Model, DeploymentError> {
+        let original = deployments::Model::find_by_id(db, deployment_id)
+            .await
+            .map_err(|err| DeploymentError::StepFailed {
+                step: "load_deployment".to_string(),
+                message: err.to_string(),
+            })?;
+
+        if !original.is_retryable() {
+            return Err(DeploymentError::RetryNotAllowed {
+                status: original.status,
+            });
+        }
+
+        let retry = Self::trigger_deploy(
+            db,
+            original.application_id,
+            original.commit_hash.clone(),
+            original.commit_message.clone(),
+        )
+        .await?;
+
+        if let Some(revision_id) = original.revision_id {
+            let commit_hash = original.commit_hash.clone().unwrap_or_default();
+            let _ = deployments::Model::attach_revision(
+                db,
+                retry.id,
+                revision_id,
+                &commit_hash,
+                original.commit_message.clone(),
+            )
+            .await
+            .map_err(|err| DeploymentError::StepFailed {
+                step: "retry_revision_bind".to_string(),
+                message: err.to_string(),
+            })?;
+        }
+
+        let _ = deployment_logs::Model::append(
+            db,
+            retry.id,
+            "system",
+            &format!("Retry requested from deployment #{}", original.id),
+        )
+        .await;
+
+        deployments::Model::find_by_id(db, retry.id)
+            .await
+            .map_err(|err| DeploymentError::StepFailed {
+                step: "reload_retry".to_string(),
+                message: err.to_string(),
+            })
+    }
+
     pub async fn execute_deployment(
         db: &DatabaseConnection,
         deployment_id: i64,
@@ -98,7 +215,27 @@ impl DeploymentService {
             .await
             .map_err(|_| DeploymentError::ServerNotFound(dep.server_id))?;
 
-        let _ = deployments::Model::update_status(db, dep.id, "connecting").await;
+        let requested_revision = match dep.revision_id {
+            Some(revision_id) => {
+                let revision = deployment_revisions::Model::find_by_id(db, revision_id)
+                    .await
+                    .map_err(|err| DeploymentError::StepFailed {
+                        step: "load_requested_revision".to_string(),
+                        message: err.to_string(),
+                    })?;
+                if revision.application_id != app.id || revision.server_id != server.id {
+                    return Err(DeploymentError::StepFailed {
+                        step: "validate_requested_revision".to_string(),
+                        message: "requested revision does not belong to this application/server"
+                            .to_string(),
+                    });
+                }
+                Some(revision)
+            }
+            None => None,
+        };
+
+        Self::transition_phase(db, dep.id, &["queued"], "connecting").await?;
         let _ = applications::Model::update_status(db, app.id, "connecting").await;
         let _ = deployment_logs::Model::append(
             db,
@@ -154,7 +291,7 @@ impl DeploymentService {
         )
         .await;
 
-        let _ = deployments::Model::update_status(db, dep.id, "cloning").await;
+        Self::transition_phase(db, dep.id, &["connecting"], "cloning").await?;
         let _ = applications::Model::update_status(db, app.id, "cloning").await;
         let _ = deployment_logs::Model::append(
             db,
@@ -164,7 +301,13 @@ impl DeploymentService {
         )
         .await;
 
-        let (commit_sha, commit_message) = match runtime.sync_repository(&app).await {
+        let requested_commit = requested_revision
+            .as_ref()
+            .map(|revision| revision.source_commit_hash.as_str())
+            .or(dep.commit_hash.as_deref());
+
+        let (commit_sha, commit_message) =
+            match runtime.sync_repository(&app, requested_commit).await {
             Ok(revision) => revision,
             Err(err) => {
                 let exit_code = err.exit_code();
@@ -194,27 +337,43 @@ impl DeploymentService {
         )
         .await;
 
-        let revision = match deployment_revisions::Model::create_or_get(
-            db,
-            &app,
-            &server,
-            &commit_sha,
-            Some(commit_message.clone()),
-        )
-        .await
-        {
-            Ok(revision) => revision,
-            Err(err) => {
+        let revision = if let Some(revision) = requested_revision {
+            if revision.source_commit_hash != commit_sha {
                 return Err(Self::record_failure(
                     db,
                     dep.id,
                     app.id,
-                    "REVISION_SNAPSHOT_FAILED",
+                    "REVISION_SOURCE_MISMATCH",
                     "cloning",
-                    &err.to_string(),
+                    "requested revision commit does not match checked-out commit",
                     None,
                 )
                 .await);
+            }
+            revision
+        } else {
+            match deployment_revisions::Model::create_or_get(
+                db,
+                &app,
+                &server,
+                &commit_sha,
+                Some(commit_message.clone()),
+            )
+            .await
+            {
+                Ok(revision) => revision,
+                Err(err) => {
+                    return Err(Self::record_failure(
+                        db,
+                        dep.id,
+                        app.id,
+                        "REVISION_SNAPSHOT_FAILED",
+                        "cloning",
+                        &err.to_string(),
+                        None,
+                    )
+                    .await);
+                }
             }
         };
 
@@ -251,7 +410,7 @@ impl DeploymentService {
         )
         .await;
 
-        let _ = deployments::Model::update_status(db, dep.id, "building").await;
+        Self::transition_phase(db, dep.id, &["cloning"], "building").await?;
         let _ = applications::Model::update_status(db, app.id, "building").await;
 
         let build_result = if app.build_type == "prebuilt_image" {
@@ -282,7 +441,7 @@ impl DeploymentService {
         )
         .await;
 
-        let _ = deployments::Model::update_status(db, dep.id, "stopping_old").await;
+        Self::transition_phase(db, dep.id, &["building"], "stopping_old").await?;
         let _ = deployment_logs::Model::append(
             db,
             dep.id,
@@ -309,7 +468,7 @@ impl DeploymentService {
             .await);
         }
 
-        let _ = deployments::Model::update_status(db, dep.id, "starting_new").await;
+        Self::transition_phase(db, dep.id, &["stopping_old"], "starting_new").await?;
         let _ = applications::Model::update_status(db, app.id, "starting").await;
 
         let raw_env_vars = environment_variables::Model::by_application(db, app.id)
@@ -401,7 +560,7 @@ impl DeploymentService {
         }
 
         if let Some(path) = &app.healthcheck_path {
-            let _ = deployments::Model::update_status(db, dep.id, "healthchecking").await;
+            Self::transition_phase(db, dep.id, &["starting_new"], "healthchecking").await?;
             let _ = applications::Model::update_status(db, app.id, "healthchecking").await;
             let _ = deployment_logs::Model::append(
                 db,
@@ -481,7 +640,12 @@ impl DeploymentService {
             .await);
         }
 
-        let _ = deployments::Model::update_status(db, dep.id, "success").await;
+        let success_from = if app.healthcheck_path.is_some() {
+            &["healthchecking"][..]
+        } else {
+            &["starting_new"][..]
+        };
+        Self::transition_phase(db, dep.id, success_from, "success").await?;
         let _ = deployment_logs::Model::append(
             db,
             dep.id,
@@ -498,6 +662,46 @@ impl DeploymentService {
         Ok(())
     }
 
+    async fn transition_phase(
+        db: &DatabaseConnection,
+        deployment_id: i64,
+        allowed_from: &[&str],
+        next_status: &str,
+    ) -> Result<deployments::Model, DeploymentError> {
+        match deployments::Model::transition_status_if(
+            db,
+            deployment_id,
+            allowed_from,
+            next_status,
+        )
+        .await
+        .map_err(|err| DeploymentError::StepFailed {
+            step: "transition_status".to_string(),
+            message: err.to_string(),
+        })? {
+            Some(deployment) => Ok(deployment),
+            None => {
+                let current = deployments::Model::find_by_id(db, deployment_id)
+                    .await
+                    .map_err(|err| DeploymentError::StepFailed {
+                        step: "reload_transition".to_string(),
+                        message: err.to_string(),
+                    })?;
+                if current.is_cancelled() {
+                    Err(DeploymentError::Cancelled)
+                } else {
+                    Err(DeploymentError::StepFailed {
+                        step: "transition_status".to_string(),
+                        message: format!(
+                            "cannot transition deployment #{} from '{}' to '{}'",
+                            deployment_id, current.status, next_status
+                        ),
+                    })
+                }
+            }
+        }
+    }
+
     async fn record_failure(
         db: &DatabaseConnection,
         deployment_id: i64,
@@ -507,6 +711,12 @@ impl DeploymentService {
         message: &str,
         exit_code: Option<i32>,
     ) -> DeploymentError {
+        if let Ok(current) = deployments::Model::find_by_id(db, deployment_id).await {
+            if current.is_cancelled() {
+                return DeploymentError::Cancelled;
+            }
+        }
+
         let _ = deployment_logs::Model::append(db, deployment_id, "stderr", message).await;
         let _ =
             deployments::Model::record_failure(db, deployment_id, error_code, message, exit_code)
