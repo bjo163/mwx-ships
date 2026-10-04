@@ -1,8 +1,7 @@
 use crate::{
     models::{
         _entities::servers::{ActiveModel, Entity},
-        operational_events,
-        server_health_checks,
+        operational_events, server_health_checks,
         servers::{CreateServerParams, Model as ServerModel, UpdateServerParams},
     },
     services::{crypto::CryptoService, notification::NotificationService, ssh::SshService},
@@ -252,7 +251,10 @@ pub async fn preflight(
             "target_unhealthy",
             "warning",
             &format!("Target {} unhealthy", server.name),
-            &format!("Manual preflight status={status}; {}", report.issues.join("; ")),
+            &format!(
+                "Manual preflight status={status}; {}",
+                report.issues.join("; ")
+            ),
         )
         .await;
     }

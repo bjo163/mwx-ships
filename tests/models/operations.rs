@@ -21,7 +21,9 @@ use uuid::Uuid;
 #[serial]
 async fn backup_restore_drill_preserves_schema_revision_and_secret() {
     let root = std::env::temp_dir().join(format!("moonships-restore-drill-{}", Uuid::new_v4()));
-    tokio::fs::create_dir_all(&root).await.expect("create temp root");
+    tokio::fs::create_dir_all(&root)
+        .await
+        .expect("create temp root");
     let source = root.join("source.sqlite");
     let queue = root.join("queue.sqlite");
     let backup_dir = root.join("backups");
@@ -127,14 +129,18 @@ async fn backup_restore_drill_preserves_schema_revision_and_secret() {
     let revision = DeploymentRevisionModel::create_or_get(
         db,
         &app,
-        &ServerModel::find_by_id(db, server.id).await.expect("load server"),
+        &ServerModel::find_by_id(db, server.id)
+            .await
+            .expect("load server"),
         "0123456789abcdef",
         Some("restore drill".to_string()),
     )
     .await
     .expect("create immutable revision");
 
-    let backup = BackupService::run(db).await.expect("create verified encrypted backup");
+    let backup = BackupService::run(db)
+        .await
+        .expect("create verified encrypted backup");
     assert!(backup.run.verified);
     assert!(backup.run.encrypted);
     assert!(backup.path.to_string_lossy().ends_with(".moonshipsbak"));
@@ -186,12 +192,13 @@ async fn backup_restore_drill_preserves_schema_revision_and_secret() {
     let _ = tokio::fs::remove_dir_all(&root).await;
 }
 
-
 #[tokio::test]
 #[serial]
 async fn notification_claim_deduplicates_during_cooldown() {
     let root = std::env::temp_dir().join(format!("moonships-alert-test-{}", Uuid::new_v4()));
-    tokio::fs::create_dir_all(&root).await.expect("create alert temp root");
+    tokio::fs::create_dir_all(&root)
+        .await
+        .expect("create alert temp root");
     std::env::set_var(
         "DATABASE_URL",
         format!("sqlite://{}?mode=rwc", root.join("db.sqlite").display()),

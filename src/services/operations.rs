@@ -120,9 +120,10 @@ impl OperationsService {
                 _ => {}
             }
 
-            if let (Some(started), Some(finished)) =
-                (deployment.started_at.as_ref(), deployment.finished_at.as_ref())
-            {
+            if let (Some(started), Some(finished)) = (
+                deployment.started_at.as_ref(),
+                deployment.finished_at.as_ref(),
+            ) {
                 let seconds = finished.timestamp() - started.timestamp();
                 if seconds >= 0 {
                     durations.push(seconds as f64);

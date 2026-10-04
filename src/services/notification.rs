@@ -33,12 +33,7 @@ impl NotificationService {
             .max(60);
 
         let claim = notification_events::Model::claim(
-            &ctx.db,
-            event_kind,
-            severity,
-            message,
-            subject,
-            cooldown,
+            &ctx.db, event_kind, severity, message, subject, cooldown,
         )
         .await?;
 

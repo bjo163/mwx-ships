@@ -47,8 +47,9 @@ impl Model {
             active.message = Set(message.to_string());
             active.status = Set("pending".to_string());
             active.attempts = Set(attempts);
-            active.cooldown_until =
-                Set(Some((now + Duration::seconds(cooldown_seconds.max(60))).into()));
+            active.cooldown_until = Set(Some(
+                (now + Duration::seconds(cooldown_seconds.max(60))).into(),
+            ));
             active.updated_at = Set(now.into());
             let event = active.update(db).await?;
             return Ok(NotificationClaim {

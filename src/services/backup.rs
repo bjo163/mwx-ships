@@ -75,7 +75,8 @@ impl BackupService {
             .await
             .map_err(|err| BackupError::Io(err.to_string()))?;
 
-        let result = Self::create_verified_backup(&source, &plain_path, &final_path, encrypted).await;
+        let result =
+            Self::create_verified_backup(&source, &plain_path, &final_path, encrypted).await;
         match result {
             Ok((size_bytes, sha256, verification_message)) => {
                 let completed = backup_runs::Model::complete(
@@ -248,7 +249,10 @@ impl BackupService {
             .map_err(|err| BackupError::Io(err.to_string()))?
         {
             let path = entry.path();
-            let name = path.file_name().and_then(|v| v.to_str()).unwrap_or_default();
+            let name = path
+                .file_name()
+                .and_then(|v| v.to_str())
+                .unwrap_or_default();
             if name.starts_with("moonships-")
                 && (name.ends_with(".sqlite") || name.ends_with(".sqlite.moonshipsbak"))
             {

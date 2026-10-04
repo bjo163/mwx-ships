@@ -28,26 +28,24 @@ pub fn routes() -> Routes {
 }
 
 #[debug_handler]
-pub async fn metrics(
-    _auth: auth::JWT,
-    State(ctx): State<AppContext>,
-) -> Result<Response> {
+pub async fn metrics(_auth: auth::JWT, State(ctx): State<AppContext>) -> Result<Response> {
     let data = OperationsService::metrics(&ctx.db).await?;
     format::json(serde_json::json!({"data":data,"message":"ok"}))
 }
 
 #[debug_handler]
-pub async fn health(
-    _auth: auth::JWT,
-    State(ctx): State<AppContext>,
-) -> Result<Response> {
+pub async fn health(_auth: auth::JWT, State(ctx): State<AppContext>) -> Result<Response> {
     let data = OperationsService::health(&ctx.db).await?;
     let status = if data.status == "healthy" {
         StatusCode::OK
     } else {
         StatusCode::SERVICE_UNAVAILABLE
     };
-    Ok((status, format::json(serde_json::json!({"data":data,"message":"ok"}))?).into_response())
+    Ok((
+        status,
+        format::json(serde_json::json!({"data":data,"message":"ok"}))?,
+    )
+        .into_response())
 }
 
 #[debug_handler]
@@ -81,10 +79,7 @@ pub async fn backups(
 }
 
 #[debug_handler]
-pub async fn queue_backup(
-    _auth: auth::JWT,
-    State(ctx): State<AppContext>,
-) -> Result<Response> {
+pub async fn queue_backup(_auth: auth::JWT, State(ctx): State<AppContext>) -> Result<Response> {
     BackupWorker::perform_later(
         &ctx,
         BackupWorkerArgs {
@@ -104,10 +99,7 @@ pub async fn queue_backup(
 }
 
 #[debug_handler]
-pub async fn queue_poll(
-    _auth: auth::JWT,
-    State(ctx): State<AppContext>,
-) -> Result<Response> {
+pub async fn queue_poll(_auth: auth::JWT, State(ctx): State<AppContext>) -> Result<Response> {
     OperationsMonitorWorker::perform_later(
         &ctx,
         OperationsMonitorWorkerArgs {

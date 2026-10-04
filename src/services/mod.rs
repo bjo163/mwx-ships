@@ -1,13 +1,13 @@
+pub mod backup;
 pub mod crypto;
 pub mod deployment;
 pub mod docker;
 pub mod git;
 pub mod git_provider;
+pub mod notification;
+pub mod operations;
 pub mod preview;
 pub mod proxy;
 pub mod remote;
 pub mod retention;
 pub mod ssh;
-pub mod backup;
-pub mod notification;
-pub mod operations;

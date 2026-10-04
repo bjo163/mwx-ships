@@ -1381,7 +1381,11 @@ impl DeploymentService {
                 let _ = operational_events::Model::record(
                     db,
                     "retention_cleanup",
-                    if report.warnings.is_empty() { "info" } else { "warning" },
+                    if report.warnings.is_empty() {
+                        "info"
+                    } else {
+                        "warning"
+                    },
                     Some("application"),
                     Some(app.id),
                     "Post-deployment retention cleanup completed",

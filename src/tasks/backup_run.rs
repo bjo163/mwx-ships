@@ -8,7 +8,9 @@ impl Task for BackupRun {
     fn task(&self) -> TaskInfo {
         TaskInfo {
             name: "backup:run".to_string(),
-            detail: "Create, verify, hash, optionally encrypt, and retain a Moonships SQLite backup.".to_string(),
+            detail:
+                "Create, verify, hash, optionally encrypt, and retain a Moonships SQLite backup."
+                    .to_string(),
         }
     }
 
