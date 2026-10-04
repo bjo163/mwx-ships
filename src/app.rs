@@ -21,6 +21,7 @@ use crate::{
     workers::{
         backup::{BackupWorker, BackupWorkerArgs},
         downloader::DownloadWorker,
+        operations_monitor::{OperationsMonitorWorker, OperationsMonitorWorkerArgs},
     },
 };
 
@@ -86,6 +87,31 @@ impl Hooks for App {
             });
         }
 
+        let operations_interval = std::env::var("MOONSHIPS_OPERATIONS_POLL_INTERVAL_SECS")
+            .ok()
+            .and_then(|value| value.parse::<u64>().ok())
+            .unwrap_or_else(|| if production_default > 0 { 300 } else { 0 });
+
+        if operations_interval > 0 {
+            let ctx = app_context.clone();
+            tokio::spawn(async move {
+                tokio::time::sleep(Duration::from_secs(30)).await;
+                loop {
+                    if let Err(error) = OperationsMonitorWorker::perform_later(
+                        &ctx,
+                        OperationsMonitorWorkerArgs {
+                            reason: "scheduled".to_string(),
+                        },
+                    )
+                    .await
+                    {
+                        tracing::error!(error = %error, "Unable to enqueue operations monitor");
+                    }
+                    tokio::time::sleep(Duration::from_secs(operations_interval)).await;
+                }
+            });
+        }
+
         Ok(())
     }
 
@@ -102,6 +128,7 @@ impl Hooks for App {
     async fn connect_workers(ctx: &AppContext, queue: &Queue) -> Result<()> {
         queue.register(DownloadWorker::build(ctx)).await?;
         queue.register(BackupWorker::build(ctx)).await?;
+        queue.register(OperationsMonitorWorker::build(ctx)).await?;
         queue
             .register(crate::workers::deployment::DeploymentWorker::build(ctx))
             .await?;
