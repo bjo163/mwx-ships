@@ -29,6 +29,10 @@ pub enum DeploymentError {
     RetryNotAllowed { status: String },
     #[error("No previous known-good revision is available for application {application_id}")]
     RollbackNotAvailable { application_id: i64 },
+    #[error("Deployment execution is already claimed in status '{status}'")]
+    ExecutionClaimUnavailable { status: String },
+    #[error("Deployment execution lease ownership was lost")]
+    ExecutionClaimLost,
 }
 
 pub struct DeploymentService;
@@ -280,12 +284,49 @@ impl DeploymentService {
         db: &DatabaseConnection,
         deployment_id: i64,
     ) -> Result<(), DeploymentError> {
-        let dep = deployments::Model::find_by_id(db, deployment_id)
+        let lease_seconds = Self::execution_lease_seconds();
+        let claim = deployments::Model::claim_for_execution(db, deployment_id, lease_seconds)
             .await
-            .map_err(|e| DeploymentError::StepFailed {
-                step: "load_deployment".to_string(),
-                message: e.to_string(),
+            .map_err(|err| DeploymentError::StepFailed {
+                step: "claim_execution".to_string(),
+                message: err.to_string(),
             })?;
+
+        let claim = match claim {
+            Some(claim) => claim,
+            None => {
+                let current = deployments::Model::find_by_id(db, deployment_id)
+                    .await
+                    .map_err(|err| DeploymentError::StepFailed {
+                        step: "reload_claim".to_string(),
+                        message: err.to_string(),
+                    })?;
+
+                return match current.status.as_str() {
+                    "success" | "failed" => Ok(()),
+                    "cancelled" => Err(DeploymentError::Cancelled),
+                    _ => Err(DeploymentError::ExecutionClaimUnavailable {
+                        status: current.status,
+                    }),
+                };
+            }
+        };
+
+        let execution_token = claim.token.clone();
+        let dep = claim.deployment;
+
+        if let Some(recovered_from) = claim.recovered_from.as_deref() {
+            let _ = deployment_logs::Model::append(
+                db,
+                dep.id,
+                "system",
+                &format!(
+                    "Recovered stale deployment execution from phase '{recovered_from}' (attempt {})",
+                    dep.attempt_count
+                ),
+            )
+            .await;
+        }
 
         let app = applications::Model::find_by_id(db, dep.application_id)
             .await
@@ -314,7 +355,6 @@ impl DeploymentService {
             None => None,
         };
 
-        Self::transition_phase(db, dep.id, &["queued"], "connecting").await?;
         let _ = applications::Model::update_status(db, app.id, "connecting").await;
         let _ = deployment_logs::Model::append(
             db,
@@ -333,6 +373,7 @@ impl DeploymentService {
                 let message = err.to_string();
                 return Err(Self::record_failure(
                     db,
+                    &execution_token,
                     dep.id,
                     app.id,
                     "SSH_CONNECT_FAILED",
@@ -349,6 +390,7 @@ impl DeploymentService {
             let message = err.to_string();
             return Err(Self::record_failure(
                 db,
+                &execution_token,
                 dep.id,
                 app.id,
                 "REMOTE_DOCKER_UNAVAILABLE",
@@ -370,7 +412,7 @@ impl DeploymentService {
         )
         .await;
 
-        Self::transition_phase(db, dep.id, &["connecting"], "cloning").await?;
+        Self::transition_phase(db, dep.id, &execution_token, &["connecting"], "cloning").await?;
         let _ = applications::Model::update_status(db, app.id, "cloning").await;
         let _ = deployment_logs::Model::append(
             db,
@@ -419,6 +461,7 @@ impl DeploymentService {
                 let message = err.to_string();
                 return Err(Self::record_failure(
                     db,
+                    &execution_token,
                     dep.id,
                     app.id,
                     "REMOTE_GIT_FAILED",
@@ -446,6 +489,7 @@ impl DeploymentService {
             if revision.source_commit_hash != commit_sha {
                 return Err(Self::record_failure(
                     db,
+                    &execution_token,
                     dep.id,
                     app.id,
                     "REVISION_SOURCE_MISMATCH",
@@ -470,6 +514,7 @@ impl DeploymentService {
                 Err(err) => {
                     return Err(Self::record_failure(
                         db,
+                        &execution_token,
                         dep.id,
                         app.id,
                         "REVISION_SNAPSHOT_FAILED",
@@ -500,6 +545,7 @@ impl DeploymentService {
         {
             return Err(Self::record_failure(
                 db,
+                &execution_token,
                 dep.id,
                 app.id,
                 "REVISION_BIND_FAILED",
@@ -522,7 +568,7 @@ impl DeploymentService {
         )
         .await;
 
-        Self::transition_phase(db, dep.id, &["cloning"], "building").await?;
+        Self::transition_phase(db, dep.id, &execution_token, &["cloning"], "building").await?;
         let _ = applications::Model::update_status(db, app.id, "building").await;
 
         let build_result = if revision_snapshot.build_type == "prebuilt_image" {
@@ -560,7 +606,7 @@ impl DeploymentService {
         )
         .await;
 
-        Self::transition_phase(db, dep.id, &["building"], "stopping_old").await?;
+        Self::transition_phase(db, dep.id, &execution_token, &["building"], "stopping_old").await?;
         let _ = deployment_logs::Model::append(
             db,
             dep.id,
@@ -577,6 +623,7 @@ impl DeploymentService {
             let message = err.to_string();
             return Err(Self::record_failure(
                 db,
+                &execution_token,
                 dep.id,
                 app.id,
                 "REMOTE_DOCKER_REPLACE_FAILED",
@@ -587,7 +634,7 @@ impl DeploymentService {
             .await);
         }
 
-        Self::transition_phase(db, dep.id, &["stopping_old"], "starting_new").await?;
+        Self::transition_phase(db, dep.id, &execution_token, &["stopping_old"], "starting_new").await?;
         let _ = applications::Model::update_status(db, app.id, "starting").await;
 
         let mut decrypted_envs = Vec::new();
@@ -609,6 +656,7 @@ impl DeploymentService {
                 if deployment_revisions::sha256_hex(encrypted) != env.value_fingerprint {
                     return Err(Self::record_failure(
                         db,
+                        &execution_token,
                         dep.id,
                         app.id,
                         "REVISION_SECRET_INTEGRITY_FAILED",
@@ -651,6 +699,7 @@ impl DeploymentService {
                 if deployment_revisions::sha256_hex(&value) != env.value_fingerprint {
                     return Err(Self::record_failure(
                         db,
+                        &execution_token,
                         dep.id,
                         app.id,
                         "REVISION_ENV_INTEGRITY_FAILED",
@@ -711,6 +760,7 @@ impl DeploymentService {
                 let message = redact_secrets(&err.to_string(), &secret_values);
                 return Err(Self::record_failure(
                     db,
+                    &execution_token,
                     dep.id,
                     app.id,
                     "REMOTE_DOCKER_RUN_FAILED",
@@ -723,7 +773,7 @@ impl DeploymentService {
         }
 
         if let Some(path) = &revision_snapshot.healthcheck_path {
-            Self::transition_phase(db, dep.id, &["starting_new"], "healthchecking").await?;
+            Self::transition_phase(db, dep.id, &execution_token, &["starting_new"], "healthchecking").await?;
             let _ = applications::Model::update_status(db, app.id, "healthchecking").await;
             let _ = deployment_logs::Model::append(
                 db,
@@ -772,6 +822,7 @@ impl DeploymentService {
                 let message = redact_secrets(&err.to_string(), &secret_values);
                 let _ = Self::record_failure(
                     db,
+                    &execution_token,
                     dep.id,
                     app.id,
                     "REMOTE_HEALTHCHECK_FAILED",
@@ -787,6 +838,7 @@ impl DeploymentService {
         if let Err(err) = deployment_revisions::Model::mark_healthy(db, revision.id).await {
             return Err(Self::record_failure(
                 db,
+                &execution_token,
                 dep.id,
                 app.id,
                 "REVISION_FINALIZE_FAILED",
@@ -800,6 +852,7 @@ impl DeploymentService {
         if let Err(err) = applications::Model::promote_revision(db, app.id, revision.id).await {
             return Err(Self::record_failure(
                 db,
+                &execution_token,
                 dep.id,
                 app.id,
                 "REVISION_PROMOTE_FAILED",
@@ -815,7 +868,7 @@ impl DeploymentService {
         } else {
             &["starting_new"][..]
         };
-        Self::transition_phase(db, dep.id, success_from, "success").await?;
+        Self::transition_phase(db, dep.id, &execution_token, success_from, "success").await?;
         let _ = deployment_logs::Model::append(
             db,
             dep.id,
@@ -832,19 +885,54 @@ impl DeploymentService {
         Ok(())
     }
 
+    fn execution_lease_seconds() -> i64 {
+        std::env::var("MOONSHIPS_DEPLOYMENT_LEASE_SECS")
+            .ok()
+            .and_then(|value| value.parse::<i64>().ok())
+            .filter(|value| *value >= 60)
+            .unwrap_or(7200)
+    }
+
     async fn transition_phase(
         db: &DatabaseConnection,
         deployment_id: i64,
+        execution_token: &str,
         allowed_from: &[&str],
         next_status: &str,
     ) -> Result<deployments::Model, DeploymentError> {
-        match deployments::Model::transition_status_if(db, deployment_id, allowed_from, next_status)
-            .await
-            .map_err(|err| DeploymentError::StepFailed {
-                step: "transition_status".to_string(),
-                message: err.to_string(),
-            })? {
-            Some(deployment) => Ok(deployment),
+        let transition = deployments::Model::transition_status_if_owned(
+            db,
+            deployment_id,
+            allowed_from,
+            next_status,
+            Some(execution_token),
+        )
+        .await
+        .map_err(|err| DeploymentError::StepFailed {
+            step: "transition_status".to_string(),
+            message: err.to_string(),
+        })?;
+
+        match transition {
+            Some(deployment) => {
+                if !matches!(next_status, "success" | "failed" | "cancelled") {
+                    let renewed = deployments::Model::renew_execution_lease(
+                        db,
+                        deployment_id,
+                        execution_token,
+                        Self::execution_lease_seconds(),
+                    )
+                    .await
+                    .map_err(|err| DeploymentError::StepFailed {
+                        step: "renew_execution_lease".to_string(),
+                        message: err.to_string(),
+                    })?;
+                    if !renewed {
+                        return Err(DeploymentError::ExecutionClaimLost);
+                    }
+                }
+                Ok(deployment)
+            }
             None => {
                 let current = deployments::Model::find_by_id(db, deployment_id)
                     .await
@@ -854,6 +942,8 @@ impl DeploymentService {
                     })?;
                 if current.is_cancelled() {
                     Err(DeploymentError::Cancelled)
+                } else if current.execution_token.as_deref() != Some(execution_token) {
+                    Err(DeploymentError::ExecutionClaimLost)
                 } else {
                     Err(DeploymentError::StepFailed {
                         step: "transition_status".to_string(),
@@ -869,6 +959,7 @@ impl DeploymentService {
 
     async fn record_failure(
         db: &DatabaseConnection,
+        execution_token: &str,
         deployment_id: i64,
         application_id: i64,
         error_code: &str,
@@ -879,6 +970,9 @@ impl DeploymentService {
         if let Ok(current) = deployments::Model::find_by_id(db, deployment_id).await {
             if current.is_cancelled() {
                 return DeploymentError::Cancelled;
+            }
+            if current.execution_token.as_deref() != Some(execution_token) {
+                return DeploymentError::ExecutionClaimLost;
             }
         }
 
