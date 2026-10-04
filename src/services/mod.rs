@@ -2,6 +2,7 @@ pub mod access_control;
 pub mod backup;
 pub mod crypto;
 pub mod deployment;
+pub mod deployment_plan;
 pub mod docker;
 pub mod git;
 pub mod git_provider;
