@@ -47,7 +47,6 @@ pub fn routes() -> Routes {
         .add("{id}/domains/{domain_id}", delete(remove_domain))
 }
 
-
 async fn remote_runtime(
     db: &DatabaseConnection,
     app: &ApplicationModel,

@@ -5,7 +5,10 @@ use crate::{
         ssh::{SshError, SshService, SshSession},
     },
 };
-use std::{path::{Component, Path}, time::Duration};
+use std::{
+    path::{Component, Path},
+    time::Duration,
+};
 
 #[derive(Debug, thiserror::Error)]
 pub enum RemoteError {
@@ -218,9 +221,7 @@ impl RemoteRuntime {
         }
         args.push(shell_quote(&config.image));
 
-        let env_path = format!(
-            "\"$HOME/.moonships/runtime/app-{application_id}.env\""
-        );
+        let env_path = format!("\"$HOME/.moonships/runtime/app-{application_id}.env\"");
         let command = format!(
             "umask 077; mkdir -p \"$HOME/.moonships/runtime\"; \
              ENV_FILE={env_path}; cat > \"$ENV_FILE\"; \
@@ -254,7 +255,8 @@ impl RemoteRuntime {
     }
 
     pub async fn restart_container(&self, name: &str) -> Result<(), RemoteError> {
-        self.container_action("docker_restart", "restart", name).await
+        self.container_action("docker_restart", "restart", name)
+            .await
     }
 
     pub async fn remove_container(&self, name: &str) -> Result<(), RemoteError> {

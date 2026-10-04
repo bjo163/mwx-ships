@@ -96,10 +96,7 @@ impl SshSession {
         args
     }
 
-    pub async fn execute(
-        &self,
-        remote_command: &str,
-    ) -> Result<(i32, String, String), SshError> {
+    pub async fn execute(&self, remote_command: &str) -> Result<(i32, String, String), SshError> {
         self.execute_with_timeout(remote_command, Self::command_timeout())
             .await
     }
@@ -194,9 +191,13 @@ impl SshService {
             Self::verify_fingerprint(&scanned_host_keys, expected).await?;
         }
 
-        let known_hosts_file =
-            Self::write_temp_file(server.id, "known-hosts", scanned_host_keys.as_bytes(), false)
-                .await?;
+        let known_hosts_file = Self::write_temp_file(
+            server.id,
+            "known-hosts",
+            scanned_host_keys.as_bytes(),
+            false,
+        )
+        .await?;
 
         let identity_file = match &server.encrypted_private_key {
             Some(encrypted) => {
@@ -207,13 +208,8 @@ impl SshService {
                         return Err(SshError::Credential(err.to_string()));
                     }
                 };
-                match Self::write_temp_file(
-                    server.id,
-                    "identity",
-                    private_key.as_bytes(),
-                    true,
-                )
-                .await
+                match Self::write_temp_file(server.id, "identity", private_key.as_bytes(), true)
+                    .await
                 {
                     Ok(path) => Some(path),
                     Err(err) => {
@@ -289,12 +285,10 @@ impl SshService {
             });
         }
 
-        let disk_available_gb = Self::parse_remote_f64(
-            &session,
-            "df -k / | tail -1 | awk '{print $4}'",
-        )
-        .await?
-        .map(|kbytes| (kbytes / 1024.0 / 1024.0 * 10.0).round() / 10.0);
+        let disk_available_gb =
+            Self::parse_remote_f64(&session, "df -k / | tail -1 | awk '{print $4}'")
+                .await?
+                .map(|kbytes| (kbytes / 1024.0 / 1024.0 * 10.0).round() / 10.0);
 
         if let Some(gb) = disk_available_gb {
             if gb < 2.0 {
@@ -302,11 +296,8 @@ impl SshService {
             }
         }
 
-        let memory_available_mb = Self::parse_remote_u64(
-            &session,
-            "free -m | awk '/^Mem:/ {print $7}'",
-        )
-        .await?;
+        let memory_available_mb =
+            Self::parse_remote_u64(&session, "free -m | awk '/^Mem:/ {print $7}'").await?;
 
         let cpu_cores =
             Self::parse_remote_u32(&session, "nproc || grep -c ^processor /proc/cpuinfo").await?;
@@ -341,9 +332,7 @@ impl SshService {
         }
 
         if !(1..=65535).contains(&port) {
-            return Err(SshError::HostValidation(format!(
-                "invalid SSH port {port}"
-            )));
+            return Err(SshError::HostValidation(format!("invalid SSH port {port}")));
         }
 
         let valid_user = !user.trim().is_empty()
@@ -413,9 +402,11 @@ impl SshService {
 
         let output = timeout(Duration::from_secs(10), child.wait_with_output())
             .await
-            .map_err(|_| SshError::HostValidation(
-                "timed out while verifying SSH host fingerprint".to_string(),
-            ))?
+            .map_err(|_| {
+                SshError::HostValidation(
+                    "timed out while verifying SSH host fingerprint".to_string(),
+                )
+            })?
             .map_err(|e| SshError::ExecutionFailed(e.to_string()))?;
 
         let fingerprints = String::from_utf8_lossy(&output.stdout);
@@ -434,10 +425,8 @@ impl SshService {
         bytes: &[u8],
         private: bool,
     ) -> Result<PathBuf, SshError> {
-        let path = std::env::temp_dir().join(format!(
-            "moonships-{kind}-{server_id}-{}",
-            Uuid::new_v4()
-        ));
+        let path =
+            std::env::temp_dir().join(format!("moonships-{kind}-{server_id}-{}", Uuid::new_v4()));
         tokio::fs::write(&path, bytes)
             .await
             .map_err(|e| SshError::Credential(e.to_string()))?;

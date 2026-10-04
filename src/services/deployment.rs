@@ -114,43 +114,42 @@ impl DeploymentService {
             Ok(runtime) => runtime,
             Err(err) => {
                 let message = err.to_string();
-                return Err(
-                    Self::record_failure(
-                        db,
-                        dep.id,
-                        app.id,
-                        "SSH_CONNECT_FAILED",
-                        "connecting",
-                        &message,
-                        None,
-                    )
-                    .await,
-                );
+                return Err(Self::record_failure(
+                    db,
+                    dep.id,
+                    app.id,
+                    "SSH_CONNECT_FAILED",
+                    "connecting",
+                    &message,
+                    None,
+                )
+                .await);
             }
         };
 
         if let Err(err) = runtime.ensure_docker().await {
             let exit_code = err.exit_code();
             let message = err.to_string();
-            return Err(
-                Self::record_failure(
-                    db,
-                    dep.id,
-                    app.id,
-                    "REMOTE_DOCKER_UNAVAILABLE",
-                    "connecting",
-                    &message,
-                    exit_code,
-                )
-                .await,
-            );
+            return Err(Self::record_failure(
+                db,
+                dep.id,
+                app.id,
+                "REMOTE_DOCKER_UNAVAILABLE",
+                "connecting",
+                &message,
+                exit_code,
+            )
+            .await);
         }
 
         let _ = deployment_logs::Model::append(
             db,
             dep.id,
             "stdout",
-            &format!("Connected to {}; remote Docker is available", runtime.target()),
+            &format!(
+                "Connected to {}; remote Docker is available",
+                runtime.target()
+            ),
         )
         .await;
 
@@ -160,10 +159,7 @@ impl DeploymentService {
             db,
             dep.id,
             "system",
-            &format!(
-                "Synchronizing branch '{}' on target server",
-                app.git_branch
-            ),
+            &format!("Synchronizing branch '{}' on target server", app.git_branch),
         )
         .await;
 
@@ -172,18 +168,16 @@ impl DeploymentService {
             Err(err) => {
                 let exit_code = err.exit_code();
                 let message = err.to_string();
-                return Err(
-                    Self::record_failure(
-                        db,
-                        dep.id,
-                        app.id,
-                        "REMOTE_GIT_FAILED",
-                        "cloning",
-                        &message,
-                        exit_code,
-                    )
-                    .await,
-                );
+                return Err(Self::record_failure(
+                    db,
+                    dep.id,
+                    app.id,
+                    "REMOTE_GIT_FAILED",
+                    "cloning",
+                    &message,
+                    exit_code,
+                )
+                .await);
             }
         };
 
@@ -212,18 +206,16 @@ impl DeploymentService {
             match app.docker_image.as_deref() {
                 Some(image) if !image.trim().is_empty() => runtime.pull_image(image).await,
                 _ => {
-                    return Err(
-                        Self::record_failure(
-                            db,
-                            dep.id,
-                            app.id,
-                            "DEPLOYMENT_CONFIG_INVALID",
-                            "building",
-                            "prebuilt_image deployment requires docker_image",
-                            None,
-                        )
-                        .await,
-                    );
+                    return Err(Self::record_failure(
+                        db,
+                        dep.id,
+                        app.id,
+                        "DEPLOYMENT_CONFIG_INVALID",
+                        "building",
+                        "prebuilt_image deployment requires docker_image",
+                        None,
+                    )
+                    .await);
                 }
             }
         } else {
@@ -238,18 +230,10 @@ impl DeploymentService {
             } else {
                 "REMOTE_DOCKER_BUILD_FAILED"
             };
-            return Err(
-                Self::record_failure(
-                    db,
-                    dep.id,
-                    app.id,
-                    error_code,
-                    "building",
-                    &message,
-                    exit_code,
-                )
-                .await,
-            );
+            return Err(Self::record_failure(
+                db, dep.id, app.id, error_code, "building", &message, exit_code,
+            )
+            .await);
         }
 
         let _ = deployment_logs::Model::append(
@@ -275,18 +259,16 @@ impl DeploymentService {
         if let Err(err) = runtime.stop_and_remove_container(&app.container_name).await {
             let exit_code = err.exit_code();
             let message = err.to_string();
-            return Err(
-                Self::record_failure(
-                    db,
-                    dep.id,
-                    app.id,
-                    "REMOTE_DOCKER_REPLACE_FAILED",
-                    "stopping_old",
-                    &message,
-                    exit_code,
-                )
-                .await,
-            );
+            return Err(Self::record_failure(
+                db,
+                dep.id,
+                app.id,
+                "REMOTE_DOCKER_REPLACE_FAILED",
+                "stopping_old",
+                &message,
+                exit_code,
+            )
+            .await);
         }
 
         let _ = deployments::Model::update_status(db, dep.id, "starting_new").await;
@@ -306,18 +288,16 @@ impl DeploymentService {
                         value
                     }
                     Err(err) => {
-                        return Err(
-                            Self::record_failure(
-                                db,
-                                dep.id,
-                                app.id,
-                                "SECRET_DECRYPT_FAILED",
-                                "starting_new",
-                                &err.to_string(),
-                                None,
-                            )
-                            .await,
-                        );
+                        return Err(Self::record_failure(
+                            db,
+                            dep.id,
+                            app.id,
+                            "SECRET_DECRYPT_FAILED",
+                            "starting_new",
+                            &err.to_string(),
+                            None,
+                        )
+                        .await);
                     }
                 }
             } else {
@@ -329,7 +309,10 @@ impl DeploymentService {
         let app_domains = domains::Model::by_application(db, app.id)
             .await
             .unwrap_or_default();
-        let domain_names: Vec<String> = app_domains.iter().map(|domain| domain.hostname.clone()).collect();
+        let domain_names: Vec<String> = app_domains
+            .iter()
+            .map(|domain| domain.hostname.clone())
+            .collect();
         let has_https = app_domains.iter().any(|domain| domain.https_enabled);
         let labels = ProxyService::generate_traefik_labels(
             &app.slug,
@@ -372,18 +355,16 @@ impl DeploymentService {
             Err(err) => {
                 let exit_code = err.exit_code();
                 let message = redact_secrets(&err.to_string(), &secret_values);
-                return Err(
-                    Self::record_failure(
-                        db,
-                        dep.id,
-                        app.id,
-                        "REMOTE_DOCKER_RUN_FAILED",
-                        "starting_new",
-                        &message,
-                        exit_code,
-                    )
-                    .await,
-                );
+                return Err(Self::record_failure(
+                    db,
+                    dep.id,
+                    app.id,
+                    "REMOTE_DOCKER_RUN_FAILED",
+                    "starting_new",
+                    &message,
+                    exit_code,
+                )
+                .await);
             }
         }
 
@@ -405,12 +386,7 @@ impl DeploymentService {
             for attempt in 1..=retries {
                 sleep(Duration::from_secs(2)).await;
                 match runtime
-                    .healthcheck_once(
-                        &app.container_name,
-                        host_port,
-                        app.container_port,
-                        path,
-                    )
+                    .healthcheck_once(&app.container_name, host_port, app.container_port, path)
                     .await
                 {
                     Ok(()) => {
@@ -473,14 +449,9 @@ impl DeploymentService {
         exit_code: Option<i32>,
     ) -> DeploymentError {
         let _ = deployment_logs::Model::append(db, deployment_id, "stderr", message).await;
-        let _ = deployments::Model::record_failure(
-            db,
-            deployment_id,
-            error_code,
-            message,
-            exit_code,
-        )
-        .await;
+        let _ =
+            deployments::Model::record_failure(db, deployment_id, error_code, message, exit_code)
+                .await;
         let _ = applications::Model::update_status(db, application_id, "failed").await;
 
         DeploymentError::StepFailed {
