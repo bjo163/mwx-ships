@@ -59,6 +59,25 @@ async fn test_full_api_workflow_and_security() {
     request::<App, _, _>(|request, ctx| async move {
         let login = prepare_data::init_user_login(&request, &ctx).await;
 
+        let organization_payload = serde_json::json!({
+            "name": "E2E Test Organization",
+            "slug": "e2e-test-org"
+        });
+        let res = authed!(
+            request
+                .post("/api/organizations")
+                .json(&organization_payload),
+            &login.token
+        )
+        .await;
+        assert_eq!(res.status_code(), 200);
+        let organization_res: serde_json::Value =
+            serde_json::from_str(&res.text()).unwrap();
+        assert!(
+            organization_res["data"]["organization"]["id"].as_i64().is_some(),
+            "authenticated user must become owner of the organization"
+        );
+
         let server_payload = serde_json::json!({
             "name": "Integration Test Server",
             "host": "192.168.1.100",
