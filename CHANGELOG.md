@@ -5,6 +5,39 @@ All notable changes to **Moonships** will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2026-10-04
+
+### Added
+- **Managed Ingress Runtime**: Moonships can maintain a target-side Traefik container and dedicated `moonships-ingress` Docker network for applications with domains and no published host port.
+- **Blue/Green Runtime Slots**: Revision-specific candidate containers run beside the active runtime instead of stopping production first.
+- **Health-Before-Traffic**: Managed candidates must pass their application healthcheck before any route is changed.
+- **Atomic Traffic Switch**: Traefik file-provider configuration is written to a temporary file and atomically renamed into place, then the old runtime is drained.
+- **Domain Readiness State**: Domains persist DNS verification, verification time, TLS state, and the last verification error.
+- **Domain Verification API/UI**: Operators can verify DNS target state from the application dashboard.
+- **Managed ACME HTTP-01**: HTTPS-enabled managed domains use the configured Let's Encrypt resolver and HTTP-to-HTTPS redirects.
+- **Active/Candidate Runtime Visibility**: Applications persist active and candidate runtime names for recovery, lifecycle operations, and operator visibility.
+
+### Reliability
+- An unhealthy candidate is removed without replacing the current active runtime.
+- Managed deployments use deterministic candidate names derived from the immutable revision, allowing worker recovery to reconcile an already-running candidate.
+- Current runtime promotion happens only after candidate health and route switch succeed.
+- Explicit published-port applications retain the v0.3 compatibility replacement path.
+
+### Security
+- Managed ingress route writes use SSH stdin plus atomic file replacement.
+- ACME state is created with restrictive target-side permissions.
+- DNS verification runs on the selected target before managed traffic is switched.
+- Lifecycle APIs resolve the active managed runtime rather than blindly addressing the legacy container name.
+
+### Configuration
+- `MOONSHIPS_TRAEFIK_IMAGE` selects the managed Traefik image (default `traefik:v3.1`).
+- `MOONSHIPS_ACME_EMAIL` is required when a managed revision contains HTTPS domains.
+
+### Known limitations
+- Zero-downtime semantics apply only to applications using managed ingress (domains present, no published host port).
+- v0.4 supports Let's Encrypt HTTP-01; DNS-01/provider automation remains future work.
+- External/custom Traefik installations are not automatically adopted as Moonships-managed infrastructure.
+
 ## [0.3.0] - 2026-10-04
 
 ### Added
