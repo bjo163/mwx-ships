@@ -82,8 +82,8 @@ pub async fn inspect(
 fn source_inspection_error(error: RemoteError) -> Error {
     match error {
         RemoteError::Validation(message) => Error::BadRequest(message),
-        RemoteError::Ssh(_) | RemoteError::CommandFailed { .. } => Error::BadRequest(
-            "source inspection failed on the selected target server".to_string(),
-        ),
+        RemoteError::Ssh(_) | RemoteError::CommandFailed { .. } => {
+            Error::BadRequest("source inspection failed on the selected target server".to_string())
+        }
     }
 }
