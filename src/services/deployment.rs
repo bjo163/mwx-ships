@@ -364,6 +364,13 @@ impl DeploymentService {
             None => None,
         };
 
+        Self::spawn_execution_heartbeat(
+            db,
+            dep.id,
+            execution_token.clone(),
+            lease_seconds,
+        );
+
         let _ = applications::Model::update_status(db, app.id, "connecting").await;
         let _ = deployment_logs::Model::append(
             db,
@@ -1752,6 +1759,52 @@ impl DeploymentService {
             .and_then(|value| value.parse::<i64>().ok())
             .filter(|value| *value >= 60)
             .unwrap_or(7200)
+    }
+
+    fn execution_heartbeat_seconds(lease_seconds: i64) -> u64 {
+        let default = (lease_seconds / 3).clamp(10, 60);
+        let maximum = (lease_seconds / 2).max(10);
+        std::env::var("MOONSHIPS_DEPLOYMENT_HEARTBEAT_SECS")
+            .ok()
+            .and_then(|value| value.parse::<i64>().ok())
+            .filter(|value| *value >= 5)
+            .map(|value| value.min(maximum) as u64)
+            .unwrap_or(default as u64)
+    }
+
+    fn spawn_execution_heartbeat(
+        db: &DatabaseConnection,
+        deployment_id: i64,
+        execution_token: String,
+        lease_seconds: i64,
+    ) {
+        let heartbeat_db: DatabaseConnection = db.clone();
+        let heartbeat_seconds = Self::execution_heartbeat_seconds(lease_seconds);
+
+        tokio::spawn(async move {
+            loop {
+                sleep(Duration::from_secs(heartbeat_seconds)).await;
+                match deployments::Model::renew_execution_lease(
+                    &heartbeat_db,
+                    deployment_id,
+                    &execution_token,
+                    lease_seconds,
+                )
+                .await
+                {
+                    Ok(true) => {}
+                    Ok(false) => break,
+                    Err(error) => {
+                        tracing::warn!(
+                            deployment_id,
+                            error = %error,
+                            "Deployment execution heartbeat stopped after lease renewal failure"
+                        );
+                        break;
+                    }
+                }
+            }
+        });
     }
 
     async fn transition_phase(
