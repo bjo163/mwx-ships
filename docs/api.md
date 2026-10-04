@@ -1,18 +1,38 @@
 # Moonships REST API Reference
 
-All Moonships API endpoints return JSON payloads conforming to standard formats.
+The machine-readable **v1 compatibility contract** is [openapi-v1.json](openapi-v1.json). It is checked into the repository and exercised by CI so documented route/method pairs cannot disappear unnoticed.
 
-## Standard Formats
+## Compatibility Rules
 
-### Success Response
+For v1.x:
+- documented path + HTTP method pairs are stable;
+- additive endpoints and additive response fields are allowed;
+- removing or repurposing a documented operation is a breaking change;
+- authentication/authorization may become stricter when required to fix a security vulnerability.
+
+## Authentication
+
+`GET /api/health` stays public for liveness.
+
+Operational routes accept authenticated principals:
+- revocable JWT sessions;
+- scoped organization API tokens where the requested permission is allowed.
+
+Git-provider webhooks are public HTTP endpoints but authenticate using provider-specific signatures/tokens rather than JWT.
+
+## Response Shape
+
+Typical success envelope:
+
 ```json
 {
-  "data": { ... },
+  "data": {},
   "message": "ok"
 }
 ```
 
-### Error Response
+Typical error envelope:
+
 ```json
 {
   "error": {
@@ -22,50 +42,18 @@ All Moonships API endpoints return JSON payloads conforming to standard formats.
 }
 ```
 
-## Health Endpoint
-- `GET /api/health`: Health status of control plane and SQLite database.
+Individual Loco authentication routes may retain framework-compatible error structures where already part of the contract.
 
-## Servers (`/api/servers`)
-- `GET /api/servers`: List all managed servers.
-- `POST /api/servers`: Register a new server.
-- `GET /api/servers/:id`: Retrieve server details.
-- `PUT /api/servers/:id`: Update server configuration.
-- `DELETE /api/servers/:id`: Remove server.
-- `POST /api/servers/:id/test-connection`: Test SSH connection.
-- `POST /api/servers/:id/preflight`: Run comprehensive non-destructive preflight check.
+## API Areas
 
-## Projects & Environments (`/api/projects`)
-- `GET /api/projects`: List projects.
-- `POST /api/projects`: Create project.
-- `GET /api/projects/:id`: Get project details and child environments.
-- `PUT /api/projects/:id`: Update project.
-- `DELETE /api/projects/:id`: Remove project.
-- `POST /api/projects/:id/environments`: Add environment (e.g. production, staging).
+- `/api/auth/*` — registration, login, session inspection/revocation, recovery, magic links.
+- `/api/health` — public liveness/database-mode health.
+- `/api/servers/*` — remote targets, SSH connection test, preflight.
+- `/api/projects/*` — projects and environments.
+- `/api/applications/*` — application configuration, deploy/rollback/lifecycle, secrets, domains, Git integrations.
+- `/api/deployments/*` — history, logs, cancel, retry.
+- `/api/webhooks/*` — signed GitHub/GitLab/Gitea deployment/preview events.
+- `/api/operations/*` — metrics, operational health/events, target health, backups, polling.
+- `/api/organizations/*` — organizations, memberships, tokens, audit, server pools, private registries, legacy claiming.
 
-## Applications (`/api/applications`)
-- `GET /api/applications`: List applications.
-- `POST /api/applications`: Create application.
-- `GET /api/applications/:id`: Application details.
-- `PUT /api/applications/:id`: Update application.
-- `DELETE /api/applications/:id`: Remove application.
-- `POST /api/applications/:id/deploy`: Enqueue deployment (`202 Accepted`).
-- `POST /api/applications/:id/start`: Start container.
-- `POST /api/applications/:id/stop`: Stop container.
-- `POST /api/applications/:id/restart`: Restart container.
-- `GET /api/applications/:id/status`: Live container status.
-- `GET /api/applications/:id/logs`: Container runtime stdout/stderr.
-
-## Environment Variables (`/api/applications/:id/environment`)
-- `GET /api/applications/:id/environment`: List env vars (secrets masked).
-- `POST /api/applications/:id/environment`: Set or update variable.
-- `DELETE /api/applications/:id/environment/:key`: Delete variable.
-
-## Domains (`/api/applications/:id/domains`)
-- `GET /api/applications/:id/domains`: List mapped domains.
-- `POST /api/applications/:id/domains`: Map custom hostname.
-- `DELETE /api/applications/:id/domains/:domain_id`: Remove domain.
-
-## Deployments (`/api/deployments`)
-- `GET /api/deployments`: Global deployment history.
-- `GET /api/deployments/:id`: Single deployment status.
-- `GET /api/deployments/:id/logs`: Chronological log entries.
+The exhaustive route and method inventory is intentionally kept in the OpenAPI file instead of duplicated here.
