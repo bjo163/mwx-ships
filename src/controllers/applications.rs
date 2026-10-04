@@ -295,15 +295,26 @@ pub async fn remove(
 }
 #[debug_handler]
 pub async fn deploy(
-    _auth: auth::JWT,
+    headers: HeaderMap,
     Path(id): Path<i64>,
     State(ctx): State<AppContext>,
     Json(params): Json<TriggerDeployParams>,
 ) -> Result<Response> {
+    let (principal, organization_id, app) =
+        authorized_application(&ctx, &headers, id, Permission::Deploy).await?;
     match DeploymentService::trigger_deploy(&ctx.db, id, params.commit_hash, params.commit_message)
         .await
     {
         Ok(dep) => {
+            audit_application(
+                &ctx,
+                &principal,
+                organization_id,
+                "application.deploy",
+                id,
+                Some(serde_json::json!({"deployment_id": dep.id})),
+            )
+            .await;
             // Enqueue asynchronous DeploymentWorker via Loco SQLite background queue
             DeploymentWorker::perform_later(
                 &ctx,
@@ -345,12 +356,23 @@ pub async fn deploy(
 
 #[debug_handler]
 pub async fn rollback(
-    _auth: auth::JWT,
+    headers: HeaderMap,
     Path(id): Path<i64>,
     State(ctx): State<AppContext>,
 ) -> Result<Response> {
+    let (principal, organization_id, app) =
+        authorized_application(&ctx, &headers, id, Permission::Deploy).await?;
     match DeploymentService::rollback_application(&ctx.db, id).await {
         Ok(dep) => {
+            audit_application(
+                &ctx,
+                &principal,
+                organization_id,
+                "application.rollback",
+                id,
+                Some(serde_json::json!({"deployment_id": dep.id})),
+            )
+            .await;
             DeploymentWorker::perform_later(
                 &ctx,
                 DeploymentWorkerArgs {
@@ -404,11 +426,12 @@ pub async fn rollback(
 
 #[debug_handler]
 pub async fn start(
-    _auth: auth::JWT,
+    headers: HeaderMap,
     Path(id): Path<i64>,
     State(ctx): State<AppContext>,
 ) -> Result<Response> {
-    let app = ApplicationModel::find_by_id(&ctx.db, id).await?;
+    let (principal, organization_id, app) =
+        authorized_application(&ctx, &headers, id, Permission::Deploy).await?;
     let (_, runtime) = remote_runtime(&ctx.db, &app).await?;
     let runtime_name = app.resolved_runtime_name();
     runtime
@@ -416,6 +439,15 @@ pub async fn start(
         .await
         .map_err(|err| Error::BadRequest(err.to_string()))?;
     let updated = ApplicationModel::update_status(&ctx.db, app.id, "running").await?;
+    audit_application(
+        &ctx,
+        &principal,
+        organization_id,
+        "application.start",
+        id,
+        None,
+    )
+    .await;
     format::json(serde_json::json!({
         "data": updated,
         "message": "ok"
@@ -423,11 +455,12 @@ pub async fn start(
 }
 #[debug_handler]
 pub async fn stop(
-    _auth: auth::JWT,
+    headers: HeaderMap,
     Path(id): Path<i64>,
     State(ctx): State<AppContext>,
 ) -> Result<Response> {
-    let app = ApplicationModel::find_by_id(&ctx.db, id).await?;
+    let (principal, organization_id, app) =
+        authorized_application(&ctx, &headers, id, Permission::Deploy).await?;
     let (_, runtime) = remote_runtime(&ctx.db, &app).await?;
     let runtime_name = app.resolved_runtime_name();
     runtime
@@ -435,6 +468,15 @@ pub async fn stop(
         .await
         .map_err(|err| Error::BadRequest(err.to_string()))?;
     let updated = ApplicationModel::update_status(&ctx.db, app.id, "stopped").await?;
+    audit_application(
+        &ctx,
+        &principal,
+        organization_id,
+        "application.stop",
+        id,
+        None,
+    )
+    .await;
     format::json(serde_json::json!({
         "data": updated,
         "message": "ok"
@@ -442,11 +484,12 @@ pub async fn stop(
 }
 #[debug_handler]
 pub async fn restart(
-    _auth: auth::JWT,
+    headers: HeaderMap,
     Path(id): Path<i64>,
     State(ctx): State<AppContext>,
 ) -> Result<Response> {
-    let app = ApplicationModel::find_by_id(&ctx.db, id).await?;
+    let (principal, organization_id, app) =
+        authorized_application(&ctx, &headers, id, Permission::Deploy).await?;
     let (_, runtime) = remote_runtime(&ctx.db, &app).await?;
     let runtime_name = app.resolved_runtime_name();
     runtime
@@ -454,6 +497,15 @@ pub async fn restart(
         .await
         .map_err(|err| Error::BadRequest(err.to_string()))?;
     let updated = ApplicationModel::update_status(&ctx.db, app.id, "running").await?;
+    audit_application(
+        &ctx,
+        &principal,
+        organization_id,
+        "application.restart",
+        id,
+        None,
+    )
+    .await;
     format::json(serde_json::json!({
         "data": updated,
         "message": "ok"
@@ -461,11 +513,12 @@ pub async fn restart(
 }
 #[debug_handler]
 pub async fn status(
-    _auth: auth::JWT,
+    headers: HeaderMap,
     Path(id): Path<i64>,
     State(ctx): State<AppContext>,
 ) -> Result<Response> {
-    let app = ApplicationModel::find_by_id(&ctx.db, id).await?;
+    let (_, _, app) =
+        authorized_application(&ctx, &headers, id, Permission::View).await?;
     let (server, runtime) = remote_runtime(&ctx.db, &app).await?;
     let runtime_name = app.resolved_runtime_name();
     let container_status = runtime
@@ -485,11 +538,12 @@ pub async fn status(
 }
 #[debug_handler]
 pub async fn logs(
-    _auth: auth::JWT,
+    headers: HeaderMap,
     Path(id): Path<i64>,
     State(ctx): State<AppContext>,
 ) -> Result<Response> {
-    let app = ApplicationModel::find_by_id(&ctx.db, id).await?;
+    let (_, _, app) =
+        authorized_application(&ctx, &headers, id, Permission::View).await?;
     let (server, runtime) = remote_runtime(&ctx.db, &app).await?;
     let runtime_name = app.resolved_runtime_name();
     let logs = runtime
