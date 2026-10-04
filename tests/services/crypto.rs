@@ -49,13 +49,15 @@ fn test_encryption_uses_random_nonce() {
 fn test_decryption_fails_on_tampered_ciphertext() {
     configure_test_key();
     let encrypted = CryptoService::encrypt("hello world").unwrap();
-    let mut tampered = encrypted.clone();
+    let (nonce_hex, ciphertext_hex) = encrypted
+        .split_once(':')
+        .expect("encrypted payload must contain nonce and ciphertext");
+    let mut ciphertext = hex::decode(ciphertext_hex).expect("ciphertext must be valid hex");
 
-    // Corrupt one character
-    if let Some(last_char) = tampered.pop() {
-        let replacement = if last_char == 'A' { 'B' } else { 'A' };
-        tampered.push(replacement);
-    }
+    // Flip an authenticated ciphertext bit. Mutating a textual hex digit can be
+    // accidentally equivalent when only letter casing changes (e.g. 'a' -> 'A').
+    ciphertext[0] ^= 0x01;
+    let tampered = format!("{nonce_hex}:{}", hex::encode(ciphertext));
 
     let result = CryptoService::decrypt(&tampered);
     assert!(
