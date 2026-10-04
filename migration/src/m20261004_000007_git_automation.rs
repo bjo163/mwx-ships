@@ -1,0 +1,299 @@
+use sea_orm_migration::prelude::*;
+
+#[derive(DeriveMigrationName)]
+pub struct Migration;
+
+#[async_trait::async_trait]
+impl MigrationTrait for Migration {
+    async fn up(&self, m: &SchemaManager) -> Result<(), DbErr> {
+        m.create_table(
+            Table::create()
+                .table(GitIntegrations::Table)
+                .if_not_exists()
+                .col(
+                    ColumnDef::new(GitIntegrations::Id)
+                        .big_integer()
+                        .not_null()
+                        .auto_increment()
+                        .primary_key(),
+                )
+                .col(
+                    ColumnDef::new(GitIntegrations::ApplicationId)
+                        .big_integer()
+                        .not_null(),
+                )
+                .col(ColumnDef::new(GitIntegrations::Provider).string().not_null())
+                .col(
+                    ColumnDef::new(GitIntegrations::RepositoryRef)
+                        .string()
+                        .not_null(),
+                )
+                .col(ColumnDef::new(GitIntegrations::ApiBaseUrl).string().null())
+                .col(ColumnDef::new(GitIntegrations::EncryptedToken).text().null())
+                .col(
+                    ColumnDef::new(GitIntegrations::EncryptedWebhookSecret)
+                        .text()
+                        .not_null(),
+                )
+                .col(
+                    ColumnDef::new(GitIntegrations::Enabled)
+                        .boolean()
+                        .not_null()
+                        .default(true),
+                )
+                .col(
+                    ColumnDef::new(GitIntegrations::CreatedAt)
+                        .timestamp_with_time_zone()
+                        .not_null(),
+                )
+                .col(
+                    ColumnDef::new(GitIntegrations::UpdatedAt)
+                        .timestamp_with_time_zone()
+                        .not_null(),
+                )
+                .foreign_key(
+                    ForeignKey::create()
+                        .name("fk_git_integrations_application")
+                        .from(GitIntegrations::Table, GitIntegrations::ApplicationId)
+                        .to(Applications::Table, Applications::Id)
+                        .on_delete(ForeignKeyAction::Cascade),
+                )
+                .to_owned(),
+        )
+        .await?;
+
+        m.create_index(
+            Index::create()
+                .name("idx_git_integrations_application_provider")
+                .table(GitIntegrations::Table)
+                .col(GitIntegrations::ApplicationId)
+                .col(GitIntegrations::Provider)
+                .unique()
+                .to_owned(),
+        )
+        .await?;
+
+        m.create_table(
+            Table::create()
+                .table(WebhookDeliveries::Table)
+                .if_not_exists()
+                .col(
+                    ColumnDef::new(WebhookDeliveries::Id)
+                        .big_integer()
+                        .not_null()
+                        .auto_increment()
+                        .primary_key(),
+                )
+                .col(
+                    ColumnDef::new(WebhookDeliveries::ApplicationId)
+                        .big_integer()
+                        .not_null(),
+                )
+                .col(ColumnDef::new(WebhookDeliveries::Provider).string().not_null())
+                .col(
+                    ColumnDef::new(WebhookDeliveries::DeliveryId)
+                        .string()
+                        .not_null(),
+                )
+                .col(ColumnDef::new(WebhookDeliveries::EventKind).string().not_null())
+                .col(ColumnDef::new(WebhookDeliveries::SourceRef).string().null())
+                .col(ColumnDef::new(WebhookDeliveries::CommitSha).string().null())
+                .col(ColumnDef::new(WebhookDeliveries::ExternalRequestId).string().null())
+                .col(ColumnDef::new(WebhookDeliveries::Action).string().null())
+                .col(ColumnDef::new(WebhookDeliveries::DeploymentId).big_integer().null())
+                .col(
+                    ColumnDef::new(WebhookDeliveries::Status)
+                        .string()
+                        .not_null()
+                        .default("received"),
+                )
+                .col(ColumnDef::new(WebhookDeliveries::ErrorMessage).text().null())
+                .col(
+                    ColumnDef::new(WebhookDeliveries::CreatedAt)
+                        .timestamp_with_time_zone()
+                        .not_null(),
+                )
+                .col(
+                    ColumnDef::new(WebhookDeliveries::UpdatedAt)
+                        .timestamp_with_time_zone()
+                        .not_null(),
+                )
+                .foreign_key(
+                    ForeignKey::create()
+                        .name("fk_webhook_deliveries_application")
+                        .from(WebhookDeliveries::Table, WebhookDeliveries::ApplicationId)
+                        .to(Applications::Table, Applications::Id)
+                        .on_delete(ForeignKeyAction::Cascade),
+                )
+                .to_owned(),
+        )
+        .await?;
+
+        m.create_index(
+            Index::create()
+                .name("idx_webhook_delivery_dedupe")
+                .table(WebhookDeliveries::Table)
+                .col(WebhookDeliveries::ApplicationId)
+                .col(WebhookDeliveries::Provider)
+                .col(WebhookDeliveries::DeliveryId)
+                .unique()
+                .to_owned(),
+        )
+        .await?;
+
+        m.create_index(
+            Index::create()
+                .name("idx_webhook_deliveries_deployment")
+                .table(WebhookDeliveries::Table)
+                .col(WebhookDeliveries::DeploymentId)
+                .to_owned(),
+        )
+        .await?;
+
+        m.create_table(
+            Table::create()
+                .table(PreviewDeployments::Table)
+                .if_not_exists()
+                .col(
+                    ColumnDef::new(PreviewDeployments::Id)
+                        .big_integer()
+                        .not_null()
+                        .auto_increment()
+                        .primary_key(),
+                )
+                .col(
+                    ColumnDef::new(PreviewDeployments::ApplicationId)
+                        .big_integer()
+                        .not_null(),
+                )
+                .col(ColumnDef::new(PreviewDeployments::Provider).string().not_null())
+                .col(
+                    ColumnDef::new(PreviewDeployments::ExternalRequestId)
+                        .string()
+                        .not_null(),
+                )
+                .col(ColumnDef::new(PreviewDeployments::SourceRef).string().not_null())
+                .col(ColumnDef::new(PreviewDeployments::CommitSha).string().not_null())
+                .col(ColumnDef::new(PreviewDeployments::PreviewSlug).string().not_null())
+                .col(
+                    ColumnDef::new(PreviewDeployments::Status)
+                        .string()
+                        .not_null()
+                        .default("active"),
+                )
+                .col(
+                    ColumnDef::new(PreviewDeployments::CreatedAt)
+                        .timestamp_with_time_zone()
+                        .not_null(),
+                )
+                .col(
+                    ColumnDef::new(PreviewDeployments::UpdatedAt)
+                        .timestamp_with_time_zone()
+                        .not_null(),
+                )
+                .foreign_key(
+                    ForeignKey::create()
+                        .name("fk_preview_deployments_application")
+                        .from(PreviewDeployments::Table, PreviewDeployments::ApplicationId)
+                        .to(Applications::Table, Applications::Id)
+                        .on_delete(ForeignKeyAction::Cascade),
+                )
+                .to_owned(),
+        )
+        .await?;
+
+        m.create_index(
+            Index::create()
+                .name("idx_preview_request_identity")
+                .table(PreviewDeployments::Table)
+                .col(PreviewDeployments::ApplicationId)
+                .col(PreviewDeployments::Provider)
+                .col(PreviewDeployments::ExternalRequestId)
+                .unique()
+                .to_owned(),
+        )
+        .await?;
+
+        Ok(())
+    }
+
+    async fn down(&self, m: &SchemaManager) -> Result<(), DbErr> {
+        m.drop_table(
+            Table::drop()
+                .table(PreviewDeployments::Table)
+                .if_exists()
+                .to_owned(),
+        )
+        .await?;
+        m.drop_table(
+            Table::drop()
+                .table(WebhookDeliveries::Table)
+                .if_exists()
+                .to_owned(),
+        )
+        .await?;
+        m.drop_table(
+            Table::drop()
+                .table(GitIntegrations::Table)
+                .if_exists()
+                .to_owned(),
+        )
+        .await?;
+        Ok(())
+    }
+}
+
+#[derive(DeriveIden)]
+enum GitIntegrations {
+    Table,
+    Id,
+    ApplicationId,
+    Provider,
+    RepositoryRef,
+    ApiBaseUrl,
+    EncryptedToken,
+    EncryptedWebhookSecret,
+    Enabled,
+    CreatedAt,
+    UpdatedAt,
+}
+
+#[derive(DeriveIden)]
+enum WebhookDeliveries {
+    Table,
+    Id,
+    ApplicationId,
+    Provider,
+    DeliveryId,
+    EventKind,
+    SourceRef,
+    CommitSha,
+    ExternalRequestId,
+    Action,
+    DeploymentId,
+    Status,
+    ErrorMessage,
+    CreatedAt,
+    UpdatedAt,
+}
+
+#[derive(DeriveIden)]
+enum PreviewDeployments {
+    Table,
+    Id,
+    ApplicationId,
+    Provider,
+    ExternalRequestId,
+    SourceRef,
+    CommitSha,
+    PreviewSlug,
+    Status,
+    CreatedAt,
+    UpdatedAt,
+}
+
+#[derive(DeriveIden)]
+enum Applications {
+    Table,
+    Id,
+}
