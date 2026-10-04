@@ -1,10 +1,11 @@
 use crate::{
     models::{
-        _entities::{applications, domains, environment_variables},
+        _entities::{applications, domains, environment_variables, environments},
         applications::{CreateApplicationParams, Model as ApplicationModel},
         deployments::Model as DeploymentModel,
         domains::{CreateDomainParams, Model as DomainModel},
         environment_variables::Model as EnvironmentVariableModel,
+        environments::{CreateEnvironmentParams, Model as EnvironmentModel},
         preview_deployments::{Model as PreviewModel, UpsertPreviewInput},
         servers::Model as ServerModel,
     },
@@ -73,6 +74,29 @@ impl PreviewService {
         ProxyService::validate_hostname(&preview_hostname)
             .map_err(|err| PreviewError::Setup(err.to_string()))?;
 
+        let preview_environment = if let Some(preview_environment_id) =
+            preview.preview_environment_id
+        {
+            EnvironmentModel::find_by_id(db, preview_environment_id)
+                .await
+                .map_err(|err| PreviewError::Setup(err.to_string()))?
+        } else {
+            EnvironmentModel::create_environment(
+                db,
+                &CreateEnvironmentParams {
+                    project_id: base_app.project_id,
+                    name: format!("Preview #{}", external_request_id),
+                    slug: Some(preview.preview_slug.clone()),
+                    description: Some(format!(
+                        "{} {} preview environment",
+                        provider, external_request_id
+                    )),
+                },
+            )
+            .await
+            .map_err(|err| PreviewError::Setup(err.to_string()))?
+        };
+
         let preview_app = if let Some(preview_application_id) = preview.preview_application_id {
             if DeploymentModel::has_active_deployment(db, preview_application_id)
                 .await
@@ -83,13 +107,20 @@ impl PreviewService {
             let existing = ApplicationModel::find_by_id(db, preview_application_id)
                 .await
                 .map_err(|err| PreviewError::Setup(err.to_string()))?;
-            Self::sync_preview_application(db, existing, &base_app, source_ref).await?
+            Self::sync_preview_application(
+                db,
+                existing,
+                &base_app,
+                preview_environment.id,
+                source_ref,
+            )
+            .await?
         } else {
             ApplicationModel::create_application(
                 db,
                 &CreateApplicationParams {
                     project_id: base_app.project_id,
-                    environment_id: base_app.environment_id,
+                    environment_id: preview_environment.id,
                     server_id: base_app.server_id,
                     name: format!("{} Preview #{}", base_app.name, external_request_id),
                     slug: Some(preview.preview_slug.clone()),
@@ -132,6 +163,7 @@ impl PreviewService {
             db,
             preview.id,
             preview_app.id,
+            preview_environment.id,
             deployment.id,
             Some(preview_hostname),
         )
@@ -197,6 +229,13 @@ impl PreviewService {
                 .map_err(|err| PreviewError::Cleanup(err.to_string()))?;
         }
 
+        if let Some(preview_environment_id) = preview.preview_environment_id {
+            environments::Entity::delete_by_id(preview_environment_id)
+                .exec(db)
+                .await
+                .map_err(|err| PreviewError::Cleanup(err.to_string()))?;
+        }
+
         PreviewModel::close(db, base_application_id, provider, external_request_id)
             .await
             .map_err(|err| PreviewError::Cleanup(err.to_string()))
@@ -206,10 +245,12 @@ impl PreviewService {
         db: &DatabaseConnection,
         preview: ApplicationModel,
         base: &ApplicationModel,
+        preview_environment_id: i64,
         source_ref: &str,
     ) -> Result<ApplicationModel, PreviewError> {
         let mut active: applications::ActiveModel = preview.into();
         active.server_id = Set(base.server_id);
+        active.environment_id = Set(preview_environment_id);
         active.git_repository = Set(base.git_repository.clone());
         active.git_branch = Set(source_ref.to_string());
         active.build_type = Set(base.build_type.clone());
