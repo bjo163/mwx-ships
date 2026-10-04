@@ -29,6 +29,8 @@ pub enum DeploymentError {
     CancelNotAllowed { status: String },
     #[error("Deployment cannot be retried from status '{status}'")]
     RetryNotAllowed { status: String },
+    #[error("No previous known-good revision is available for application {application_id}")]
+    RollbackNotAvailable { application_id: i64 },
 }
 
 pub struct DeploymentService;
@@ -199,6 +201,84 @@ impl DeploymentService {
         .await;
 
         Ok(retry)
+    }
+
+    pub async fn rollback_application(
+        db: &DatabaseConnection,
+        application_id: i64,
+    ) -> Result<deployments::Model, DeploymentError> {
+        let app = applications::Model::find_by_id(db, application_id)
+            .await
+            .map_err(|_| DeploymentError::AppNotFound(application_id))?;
+
+        if deployments::Model::has_active_deployment(db, application_id)
+            .await
+            .map_err(|err| DeploymentError::StepFailed {
+                step: "rollback_lock_check".to_string(),
+                message: err.to_string(),
+            })?
+        {
+            return Err(DeploymentError::Conflict);
+        }
+
+        let revision_id = app
+            .previous_revision_id
+            .ok_or(DeploymentError::RollbackNotAvailable { application_id })?;
+        let revision = deployment_revisions::Model::find_by_id(db, revision_id)
+            .await
+            .map_err(|err| DeploymentError::StepFailed {
+                step: "load_rollback_revision".to_string(),
+                message: err.to_string(),
+            })?;
+
+        if revision.application_id != application_id {
+            return Err(DeploymentError::StepFailed {
+                step: "validate_rollback_revision".to_string(),
+                message: "previous revision belongs to a different application".to_string(),
+            });
+        }
+
+        let source_deployment_id = deployments::Model::latest_success_for_application(
+            db,
+            application_id,
+        )
+        .await
+        .map_err(|err| DeploymentError::StepFailed {
+            step: "rollback_source_lookup".to_string(),
+            message: err.to_string(),
+        })?
+        .map(|deployment| deployment.id);
+
+        let deployment = deployments::Model::create_deployment_attempt(
+            db,
+            application_id,
+            revision.server_id,
+            Some(revision.source_commit_hash.clone()),
+            revision.source_commit_message.clone(),
+            "rollback",
+            source_deployment_id,
+            Some(revision.id),
+        )
+        .await
+        .map_err(|err| DeploymentError::StepFailed {
+            step: "create_rollback".to_string(),
+            message: err.to_string(),
+        })?;
+
+        let _ = applications::Model::update_status(db, application_id, "queued").await;
+        let _ = deployment_logs::Model::append(
+            db,
+            deployment.id,
+            "system",
+            &format!(
+                "Rollback queued to immutable revision {} (commit {})",
+                &revision.revision_hash[..12.min(revision.revision_hash.len())],
+                &revision.source_commit_hash[..7.min(revision.source_commit_hash.len())]
+            ),
+        )
+        .await;
+
+        Ok(deployment)
     }
 
     pub async fn execute_deployment(
