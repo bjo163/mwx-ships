@@ -5,6 +5,46 @@ All notable changes to **Moonships** will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.0] - 2026-10-05
+
+### Added
+- **PostgreSQL Scale Mode**: Moonships supports PostgreSQL for relational state and the persistent queue when multiple control-plane workers share one deployment.
+- **Dual-Database CI**: the complete Rust migration/domain/API suite runs on both SQLite and PostgreSQL.
+- **Verified SQLite → PostgreSQL Migration**: `scripts/migrate_sqlite_to_postgres.py` performs dry-run schema parity, dependency ordering, row counts, normalized SHA-256 checksums, import, sequence reset, and foreign-key validation.
+- **Migration Drill Gate**: CI creates real SQLite/PostgreSQL schemas, seeds SQLite, runs dry-run + confirmed migration, and verifies the imported data.
+- **Distributed Deployment Ownership**: application-level compare-and-set ownership plus execution-token leases prevent multiple workers from executing the same deployment intent.
+- **Execution Lease Heartbeat**: active workers periodically renew leases during long remote phases; dead workers naturally stop renewing and stale attempts can be reclaimed.
+- **Concurrency Regression**: a 32-way concurrent deployment-claim test proves exactly one application-lock winner on both SQLite and PostgreSQL.
+- **Server Pools & Placement**: applications can target server pools with required tags, capacity units, weighted deterministic placement, and current utilization accounting.
+- **Compose Workloads**: multi-container Docker Compose workloads support prepare/build/pull/up/down/status/health/log aggregation.
+- **Private Registry Credentials**: organization-scoped registry credentials are encrypted at rest and transferred through stdin-backed temporary Docker configuration.
+- **PostgreSQL Operations Guide**: explicit scale-mode configuration, cutover, verification, and rollback boundaries are documented in `docs/postgresql-scale.md`.
+
+### Reliability
+- SQLite remains the supported default for a single control-plane node.
+- PostgreSQL mode uses the same domain/API semantics and test suite as SQLite.
+- Application deployment ownership is an atomic database operation, not an in-process mutex.
+- Execution phase transitions require the current lease token; a superseded worker cannot advance state after ownership changes.
+- Compose lifecycle/status/log operations aggregate all containers in the Compose project.
+- Placement selection is deterministic for identical capacity/tag/utilization inputs.
+
+### Security
+- Private registry passwords remain AES-256-GCM ciphertext at rest and are excluded from safe API output.
+- Docker registry authentication uses `--password-stdin` with an ephemeral isolated Docker config.
+- Compose environment material is transferred through SSH stdin into restrictive temporary files.
+- PostgreSQL migration does not decrypt Moonships ciphertext; the destination requires the same `ENCRYPTION_KEY`.
+
+### Configuration
+- `QUEUE_KIND=Postgres` enables the PostgreSQL queue adapter in scale mode.
+- `DATABASE_URL` and `QUEUE_URL` should point at the shared PostgreSQL deployment for multi-worker installations.
+- `MOONSHIPS_DEPLOYMENT_HEARTBEAT_SECS` controls periodic execution-lease renewal.
+- `DB_AUTO_MIGRATE=false` is recommended for multi-instance deployments; run migrations as a separate release step.
+
+### Known limitations
+- Moonships does not operate PostgreSQL HA/backups itself; scale-mode database availability and backup policy remain the operator/database-provider responsibility.
+- There is no automatic PostgreSQL → SQLite merge after new writes have been accepted on PostgreSQL; retain the pre-cutover SQLite backup until acceptance is complete.
+- Compose support manages one application-level Compose project; Kubernetes/service-mesh orchestration remains outside the v1 core scope.
+
 ## [0.7.0] - 2026-10-05
 
 ### Added
