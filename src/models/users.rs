@@ -2,7 +2,7 @@ use async_trait::async_trait;
 use chrono::{offset::Local, Duration};
 use loco_rs::{auth::jwt, hash, prelude::*};
 use serde::{Deserialize, Serialize};
-use serde_json::Map;
+use serde_json::{Map, Value};
 use uuid::Uuid;
 
 pub use super::_entities::users::{self, ActiveModel, Entity, Model};
@@ -271,9 +271,25 @@ impl Model {
     ///
     /// when could not convert user claims to jwt token
     pub fn generate_jwt(&self, secret: &str, expiration: u64) -> ModelResult<String> {
+        let mut claims = Map::new();
+        claims.insert(
+            "session_version".to_string(),
+            Value::Number(i64::from(self.session_version).into()),
+        );
         jwt::JWT::new(secret)
-            .generate_token(expiration, self.pid.to_string(), Map::new())
+            .generate_token(expiration, self.pid.to_string(), claims)
             .map_err(ModelError::from)
+    }
+
+    pub async fn revoke_sessions(db: &DatabaseConnection, id: i64) -> ModelResult<Self> {
+        let user = users::Entity::find_by_id(id)
+            .one(db)
+            .await?
+            .ok_or(ModelError::EntityNotFound)?;
+        let mut active: ActiveModel = user.into();
+        active.session_version = ActiveValue::Set(active.session_version.unwrap_or(0).saturating_add(1));
+        active.updated_at = ActiveValue::Set(Local::now().into());
+        active.update(db).await.map_err(ModelError::from)
     }
 }
 
