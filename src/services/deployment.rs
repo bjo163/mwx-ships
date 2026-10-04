@@ -635,7 +635,14 @@ impl DeploymentService {
             .await);
         }
 
-        Self::transition_phase(db, dep.id, &execution_token, &["stopping_old"], "starting_new").await?;
+        Self::transition_phase(
+            db,
+            dep.id,
+            &execution_token,
+            &["stopping_old"],
+            "starting_new",
+        )
+        .await?;
         let _ = applications::Model::update_status(db, app.id, "starting").await;
 
         let mut decrypted_envs = Vec::new();
@@ -759,7 +766,9 @@ impl DeploymentService {
             Err(err) => {
                 let exit_code = err.exit_code();
                 let message = redact_secrets(&err.to_string(), &secret_values);
-                if revision.status != "healthy" && revision.image_reference.starts_with("moonships/") {
+                if revision.status != "healthy"
+                    && revision.image_reference.starts_with("moonships/")
+                {
                     let _ = runtime.remove_image(&revision.image_reference).await;
                 }
                 return Err(Self::record_failure(
@@ -777,7 +786,14 @@ impl DeploymentService {
         }
 
         if let Some(path) = &revision_snapshot.healthcheck_path {
-            Self::transition_phase(db, dep.id, &execution_token, &["starting_new"], "healthchecking").await?;
+            Self::transition_phase(
+                db,
+                dep.id,
+                &execution_token,
+                &["starting_new"],
+                "healthchecking",
+            )
+            .await?;
             let _ = applications::Model::update_status(db, app.id, "healthchecking").await;
             let _ = deployment_logs::Model::append(
                 db,
@@ -827,7 +843,9 @@ impl DeploymentService {
                 let _ = runtime
                     .stop_and_remove_container(&revision_snapshot.container_name)
                     .await;
-                if revision.status != "healthy" && revision.image_reference.starts_with("moonships/") {
+                if revision.status != "healthy"
+                    && revision.image_reference.starts_with("moonships/")
+                {
                     let _ = runtime.remove_image(&revision.image_reference).await;
                 }
                 let _ = Self::record_failure(
