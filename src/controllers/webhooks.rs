@@ -2,7 +2,6 @@ use crate::{
     models::{
         applications::Model as ApplicationModel,
         git_integrations::Model as GitIntegrationModel,
-        preview_deployments::{Model as PreviewModel, UpsertPreviewInput},
         webhook_deliveries::{Model as WebhookDeliveryModel, WebhookDeliveryInput},
     },
     services::{
