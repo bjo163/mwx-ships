@@ -75,16 +75,6 @@ impl DeploymentService {
             .await
             .map_err(|_| DeploymentError::ServerNotFound(app.server_id))?;
 
-        if deployments::Model::has_active_deployment(db, app_id)
-            .await
-            .map_err(|e| DeploymentError::StepFailed {
-                step: "lock_check".to_string(),
-                message: e.to_string(),
-            })?
-        {
-            return Err(DeploymentError::Conflict);
-        }
-
         let dep = deployments::Model::create_deployment_attempt(
             db,
             app.id,
@@ -101,6 +91,7 @@ impl DeploymentService {
             message: e.to_string(),
         })?;
 
+        let dep = Self::claim_application_attempt(db, dep).await?;
         let _ = applications::Model::update_status(db, app.id, "queued").await;
         let _ = deployment_logs::Model::append(
             db,
@@ -157,6 +148,12 @@ impl DeploymentService {
                         "stopped"
                     };
                     let _ = applications::Model::update_status(db, app.id, restored_status).await;
+                    let _ = applications::Model::release_active_deployment(
+                        db,
+                        app.id,
+                        deployment_id,
+                    )
+                    .await;
                 }
 
                 Ok(cancelled)
@@ -192,16 +189,6 @@ impl DeploymentService {
             });
         }
 
-        if deployments::Model::has_active_deployment(db, original.application_id)
-            .await
-            .map_err(|err| DeploymentError::StepFailed {
-                step: "retry_lock_check".to_string(),
-                message: err.to_string(),
-            })?
-        {
-            return Err(DeploymentError::Conflict);
-        }
-
         let retry = deployments::Model::create_deployment_attempt(
             db,
             original.application_id,
@@ -217,6 +204,7 @@ impl DeploymentService {
             step: "create_retry".to_string(),
             message: err.to_string(),
         })?;
+        let retry = Self::claim_application_attempt(db, retry).await?;
 
         let _ = applications::Model::update_status(db, original.application_id, "queued").await;
         let _ = deployment_logs::Model::append(
@@ -244,16 +232,6 @@ impl DeploymentService {
         let app = applications::Model::find_by_id(db, application_id)
             .await
             .map_err(|_| DeploymentError::AppNotFound(application_id))?;
-
-        if deployments::Model::has_active_deployment(db, application_id)
-            .await
-            .map_err(|err| DeploymentError::StepFailed {
-                step: "rollback_lock_check".to_string(),
-                message: err.to_string(),
-            })?
-        {
-            return Err(DeploymentError::Conflict);
-        }
 
         let revision_id = app
             .previous_revision_id
@@ -296,6 +274,7 @@ impl DeploymentService {
             step: "create_rollback".to_string(),
             message: err.to_string(),
         })?;
+        let deployment = Self::claim_application_attempt(db, deployment).await?;
 
         let _ = applications::Model::update_status(db, application_id, "queued").await;
         let _ = deployment_logs::Model::append(
@@ -1345,6 +1324,8 @@ impl DeploymentService {
             Self::transition_phase(db, dep.id, &execution_token, success_from, "success").await?;
         }
 
+        let _ = applications::Model::release_active_deployment(db, app.id, dep.id).await;
+
         let _ = deployment_logs::Model::append(
             db,
             dep.id,
@@ -1424,6 +1405,36 @@ impl DeploymentService {
         }
 
         Ok(())
+    }
+
+    async fn claim_application_attempt(
+        db: &DatabaseConnection,
+        deployment: deployments::Model,
+    ) -> Result<deployments::Model, DeploymentError> {
+        let claimed = applications::Model::claim_active_deployment(
+            db,
+            deployment.application_id,
+            deployment.id,
+        )
+        .await
+        .map_err(|err| DeploymentError::StepFailed {
+            step: "application_deployment_claim".to_string(),
+            message: err.to_string(),
+        })?;
+
+        if claimed {
+            return Ok(deployment);
+        }
+
+        let _ = deployments::Model::update_status(db, deployment.id, "cancelled").await;
+        let _ = deployment_logs::Model::append(
+            db,
+            deployment.id,
+            "system",
+            "Deployment intent superseded because another deployment owns the application lock",
+        )
+        .await;
+        Err(DeploymentError::Conflict)
     }
 
     fn execution_lease_seconds() -> i64 {
@@ -1582,6 +1593,12 @@ impl DeploymentService {
         let _ =
             deployments::Model::record_failure(db, deployment_id, error_code, message, exit_code)
                 .await;
+        let _ = applications::Model::release_active_deployment(
+            db,
+            application_id,
+            deployment_id,
+        )
+        .await;
 
         if let Ok(deployment) = deployments::Model::find_by_id(db, deployment_id).await {
             if let Some(revision_id) = deployment.revision_id {
