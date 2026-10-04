@@ -15,14 +15,38 @@ import {
 
 export function Settings() {
   const [health, setHealth] = useState<any>(null);
+  const [backups, setBackups] = useState<any[]>([]);
+  const [backupQueued, setBackupQueued] = useState(false);
   const [loading, setLoading] = useState(true);
 
+  async function loadOperations() {
+    try {
+      const [systemHealth, recentBackups] = await Promise.all([
+        apiRequest<any>('/api/health').catch(() => null),
+        apiRequest<any[]>('/api/operations/backups?limit=5').catch(() => []),
+      ]);
+      setHealth(systemHealth);
+      setBackups(recentBackups);
+    } finally {
+      setLoading(false);
+    }
+  }
+
   useEffect(() => {
-    apiRequest<any>('/api/health')
-      .then((data) => setHealth(data))
-      .catch((e) => console.error(e))
-      .finally(() => setLoading(false));
+    loadOperations();
   }, []);
+
+  async function queueBackup() {
+    setBackupQueued(true);
+    try {
+      await apiRequest('/api/operations/backups', { method: 'POST' });
+      window.setTimeout(loadOperations, 1500);
+    } catch (error: any) {
+      alert(`Unable to queue backup: ${error.message}`);
+    } finally {
+      setBackupQueued(false);
+    }
+  }
 
   return (
     <div style={{ maxWidth: '1000px', margin: '0 auto' }}>
@@ -118,14 +142,52 @@ export function Settings() {
           </div>
 
           <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', marginBottom: '16px' }}>
-            Because Moonships uses SQLite, backup operations are atomic, clean, and zero-downtime using the SQLite Online Backup API.
+            Production backups use SQLite online backup, integrity verification, SHA-256, optional AES-256-GCM export encryption, and bounded retention.
           </p>
 
+          <div style={{ display: 'flex', gap: '10px', alignItems: 'center', marginBottom: '16px' }}>
+            <button className="btn btn-primary" onClick={queueBackup} disabled={backupQueued}>
+              <HardDrive size={16} />
+              <span>{backupQueued ? 'Queueing...' : 'Queue Verified Backup'}</span>
+            </button>
+            <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+              Production also schedules backups automatically.
+            </span>
+          </div>
+
+          {backups.length > 0 && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '16px' }}>
+              {backups.map((backup) => (
+                <div
+                  key={backup.id}
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    gap: '12px',
+                    padding: '10px 12px',
+                    border: '1px solid var(--border-color)',
+                    borderRadius: '8px',
+                    fontSize: '0.8rem',
+                  }}
+                >
+                  <span style={{ fontFamily: 'monospace', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    {backup.backup_path}
+                  </span>
+                  <span style={{ color: backup.verified ? 'var(--success)' : 'var(--warning)', whiteSpace: 'nowrap' }}>
+                    {backup.status}{backup.verified ? ' · verified' : ''}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+
           <div style={{ background: '#090d16', padding: '16px', borderRadius: '8px', border: '1px solid rgba(255, 255, 255, 0.08)', fontFamily: 'monospace', fontSize: '0.85rem' }}>
-            <div style={{ color: 'var(--cyan-primary)', marginBottom: '8px' }}># Perform an atomic online backup:</div>
-            <div style={{ color: '#e2e8f0' }}>./scripts/backup-sqlite.sh /backup/moonships-$(date +%Y%m%d).sqlite</div>
-            <div style={{ color: 'var(--cyan-primary)', margin: '16px 0 8px 0' }}># Restore from a backup file:</div>
-            <div style={{ color: '#e2e8f0' }}>./scripts/restore-sqlite.sh /backup/moonships-20261003.sqlite</div>
+            <div style={{ color: 'var(--cyan-primary)', marginBottom: '8px' }}># Create + verify a backup:</div>
+            <div style={{ color: '#e2e8f0' }}>cargo loco task backup:run</div>
+            <div style={{ color: 'var(--cyan-primary)', margin: '16px 0 8px 0' }}># Verify an exported backup:</div>
+            <div style={{ color: '#e2e8f0' }}>cargo loco task backup:verify path:/backup/moonships.sqlite</div>
+            <div style={{ color: 'var(--cyan-primary)', margin: '16px 0 8px 0' }}># Offline restore into a staging target:</div>
+            <div style={{ color: '#e2e8f0' }}>cargo loco task backup:restore path:/backup/moonships.sqlite target:/restore/moonships.sqlite confirm:RESTORE</div>
           </div>
 
           <div style={{ marginTop: '16px', display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--warning)', fontSize: '0.85rem' }}>
