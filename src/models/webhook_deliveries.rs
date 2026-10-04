@@ -2,6 +2,7 @@ use chrono::Utc;
 use loco_rs::prelude::*;
 use sea_orm::{ActiveModelTrait, ActiveValue::Set, ColumnTrait, EntityTrait, QueryFilter};
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 
 pub use super::_entities::webhook_deliveries::{self, ActiveModel, Entity, Model};
 
@@ -28,6 +29,8 @@ impl Model {
         db: &DatabaseConnection,
         input: &WebhookDeliveryInput,
     ) -> Result<CreateOrGetResult> {
+        let dedupe_key = intent_dedupe_key(input);
+
         if let Some(existing) = Self::find_deduped(
             db,
             input.application_id,
@@ -42,11 +45,21 @@ impl Model {
             });
         }
 
+        if let Some(key) = dedupe_key.as_deref() {
+            if let Some(existing) = Self::find_by_dedupe_key(db, key).await? {
+                return Ok(CreateOrGetResult {
+                    delivery: existing,
+                    inserted: false,
+                });
+            }
+        }
+
         let now = Utc::now();
         let active = ActiveModel {
             application_id: Set(input.application_id),
             provider: Set(input.provider.clone()),
             delivery_id: Set(input.delivery_id.clone()),
+            dedupe_key: Set(dedupe_key.clone()),
             event_kind: Set(input.event_kind.clone()),
             source_ref: Set(input.source_ref.clone()),
             commit_sha: Set(input.commit_sha.clone()),
@@ -74,13 +87,22 @@ impl Model {
                 )
                 .await?
                 {
-                    Ok(CreateOrGetResult {
+                    return Ok(CreateOrGetResult {
                         delivery: existing,
                         inserted: false,
-                    })
-                } else {
-                    Err(insert_error.into())
+                    });
                 }
+
+                if let Some(key) = dedupe_key.as_deref() {
+                    if let Some(existing) = Self::find_by_dedupe_key(db, key).await? {
+                        return Ok(CreateOrGetResult {
+                            delivery: existing,
+                            inserted: false,
+                        });
+                    }
+                }
+
+                Err(insert_error.into())
             }
         }
     }
@@ -95,6 +117,16 @@ impl Model {
             .filter(webhook_deliveries::Column::ApplicationId.eq(application_id))
             .filter(webhook_deliveries::Column::Provider.eq(provider))
             .filter(webhook_deliveries::Column::DeliveryId.eq(delivery_id))
+            .one(db)
+            .await?)
+    }
+
+    pub async fn find_by_dedupe_key(
+        db: &DatabaseConnection,
+        dedupe_key: &str,
+    ) -> Result<Option<Model>> {
+        Ok(Entity::find()
+            .filter(webhook_deliveries::Column::DedupeKey.eq(dedupe_key))
             .one(db)
             .await?)
     }
@@ -153,4 +185,34 @@ impl Model {
         active.updated_at = Set(Utc::now().into());
         Ok(active.update(db).await?)
     }
+}
+
+
+fn intent_dedupe_key(input: &WebhookDeliveryInput) -> Option<String> {
+    let raw = match input.event_kind.as_str() {
+        "push" => {
+            let source_ref = input.source_ref.as_deref()?;
+            let commit_sha = input.commit_sha.as_deref()?;
+            format!(
+                "push:{}:{}:{}:{}",
+                input.application_id, input.provider, source_ref, commit_sha
+            )
+        }
+        "pull_request" => {
+            let action = input.action.as_deref().unwrap_or_default();
+            if matches!(action, "closed" | "close" | "merged" | "merge") {
+                return None;
+            }
+            let request_id = input.external_request_id.as_deref()?;
+            let commit_sha = input.commit_sha.as_deref()?;
+            format!(
+                "preview:{}:{}:{}:{}",
+                input.application_id, input.provider, request_id, commit_sha
+            )
+        }
+        _ => return None,
+    };
+
+    let digest = Sha256::digest(raw.as_bytes());
+    Some(format!("sha256:{}", hex::encode(digest)))
 }
