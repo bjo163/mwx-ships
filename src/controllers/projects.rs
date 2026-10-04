@@ -222,8 +222,8 @@ async fn audit(
             resource_type: Some("project".to_string()),
             resource_id: resource_id.map(|id| id.to_string()),
             outcome: "success".to_string(),
-            request_id: None,
-            metadata,
+            request_id: Some(principal.request_id.clone()),
+            metadata: principal.audit_metadata(metadata),
         },
     )
     .await;
