@@ -293,10 +293,7 @@ async fn handle_pull_request(
                 let https_enabled = std::env::var("MOONSHIPS_PREVIEW_HTTPS")
                     .ok()
                     .map(|value| {
-                        matches!(
-                            value.to_ascii_lowercase().as_str(),
-                            "1" | "true" | "yes"
-                        )
+                        matches!(value.to_ascii_lowercase().as_str(), "1" | "true" | "yes")
                     })
                     .unwrap_or(false);
                 let scheme = if https_enabled { "https" } else { "http" };
