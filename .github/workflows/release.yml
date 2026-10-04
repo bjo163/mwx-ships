@@ -4,14 +4,14 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "SemVer version without the v prefix (example: 0.2.0)"
+        description: "SemVer version to release; must match Cargo.toml"
         required: true
-        default: "0.2.0"
         type: string
   push:
-    branches: [ "master" ]
+    branches: [ "main" ]
     paths:
-      - ".release/v0.2.0"
+      - "Cargo.toml"
+      - "CHANGELOG.md"
 
 permissions:
   contents: write
@@ -19,7 +19,7 @@ permissions:
 
 jobs:
   release:
-    name: Tag, publish image, and create GitHub Release
+    name: Validate, publish image, tag, and create GitHub Release
     runs-on: ubuntu-latest
 
     steps:
@@ -28,16 +28,39 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Validate version metadata
+      - name: Resolve release version
         id: version
         shell: bash
         run: |
           set -euo pipefail
 
+          CARGO_VERSION="$(sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -n1)"
+          if [[ -z "$CARGO_VERSION" ]]; then
+            echo "Unable to read package version from Cargo.toml" >&2
+            exit 1
+          fi
+
           if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
             VERSION="${{ inputs.version }}"
+            SHOULD_RELEASE=true
           else
-            VERSION="0.2.0"
+            VERSION="$CARGO_VERSION"
+            BEFORE="${{ github.event.before }}"
+            PREVIOUS_VERSION=""
+            if [[ -n "$BEFORE" && "$BEFORE" != "0000000000000000000000000000000000000000" ]]; then
+              PREVIOUS_VERSION="$(git show "$BEFORE:Cargo.toml" 2>/dev/null | sed -n 's/^version = "\([^"]*\)"/\1/p' | head -n1 || true)"
+            fi
+
+            if [[ "$PREVIOUS_VERSION" == "$VERSION" ]]; then
+              SHOULD_RELEASE=false
+            else
+              SHOULD_RELEASE=true
+            fi
+          fi
+
+          if [[ "$VERSION" != "$CARGO_VERSION" ]]; then
+            echo "Requested version ($VERSION) does not match Cargo.toml ($CARGO_VERSION)" >&2
+            exit 1
           fi
 
           if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+([+-][0-9A-Za-z.-]+)?$ ]]; then
@@ -45,11 +68,16 @@ jobs:
             exit 1
           fi
 
-          CARGO_VERSION="$(sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -n1)"
-          if [[ "$CARGO_VERSION" != "$VERSION" ]]; then
-            echo "Cargo.toml version ($CARGO_VERSION) does not match requested release ($VERSION)" >&2
-            exit 1
-          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
+          echo "should_release=$SHOULD_RELEASE" >> "$GITHUB_OUTPUT"
+
+      - name: Validate release metadata
+        if: steps.version.outputs.should_release == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="${{ steps.version.outputs.version }}"
 
           if ! grep -Fq "## [$VERSION]" CHANGELOG.md; then
             echo "CHANGELOG.md has no section for $VERSION" >&2
@@ -61,10 +89,8 @@ jobs:
             exit 1
           fi
 
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
-
-      - name: Extract release notes from changelog
+      - name: Extract release notes
+        if: steps.version.outputs.should_release == 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -76,15 +102,14 @@ jobs:
             capture { print }
           ' CHANGELOG.md > release-notes.md
 
-          if [[ ! -s release-notes.md ]]; then
-            echo "Unable to extract release notes for $VERSION" >&2
-            exit 1
-          fi
+          test -s release-notes.md
 
       - name: Set up Docker Buildx
+        if: steps.version.outputs.should_release == 'true'
         uses: docker/setup-buildx-action@v3
 
       - name: Log in to GitHub Container Registry
+        if: steps.version.outputs.should_release == 'true'
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
@@ -92,6 +117,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and publish release image
+        if: steps.version.outputs.should_release == 'true'
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -106,6 +132,7 @@ jobs:
             org.opencontainers.image.revision=${{ github.sha }}
 
       - name: Smoke test published production image
+        if: steps.version.outputs.should_release == 'true'
         env:
           IMAGE: ghcr.io/${{ github.repository }}:${{ steps.version.outputs.version }}
         shell: bash
@@ -143,6 +170,7 @@ jobs:
           fi
 
       - name: Create annotated tag
+        if: steps.version.outputs.should_release == 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -152,6 +180,7 @@ jobs:
           git push origin "${{ steps.version.outputs.tag }}"
 
       - name: Create GitHub Release
+        if: steps.version.outputs.should_release == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: bash
