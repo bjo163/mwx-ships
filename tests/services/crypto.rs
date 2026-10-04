@@ -71,7 +71,10 @@ fn test_missing_encryption_key_fails_closed() {
     std::env::remove_var("ENCRYPTION_KEY");
 
     let result = CryptoService::encrypt("must not use a fallback key");
-    assert!(result.is_err(), "encryption must fail when ENCRYPTION_KEY is missing");
+    assert!(
+        result.is_err(),
+        "encryption must fail when ENCRYPTION_KEY is missing"
+    );
 
     if let Some(value) = previous {
         std::env::set_var("ENCRYPTION_KEY", value);
