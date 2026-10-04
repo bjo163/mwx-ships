@@ -20,7 +20,7 @@ pub fn routes() -> Routes {
 }
 
 #[debug_handler]
-pub async fn list(State(ctx): State<AppContext>) -> Result<Response> {
+pub async fn list(_auth: auth::JWT, State(ctx): State<AppContext>) -> Result<Response> {
     let projects = ProjectModel::all(&ctx.db).await?;
     format::json(serde_json::json!({
         "data": projects,
@@ -30,6 +30,7 @@ pub async fn list(State(ctx): State<AppContext>) -> Result<Response> {
 
 #[debug_handler]
 pub async fn create(
+    _auth: auth::JWT,
     State(ctx): State<AppContext>,
     Json(params): Json<CreateProjectParams>,
 ) -> Result<Response> {
@@ -41,7 +42,11 @@ pub async fn create(
 }
 
 #[debug_handler]
-pub async fn get_one(Path(id): Path<i64>, State(ctx): State<AppContext>) -> Result<Response> {
+pub async fn get_one(
+    _auth: auth::JWT,
+    Path(id): Path<i64>,
+    State(ctx): State<AppContext>,
+) -> Result<Response> {
     let project = ProjectModel::find_by_id(&ctx.db, id).await?;
     format::json(serde_json::json!({
         "data": project,
@@ -51,6 +56,7 @@ pub async fn get_one(Path(id): Path<i64>, State(ctx): State<AppContext>) -> Resu
 
 #[debug_handler]
 pub async fn update(
+    _auth: auth::JWT,
     Path(id): Path<i64>,
     State(ctx): State<AppContext>,
     Json(params): Json<UpdateProjectParams>,
@@ -74,7 +80,11 @@ pub async fn update(
 }
 
 #[debug_handler]
-pub async fn remove(Path(id): Path<i64>, State(ctx): State<AppContext>) -> Result<Response> {
+pub async fn remove(
+    _auth: auth::JWT,
+    Path(id): Path<i64>,
+    State(ctx): State<AppContext>,
+) -> Result<Response> {
     let project = ProjectModel::find_by_id(&ctx.db, id).await?;
     Entity::delete_by_id(project.id).exec(&ctx.db).await?;
     format::json(serde_json::json!({
@@ -85,6 +95,7 @@ pub async fn remove(Path(id): Path<i64>, State(ctx): State<AppContext>) -> Resul
 
 #[debug_handler]
 pub async fn list_environments(
+    _auth: auth::JWT,
     Path(id): Path<i64>,
     State(ctx): State<AppContext>,
 ) -> Result<Response> {
@@ -104,6 +115,7 @@ pub struct SubCreateEnvParams {
 
 #[debug_handler]
 pub async fn create_environment(
+    _auth: auth::JWT,
     Path(id): Path<i64>,
     State(ctx): State<AppContext>,
     Json(params): Json<SubCreateEnvParams>,

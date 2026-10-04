@@ -1,4 +1,4 @@
-import { getToken } from '../auth/token';
+import { clearToken, getToken } from '../auth/token';
 
 export class ApiClientError extends Error {
   code?: string;
@@ -39,6 +39,10 @@ export async function apiRequest<T = any>(
   });
 
   const json = await response.json().catch(() => ({}));
+
+  if (response.status === 401) {
+    clearToken();
+  }
 
   if (!response.ok) {
     const errorMsg = json?.error?.message || json?.message || `HTTP ${response.status} Error`;

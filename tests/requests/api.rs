@@ -2,6 +2,15 @@ use loco_rs::testing::prelude::*;
 use moonships::app::App;
 use serial_test::serial;
 
+use super::prepare_data;
+
+macro_rules! authed {
+    ($builder:expr, $token:expr) => {{
+        let (key, value) = prepare_data::auth_header($token);
+        $builder.add_header(key, value)
+    }};
+}
+
 #[tokio::test]
 #[serial]
 async fn test_health_endpoint() {
@@ -17,14 +26,39 @@ async fn test_health_endpoint() {
 
 #[tokio::test]
 #[serial]
+async fn test_management_api_requires_authentication() {
+    request::<App, _, _>(|request, _ctx| async move {
+        for path in [
+            "/api/servers",
+            "/api/projects",
+            "/api/applications",
+            "/api/deployments",
+        ] {
+            let res = request.get(path).await;
+            assert_eq!(
+                res.status_code(),
+                401,
+                "management endpoint {path} must reject unauthenticated requests"
+            );
+        }
+
+        let health = request.get("/api/health").await;
+        assert_eq!(health.status_code(), 200, "health endpoint stays public");
+    })
+    .await;
+}
+
+#[tokio::test]
+#[serial]
 async fn test_full_api_workflow_and_security() {
     std::env::set_var(
         "ENCRYPTION_KEY",
         "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
     );
 
-    request::<App, _, _>(|request, _ctx| async move {
-        // 1. Create a server with private key
+    request::<App, _, _>(|request, ctx| async move {
+        let login = prepare_data::init_user_login(&request, &ctx).await;
+
         let server_payload = serde_json::json!({
             "name": "Integration Test Server",
             "host": "192.168.1.100",
@@ -34,43 +68,44 @@ async fn test_full_api_workflow_and_security() {
             "private_key": "-----BEGIN OPENSSH PRIVATE KEY-----\ntest-secret-key\n-----END OPENSSH PRIVATE KEY-----"
         });
 
-        let res = request.post("/api/servers").json(&server_payload).await;
+        let res = authed!(request.post("/api/servers").json(&server_payload), &login.token).await;
         assert_eq!(res.status_code(), 200);
         let server_res: serde_json::Value = serde_json::from_str(&res.text()).unwrap();
         let server_id = server_res["data"]["id"].as_i64().expect("server id");
 
-        // Verify GET /api/servers does NOT expose private_key
-        let res = request.get("/api/servers").await;
+        let res = authed!(request.get("/api/servers"), &login.token).await;
         assert_eq!(res.status_code(), 200);
         let servers_list: serde_json::Value = serde_json::from_str(&res.text()).unwrap();
         assert!(servers_list["data"].is_array());
         for s in servers_list["data"].as_array().unwrap() {
-            assert!(s.get("private_key").is_none(), "private_key must NEVER be exposed in server list");
+            assert!(s.get("private_key").is_none(), "private_key must NEVER be exposed");
+            assert!(
+                s.get("encrypted_private_key").is_none(),
+                "encrypted_private_key must NEVER be exposed"
+            );
         }
 
-        // 2. Create a project
         let project_payload = serde_json::json!({
             "name": "E2E Test Project",
             "description": "Integration testing project"
         });
-        let res = request.post("/api/projects").json(&project_payload).await;
+        let res = authed!(request.post("/api/projects").json(&project_payload), &login.token).await;
         assert_eq!(res.status_code(), 200);
         let project_res: serde_json::Value = serde_json::from_str(&res.text()).unwrap();
         let project_id = project_res["data"]["id"].as_i64().expect("project id");
 
-        // Create an environment under the project
-        let env_payload = serde_json::json!({
-            "name": "Production"
-        });
-        let res = request
-            .post(&format!("/api/projects/{}/environments", project_id))
-            .json(&env_payload)
-            .await;
+        let env_payload = serde_json::json!({ "name": "Production" });
+        let res = authed!(
+            request
+                .post(&format!("/api/projects/{}/environments", project_id))
+                .json(&env_payload),
+            &login.token
+        )
+        .await;
         assert_eq!(res.status_code(), 200);
         let env_res: serde_json::Value = serde_json::from_str(&res.text()).unwrap();
         let env_id = env_res["data"]["id"].as_i64().expect("env id");
 
-        // 3. Create an application
         let app_payload = serde_json::json!({
             "name": "Demo Node App",
             "slug": "demo-node-app",
@@ -82,68 +117,71 @@ async fn test_full_api_workflow_and_security() {
             "git_branch": "master",
             "container_port": 3000
         });
-        let res = request.post("/api/applications").json(&app_payload).await;
+        let res = authed!(
+            request.post("/api/applications").json(&app_payload),
+            &login.token
+        )
+        .await;
         assert_eq!(res.status_code(), 200);
         let app_res: serde_json::Value = serde_json::from_str(&res.text()).unwrap();
         let app_id = app_res["data"]["id"].as_i64().expect("app id");
 
-        // 4. Secret Masking Test: Add secret environment variable
         let secret_env_payload = serde_json::json!({
             "key": "DATABASE_PASSWORD",
             "value": "SuperSecretPassword123!",
             "is_secret": true
         });
-        let res = request
-            .post(&format!("/api/applications/{}/environment", app_id))
-            .json(&secret_env_payload)
-            .await;
+        let res = authed!(
+            request
+                .post(&format!("/api/applications/{}/environment", app_id))
+                .json(&secret_env_payload),
+            &login.token
+        )
+        .await;
         assert_eq!(res.status_code(), 200);
 
-        // Fetch environment variables and verify masking
-        let res = request
-            .get(&format!("/api/applications/{}/environment", app_id))
-            .await;
+        let res = authed!(
+            request.get(&format!("/api/applications/{}/environment", app_id)),
+            &login.token
+        )
+        .await;
         assert_eq!(res.status_code(), 200);
         let envs_res: serde_json::Value = serde_json::from_str(&res.text()).unwrap();
         let env_vars = envs_res["data"].as_array().expect("env vars array");
         assert_eq!(env_vars.len(), 1);
         assert_eq!(env_vars[0]["key"], "DATABASE_PASSWORD");
-        assert_eq!(
-            env_vars[0]["value"], "********",
-            "secret environment variable values must be masked in API responses"
-        );
+        assert_eq!(env_vars[0]["value"], "********");
 
-        // 5. Add Domain to application
         let domain_payload = serde_json::json!({
             "hostname": "app.moonships.io",
             "port": 80,
             "https_enabled": true
         });
-        let res = request
-            .post(&format!("/api/applications/{}/domains", app_id))
-            .json(&domain_payload)
-            .await;
+        let res = authed!(
+            request
+                .post(&format!("/api/applications/{}/domains", app_id))
+                .json(&domain_payload),
+            &login.token
+        )
+        .await;
         assert_eq!(res.status_code(), 200);
 
-        // 6. Verify Deployments list endpoint
-        let res = request.get("/api/deployments").await;
+        let res = authed!(request.get("/api/deployments"), &login.token).await;
         assert_eq!(res.status_code(), 200);
         let dep_list: serde_json::Value = serde_json::from_str(&res.text()).unwrap();
         assert!(dep_list["data"].is_array());
 
-        // 7. Trigger Deployment -> 202 Accepted
         let deploy_payload = serde_json::json!({
             "commit_message": "Automated test deployment"
         });
-        let res = request
-            .post(&format!("/api/applications/{}/deploy", app_id))
-            .json(&deploy_payload)
-            .await;
-        assert_eq!(
-            res.status_code(),
-            202,
-            "Deployment trigger must return 202 Accepted"
-        );
+        let res = authed!(
+            request
+                .post(&format!("/api/applications/{}/deploy", app_id))
+                .json(&deploy_payload),
+            &login.token
+        )
+        .await;
+        assert_eq!(res.status_code(), 202);
         let deploy_res: serde_json::Value = serde_json::from_str(&res.text()).unwrap();
         assert_eq!(deploy_res["data"]["status"], "queued");
     })

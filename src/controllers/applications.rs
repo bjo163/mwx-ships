@@ -47,7 +47,7 @@ pub fn routes() -> Routes {
 }
 
 #[debug_handler]
-pub async fn list(State(ctx): State<AppContext>) -> Result<Response> {
+pub async fn list(_auth: auth::JWT, State(ctx): State<AppContext>) -> Result<Response> {
     let apps = ApplicationModel::all(&ctx.db).await?;
     format::json(serde_json::json!({
         "data": apps,
@@ -57,6 +57,7 @@ pub async fn list(State(ctx): State<AppContext>) -> Result<Response> {
 
 #[debug_handler]
 pub async fn create(
+    _auth: auth::JWT,
     State(ctx): State<AppContext>,
     Json(params): Json<CreateApplicationParams>,
 ) -> Result<Response> {
@@ -68,7 +69,11 @@ pub async fn create(
 }
 
 #[debug_handler]
-pub async fn get_one(Path(id): Path<i64>, State(ctx): State<AppContext>) -> Result<Response> {
+pub async fn get_one(
+    _auth: auth::JWT,
+    Path(id): Path<i64>,
+    State(ctx): State<AppContext>,
+) -> Result<Response> {
     let app = ApplicationModel::find_by_id(&ctx.db, id).await?;
     let latest_deployment = DeploymentModel::latest_for_application(&ctx.db, id).await?;
     let env_count = EnvVarModel::by_application(&ctx.db, id).await?.len();
@@ -87,6 +92,7 @@ pub async fn get_one(Path(id): Path<i64>, State(ctx): State<AppContext>) -> Resu
 
 #[debug_handler]
 pub async fn update(
+    _auth: auth::JWT,
     Path(id): Path<i64>,
     State(ctx): State<AppContext>,
     Json(params): Json<UpdateApplicationParams>,
@@ -143,7 +149,11 @@ pub async fn update(
 }
 
 #[debug_handler]
-pub async fn remove(Path(id): Path<i64>, State(ctx): State<AppContext>) -> Result<Response> {
+pub async fn remove(
+    _auth: auth::JWT,
+    Path(id): Path<i64>,
+    State(ctx): State<AppContext>,
+) -> Result<Response> {
     let app = ApplicationModel::find_by_id(&ctx.db, id).await?;
     let _ = DockerService::stop_container(&app.container_name).await;
     let _ = DockerService::remove_container(&app.container_name).await;
@@ -157,6 +167,7 @@ pub async fn remove(Path(id): Path<i64>, State(ctx): State<AppContext>) -> Resul
 
 #[debug_handler]
 pub async fn deploy(
+    _auth: auth::JWT,
     Path(id): Path<i64>,
     State(ctx): State<AppContext>,
     Json(params): Json<TriggerDeployParams>,
@@ -205,7 +216,11 @@ pub async fn deploy(
 }
 
 #[debug_handler]
-pub async fn start(Path(id): Path<i64>, State(ctx): State<AppContext>) -> Result<Response> {
+pub async fn start(
+    _auth: auth::JWT,
+    Path(id): Path<i64>,
+    State(ctx): State<AppContext>,
+) -> Result<Response> {
     let app = ApplicationModel::find_by_id(&ctx.db, id).await?;
     DockerService::start_container(&app.container_name)
         .await
@@ -218,7 +233,11 @@ pub async fn start(Path(id): Path<i64>, State(ctx): State<AppContext>) -> Result
 }
 
 #[debug_handler]
-pub async fn stop(Path(id): Path<i64>, State(ctx): State<AppContext>) -> Result<Response> {
+pub async fn stop(
+    _auth: auth::JWT,
+    Path(id): Path<i64>,
+    State(ctx): State<AppContext>,
+) -> Result<Response> {
     let app = ApplicationModel::find_by_id(&ctx.db, id).await?;
     DockerService::stop_container(&app.container_name)
         .await
@@ -231,7 +250,11 @@ pub async fn stop(Path(id): Path<i64>, State(ctx): State<AppContext>) -> Result<
 }
 
 #[debug_handler]
-pub async fn restart(Path(id): Path<i64>, State(ctx): State<AppContext>) -> Result<Response> {
+pub async fn restart(
+    _auth: auth::JWT,
+    Path(id): Path<i64>,
+    State(ctx): State<AppContext>,
+) -> Result<Response> {
     let app = ApplicationModel::find_by_id(&ctx.db, id).await?;
     DockerService::restart_container(&app.container_name)
         .await
@@ -244,7 +267,11 @@ pub async fn restart(Path(id): Path<i64>, State(ctx): State<AppContext>) -> Resu
 }
 
 #[debug_handler]
-pub async fn status(Path(id): Path<i64>, State(ctx): State<AppContext>) -> Result<Response> {
+pub async fn status(
+    _auth: auth::JWT,
+    Path(id): Path<i64>,
+    State(ctx): State<AppContext>,
+) -> Result<Response> {
     let app = ApplicationModel::find_by_id(&ctx.db, id).await?;
     let container_status = DockerService::container_status(&app.container_name)
         .await
@@ -260,7 +287,11 @@ pub async fn status(Path(id): Path<i64>, State(ctx): State<AppContext>) -> Resul
 }
 
 #[debug_handler]
-pub async fn logs(Path(id): Path<i64>, State(ctx): State<AppContext>) -> Result<Response> {
+pub async fn logs(
+    _auth: auth::JWT,
+    Path(id): Path<i64>,
+    State(ctx): State<AppContext>,
+) -> Result<Response> {
     let app = ApplicationModel::find_by_id(&ctx.db, id).await?;
     let logs = DockerService::container_logs(&app.container_name, 200)
         .await
@@ -276,7 +307,11 @@ pub async fn logs(Path(id): Path<i64>, State(ctx): State<AppContext>) -> Result<
 }
 
 #[debug_handler]
-pub async fn get_env(Path(id): Path<i64>, State(ctx): State<AppContext>) -> Result<Response> {
+pub async fn get_env(
+    _auth: auth::JWT,
+    Path(id): Path<i64>,
+    State(ctx): State<AppContext>,
+) -> Result<Response> {
     let vars = EnvVarModel::by_application(&ctx.db, id).await?;
     let safe: Vec<_> = vars.into_iter().map(|v| v.to_safe()).collect();
     format::json(serde_json::json!({
@@ -287,6 +322,7 @@ pub async fn get_env(Path(id): Path<i64>, State(ctx): State<AppContext>) -> Resu
 
 #[debug_handler]
 pub async fn set_env(
+    _auth: auth::JWT,
     Path(id): Path<i64>,
     State(ctx): State<AppContext>,
     Json(params): Json<SetEnvVarParams>,
@@ -335,6 +371,7 @@ pub async fn set_env(
 
 #[debug_handler]
 pub async fn remove_env(
+    _auth: auth::JWT,
     Path((id, key)): Path<(i64, String)>,
     State(ctx): State<AppContext>,
 ) -> Result<Response> {
@@ -357,7 +394,11 @@ pub async fn remove_env(
 }
 
 #[debug_handler]
-pub async fn list_domains(Path(id): Path<i64>, State(ctx): State<AppContext>) -> Result<Response> {
+pub async fn list_domains(
+    _auth: auth::JWT,
+    Path(id): Path<i64>,
+    State(ctx): State<AppContext>,
+) -> Result<Response> {
     let domains = DomainModel::by_application(&ctx.db, id).await?;
     format::json(serde_json::json!({
         "data": domains,
@@ -367,6 +408,7 @@ pub async fn list_domains(Path(id): Path<i64>, State(ctx): State<AppContext>) ->
 
 #[debug_handler]
 pub async fn add_domain(
+    _auth: auth::JWT,
     Path(id): Path<i64>,
     State(ctx): State<AppContext>,
     Json(params): Json<CreateDomainParams>,
@@ -382,6 +424,7 @@ pub async fn add_domain(
 
 #[debug_handler]
 pub async fn remove_domain(
+    _auth: auth::JWT,
     Path((_id, domain_id)): Path<(i64, i64)>,
     State(ctx): State<AppContext>,
 ) -> Result<Response> {
