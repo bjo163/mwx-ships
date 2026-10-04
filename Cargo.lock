@@ -2999,7 +2999,7 @@ dependencies = [
 
 [[package]]
 name = "migration"
-version = "0.8.0"
+version = "0.9.0"
 dependencies = [
  "loco-rs",
  "sea-orm-migration",
@@ -3065,7 +3065,7 @@ dependencies = [
 
 [[package]]
 name = "moonships"
-version = "0.8.0"
+version = "0.9.0"
 dependencies = [
  "aes-gcm",
  "async-trait",
