@@ -65,8 +65,8 @@ pub async fn deploy(
     Path(revision_id): Path<i64>,
     State(ctx): State<AppContext>,
 ) -> Result<Response> {
-    let revision = deployment_revisions::Model::find_by_id(&ctx.db, revision_id).await?;
     let principal = Principal::authenticate(&ctx, &headers).await?;
+    let revision = deployment_revisions::Model::find_by_id(&ctx.db, revision_id).await?;
     let organization_id = principal
         .application_organization(&ctx.db, revision.application_id, Permission::Deploy)
         .await?;
