@@ -28,6 +28,7 @@ impl ProxyService {
     ) -> serde_json::Value {
         let service_name = format!("moonships-{app_slug}");
         let mut routers = serde_json::Map::new();
+        let mut middlewares = serde_json::Map::new();
 
         if !https_domains.is_empty() {
             routers.insert(
@@ -37,6 +38,24 @@ impl ProxyService {
                     "entryPoints": ["websecure"],
                     "service": service_name,
                     "tls": { "certResolver": "letsencrypt" }
+                }),
+            );
+            routers.insert(
+                format!("{service_name}-https-redirect"),
+                serde_json::json!({
+                    "rule": host_rule(https_domains),
+                    "entryPoints": ["web"],
+                    "service": service_name,
+                    "middlewares": [format!("{service_name}-redirect")]
+                }),
+            );
+            middlewares.insert(
+                format!("{service_name}-redirect"),
+                serde_json::json!({
+                    "redirectScheme": {
+                        "scheme": "https",
+                        "permanent": true
+                    }
                 }),
             );
         }
@@ -55,6 +74,7 @@ impl ProxyService {
         serde_json::json!({
             "http": {
                 "routers": routers,
+                "middlewares": middlewares,
                 "services": {
                     service_name: {
                         "loadBalancer": {
@@ -181,6 +201,23 @@ mod tests {
         assert!(ProxyService::validate_hostname("").is_err());
         assert!(ProxyService::validate_hostname("-bad.domain.com").is_err());
         assert!(ProxyService::validate_hostname("bad..domain.com").is_err());
+    }
+
+    #[test]
+    fn managed_route_uses_atomic_service_target_and_https_redirect() {
+        let config = ProxyService::managed_route_config(
+            "my-app",
+            "moonships-my-app-deadbeef",
+            8080,
+            &["secure.example.com".to_string()],
+            &["plain.example.com".to_string()],
+        );
+        let json = config.to_string();
+        assert!(json.contains("moonships-my-app-deadbeef:8080"));
+        assert!(json.contains("secure.example.com"));
+        assert!(json.contains("plain.example.com"));
+        assert!(json.contains("redirectScheme"));
+        assert!(json.contains("letsencrypt"));
     }
 
     #[test]
