@@ -151,6 +151,48 @@ impl Model {
         Ok(model)
     }
 
+    pub async fn claim_active_deployment(
+        db: &DatabaseConnection,
+        id: i64,
+        deployment_id: i64,
+    ) -> Result<bool> {
+        let patch = ActiveModel {
+            active_deployment_id: Set(Some(deployment_id)),
+            updated_at: Set(Utc::now().into()),
+            ..Default::default()
+        };
+
+        let result = Entity::update_many()
+            .set(patch)
+            .filter(applications::Column::Id.eq(id))
+            .filter(applications::Column::ActiveDeploymentId.is_null())
+            .exec(db)
+            .await?;
+
+        Ok(result.rows_affected == 1)
+    }
+
+    pub async fn release_active_deployment(
+        db: &DatabaseConnection,
+        id: i64,
+        deployment_id: i64,
+    ) -> Result<bool> {
+        let patch = ActiveModel {
+            active_deployment_id: Set(None),
+            updated_at: Set(Utc::now().into()),
+            ..Default::default()
+        };
+
+        let result = Entity::update_many()
+            .set(patch)
+            .filter(applications::Column::Id.eq(id))
+            .filter(applications::Column::ActiveDeploymentId.eq(deployment_id))
+            .exec(db)
+            .await?;
+
+        Ok(result.rows_affected == 1)
+    }
+
     pub async fn update_status(db: &DatabaseConnection, id: i64, status: &str) -> Result<Model> {
         let app = Self::find_by_id(db, id).await?;
         let mut active: ActiveModel = app.into();
