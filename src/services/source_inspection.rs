@@ -149,13 +149,13 @@ impl SourceInspectionService {
         if let Some(compose_path) = compose_paths.first() {
             reasons.push(reason(
                 "compose_file_found",
-                Some(compose_path),
+                Some(*compose_path),
                 "A root Compose definition is the strongest explicit workload signal.",
             ));
             if let Some(dockerfile_path) = dockerfile_paths.first() {
                 reasons.push(reason(
                     "dockerfile_supporting_compose",
-                    Some(dockerfile_path),
+                    Some(*dockerfile_path),
                     "A Dockerfile is present and may be referenced by the Compose workload.",
                 ));
             }
@@ -212,7 +212,7 @@ impl SourceInspectionService {
         if let Some(dockerfile_path) = dockerfile_paths.first() {
             reasons.push(reason(
                 "dockerfile_found",
-                Some(dockerfile_path),
+                Some(*dockerfile_path),
                 "A supported Dockerfile was found.",
             ));
             let port = files
@@ -224,14 +224,14 @@ impl SourceInspectionService {
             if port.is_some() {
                 reasons.push(reason(
                     "dockerfile_expose_found",
-                    Some(dockerfile_path),
+                    Some(*dockerfile_path),
                     "A numeric EXPOSE instruction provides a container-port hint.",
                 ));
             }
             if healthcheck_path.is_some() {
                 reasons.push(reason(
                     "dockerfile_healthcheck_found",
-                    Some(dockerfile_path),
+                    Some(*dockerfile_path),
                     "An HTTP(S) Dockerfile HEALTHCHECK provides a path hint.",
                 ));
             }
