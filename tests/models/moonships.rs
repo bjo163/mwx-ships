@@ -3,19 +3,31 @@ use loco_rs::testing::prelude::*;
 use moonships::{
     app::App,
     models::{
+        api_tokens::{CreateApiTokenParams, Model as ApiTokenModel},
         applications::{CreateApplicationParams, Model as ApplicationModel},
+        audit_events::{AuditEventInput, Model as AuditEventModel},
+        auth_rate_limits::Model as AuthRateLimitModel,
         deployment_logs::Model as DeploymentLogModel,
         deployment_revisions::Model as DeploymentRevisionModel,
         deployments::Model as DeploymentModel,
         domains::{CreateDomainParams, Model as DomainModel},
         environments::{CreateEnvironmentParams, Model as EnvironmentModel},
         git_integrations::{Model as GitIntegrationModel, UpsertGitIntegrationParams},
+        organization_memberships::{
+            Model as MembershipModel, SetMembershipParams,
+        },
+        organizations::{CreateOrganizationParams, Model as OrganizationModel},
         preview_deployments::{Model as PreviewModel, UpsertPreviewInput},
         projects::{CreateProjectParams, Model as ProjectModel},
         servers::{self, Model as ServerModel},
+        users::{LoginParams, Model as UserModel, RegisterParams},
         webhook_deliveries::{Model as WebhookDeliveryModel, WebhookDeliveryInput},
     },
-    services::{crypto::CryptoService, deployment::DeploymentService},
+    services::{
+        access_control::{Permission, Principal},
+        crypto::CryptoService,
+        deployment::DeploymentService,
+    },
 };
 use sea_orm::{ActiveModelTrait, ActiveValue::Set};
 use serial_test::serial;
@@ -623,4 +635,269 @@ async fn test_models_lifecycle_and_constraints() {
     .expect("update preview identity");
     assert_eq!(preview_updated.id, preview.id);
     assert_eq!(preview_updated.commit_sha, "fedcba9876543210");
+}
+
+
+#[tokio::test]
+#[serial]
+async fn test_v07_access_control_security_contract() {
+    let boot = boot_test::<App>()
+        .await
+        .expect("Failed to boot v0.7 test application");
+    let db = &boot.app_context.db;
+
+    let owner = UserModel::create_with_password(
+        db,
+        &RegisterParams {
+            email: "owner@example.com".to_string(),
+            password: "owner-password-123".to_string(),
+            name: "Owner".to_string(),
+        },
+    )
+    .await
+    .expect("create owner user");
+
+    let admin = UserModel::create_with_password(
+        db,
+        &RegisterParams {
+            email: "admin@example.com".to_string(),
+            password: "admin-password-123".to_string(),
+            name: "Admin".to_string(),
+        },
+    )
+    .await
+    .expect("create admin user");
+
+    let viewer = UserModel::create_with_password(
+        db,
+        &RegisterParams {
+            email: "viewer@example.com".to_string(),
+            password: "viewer-password-123".to_string(),
+            name: "Viewer".to_string(),
+        },
+    )
+    .await
+    .expect("create viewer user");
+
+    let org = OrganizationModel::create(
+        db,
+        &CreateOrganizationParams {
+            name: "Moonships Org".to_string(),
+            slug: Some("moonships-org".to_string()),
+        },
+    )
+    .await
+    .expect("create organization");
+
+    MembershipModel::upsert(
+        db,
+        org.id,
+        &SetMembershipParams {
+            user_id: owner.id,
+            role: "owner".to_string(),
+            is_active: Some(true),
+        },
+    )
+    .await
+    .expect("owner membership");
+
+    MembershipModel::upsert(
+        db,
+        org.id,
+        &SetMembershipParams {
+            user_id: admin.id,
+            role: "admin".to_string(),
+            is_active: Some(true),
+        },
+    )
+    .await
+    .expect("admin membership");
+
+    MembershipModel::upsert(
+        db,
+        org.id,
+        &SetMembershipParams {
+            user_id: viewer.id,
+            role: "viewer".to_string(),
+            is_active: Some(true),
+        },
+    )
+    .await
+    .expect("viewer membership");
+
+    assert_eq!(
+        MembershipModel::active_owner_count(db, org.id)
+            .await
+            .expect("owner count"),
+        1
+    );
+
+    let owner_principal = Principal {
+        user: owner.clone(),
+        actor_kind: "jwt",
+        actor_id: owner.pid.to_string(),
+        api_token: None,
+        request_id: "test-owner-request".to_string(),
+        confirmation: Some("confirmed".to_string()),
+    };
+    assert!(
+        owner_principal
+            .require(db, org.id, Permission::Owner)
+            .await
+            .is_ok()
+    );
+
+    let viewer_principal = Principal {
+        user: viewer.clone(),
+        actor_kind: "jwt",
+        actor_id: viewer.pid.to_string(),
+        api_token: None,
+        request_id: "test-viewer-request".to_string(),
+        confirmation: None,
+    };
+    assert!(
+        viewer_principal
+            .require(db, org.id, Permission::View)
+            .await
+            .is_ok()
+    );
+    assert!(
+        viewer_principal
+            .require(db, org.id, Permission::Deploy)
+            .await
+            .is_err(),
+        "viewer must not receive deploy permission"
+    );
+
+    let other_org = OrganizationModel::create(
+        db,
+        &CreateOrganizationParams {
+            name: "Other Org".to_string(),
+            slug: Some("other-org".to_string()),
+        },
+    )
+    .await
+    .expect("create second organization");
+    assert!(
+        viewer_principal
+            .require(db, other_org.id, Permission::View)
+            .await
+            .is_err(),
+        "cross-organization access must fail closed"
+    );
+
+    let created = ApiTokenModel::create_token(
+        db,
+        owner.id,
+        &CreateApiTokenParams {
+            organization_id: org.id,
+            name: "deploy token".to_string(),
+            scopes: vec!["read".to_string(), "deploy".to_string()],
+            expires_in_days: Some(30),
+        },
+    )
+    .await
+    .expect("create API token");
+
+    let raw_token = created.token.clone();
+    let safe_json =
+        serde_json::to_string(&created.record.to_safe()).expect("serialize safe API token");
+    assert!(!safe_json.contains(&created.record.token_hash));
+    assert!(!safe_json.contains(&raw_token));
+    assert_eq!(
+        ApiTokenModel::authenticate(db, &raw_token)
+            .await
+            .expect("authenticate token")
+            .expect("token accepted")
+            .id,
+        created.record.id
+    );
+
+    let api_principal = Principal {
+        user: owner.clone(),
+        actor_kind: "api_token",
+        actor_id: created.record.id.to_string(),
+        api_token: Some(created.record.clone()),
+        request_id: "api-token-request".to_string(),
+        confirmation: None,
+    };
+    assert!(
+        api_principal
+            .require(db, org.id, Permission::Deploy)
+            .await
+            .is_ok()
+    );
+    assert!(
+        api_principal
+            .require(db, org.id, Permission::ManageOrganization)
+            .await
+            .is_err(),
+        "scoped deploy token must not gain organization-admin permission"
+    );
+
+    ApiTokenModel::revoke_for_organization(db, created.record.id, org.id)
+        .await
+        .expect("revoke organization API token");
+    assert!(
+        ApiTokenModel::authenticate(db, &raw_token)
+            .await
+            .expect("authenticate revoked token")
+            .is_none()
+    );
+
+    let previous_session_version = owner.session_version;
+    let revoked_user = UserModel::revoke_sessions(db, owner.id)
+        .await
+        .expect("revoke JWT sessions");
+    assert_eq!(
+        revoked_user.session_version,
+        previous_session_version.saturating_add(1)
+    );
+
+    AuditEventModel::append(
+        db,
+        AuditEventInput {
+            organization_id: Some(org.id),
+            actor_kind: "jwt".to_string(),
+            actor_id: owner.pid.to_string(),
+            action: "test.destructive".to_string(),
+            resource_type: Some("test".to_string()),
+            resource_id: Some("1".to_string()),
+            outcome: "success".to_string(),
+            request_id: Some("audit-request-1".to_string()),
+            metadata: owner_principal.audit_metadata(None),
+        },
+    )
+    .await
+    .expect("append audit event");
+    let events = AuditEventModel::list_for_organization(db, org.id, 10)
+        .await
+        .expect("list audit events");
+    assert!(events.iter().any(|event| {
+        event.request_id.as_deref() == Some("audit-request-1")
+            && event.action == "test.destructive"
+    }));
+
+    for attempt in 0..3 {
+        let decision = AuthRateLimitModel::check_and_record(
+            db,
+            "v07-test",
+            "same-key",
+            2,
+            60,
+            60,
+        )
+        .await
+        .expect("rate limit decision");
+        if attempt < 2 {
+            assert!(decision.allowed);
+        } else {
+            assert!(!decision.allowed);
+        }
+    }
+
+    let _unused = LoginParams {
+        email: owner.email.clone(),
+        password: "owner-password-123".to_string(),
+    };
 }
