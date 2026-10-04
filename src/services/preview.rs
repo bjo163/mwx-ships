@@ -1,11 +1,14 @@
 use crate::{
     models::{
-        _entities::{applications, domains, environment_variables, environments},
+        _entities::{
+            applications, domains, environment_variables, environments, git_integrations,
+        },
         applications::{CreateApplicationParams, Model as ApplicationModel},
         deployments::Model as DeploymentModel,
         domains::{CreateDomainParams, Model as DomainModel},
         environment_variables::Model as EnvironmentVariableModel,
         environments::{CreateEnvironmentParams, Model as EnvironmentModel},
+        git_integrations::Model as GitIntegrationModel,
         preview_deployments::{Model as PreviewModel, UpsertPreviewInput},
         servers::Model as ServerModel,
     },
@@ -142,6 +145,13 @@ impl PreviewService {
             .map_err(|err| PreviewError::Setup(err.to_string()))?
         };
 
+        Self::sync_git_integration(
+            db,
+            base_app.id,
+            preview_app.id,
+            provider,
+        )
+        .await?;
         Self::sync_environment(db, base_app.id, preview_app.id).await?;
         Self::sync_domain(db, preview_app.id, &preview_hostname).await?;
 
@@ -267,6 +277,66 @@ impl PreviewService {
             .update(db)
             .await
             .map_err(|err| PreviewError::Setup(err.to_string()))
+    }
+
+    async fn sync_git_integration(
+        db: &DatabaseConnection,
+        source_application_id: i64,
+        preview_application_id: i64,
+        provider: &str,
+    ) -> Result<(), PreviewError> {
+        let source = GitIntegrationModel::find_for_application_provider(
+            db,
+            source_application_id,
+            provider,
+        )
+        .await
+        .map_err(|err| PreviewError::Setup(err.to_string()))?;
+
+        let existing = git_integrations::Entity::find()
+            .filter(git_integrations::Column::ApplicationId.eq(preview_application_id))
+            .filter(git_integrations::Column::Provider.eq(&source.provider))
+            .one(db)
+            .await
+            .map_err(|err| PreviewError::Setup(err.to_string()))?;
+
+        let now = Utc::now();
+        match existing {
+            Some(model) => {
+                let mut active: git_integrations::ActiveModel = model.into();
+                active.repository_ref = Set(source.repository_ref);
+                active.api_base_url = Set(source.api_base_url);
+                active.git_username = Set(source.git_username);
+                active.encrypted_token = Set(source.encrypted_token);
+                active.encrypted_webhook_secret = Set(source.encrypted_webhook_secret);
+                active.enabled = Set(false);
+                active.updated_at = Set(now.into());
+                active
+                    .update(db)
+                    .await
+                    .map_err(|err| PreviewError::Setup(err.to_string()))?;
+            }
+            None => {
+                git_integrations::ActiveModel {
+                    application_id: Set(preview_application_id),
+                    provider: Set(source.provider),
+                    repository_ref: Set(source.repository_ref),
+                    api_base_url: Set(source.api_base_url),
+                    git_username: Set(source.git_username),
+                    encrypted_token: Set(source.encrypted_token),
+                    encrypted_webhook_secret: Set(source.encrypted_webhook_secret),
+                    enabled: Set(false),
+                    created_at: Set(now.into()),
+                    updated_at: Set(now.into()),
+                    ..Default::default()
+                }
+                .insert(db)
+                .await
+                .map_err(|err| PreviewError::Setup(err.to_string()))?;
+            }
+        }
+
+        Ok(())
     }
 
     async fn sync_environment(
