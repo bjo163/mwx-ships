@@ -31,6 +31,7 @@ import subprocess
 import sys
 import tempfile
 from collections import defaultdict, deque
+from datetime import datetime, timezone
 from pathlib import Path
 
 EXCLUDED_TABLES = {
@@ -130,6 +131,21 @@ def normalize(value):
         return "1"
     if lowered in {"false", "f"}:
         return "0"
+
+    # SQLite stores timestamp values as text while PostgreSQL COPY emits its
+    # own ISO representation. Normalize equivalent ISO-8601 timestamps before
+    # hashing so verification compares values rather than database formatting.
+    if len(text) >= 19 and text[4:5] == "-" and ":" in text:
+        candidate = text[:-1] + "+00:00" if text.endswith("Z") else text
+        try:
+            parsed = datetime.fromisoformat(candidate)
+        except ValueError:
+            pass
+        else:
+            if parsed.tzinfo is not None:
+                parsed = parsed.astimezone(timezone.utc)
+            return {"timestamp": parsed.isoformat(timespec="microseconds")}
+
     return text
 
 
