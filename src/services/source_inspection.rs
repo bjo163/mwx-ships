@@ -56,6 +56,7 @@ pub struct SourceInspection {
     pub compose_file_path: Option<String>,
     pub docker_context: Option<String>,
     pub container_port_hint: Option<u16>,
+    pub healthcheck_path_hint: Option<String>,
     pub static_output_dir_hint: Option<String>,
     pub package_manager: Option<String>,
     pub framework_hint: Option<String>,
@@ -132,6 +133,10 @@ impl SourceInspectionService {
                     .first()
                     .and_then(|path| files.get(path))
                     .and_then(|content| dockerfile_exposed_port(content)),
+                healthcheck_path_hint: dockerfile_paths
+                    .first()
+                    .and_then(|path| files.get(path))
+                    .and_then(|content| dockerfile_healthcheck_path(content)),
                 static_output_dir_hint: vite.then(|| "dist".to_string()).or_else(|| {
                     root_index.then(|| ".".to_string())
                 }),
@@ -167,6 +172,10 @@ impl SourceInspectionService {
                     .first()
                     .and_then(|path| files.get(path))
                     .and_then(|content| dockerfile_exposed_port(content)),
+                healthcheck_path_hint: dockerfile_paths
+                    .first()
+                    .and_then(|path| files.get(path))
+                    .and_then(|content| dockerfile_healthcheck_path(content)),
                 static_output_dir_hint: None,
                 package_manager,
                 framework_hint,
@@ -190,6 +199,7 @@ impl SourceInspectionService {
                 compose_file_path: None,
                 docker_context: Some(".".to_string()),
                 container_port_hint: None,
+                healthcheck_path_hint: None,
                 static_output_dir_hint: vite.then(|| "dist".to_string()).or_else(|| {
                     root_index.then(|| ".".to_string())
                 }),
@@ -208,11 +218,21 @@ impl SourceInspectionService {
             let port = files
                 .get(dockerfile_path)
                 .and_then(|content| dockerfile_exposed_port(content));
+            let healthcheck_path = files
+                .get(dockerfile_path)
+                .and_then(|content| dockerfile_healthcheck_path(content));
             if port.is_some() {
                 reasons.push(reason(
                     "dockerfile_expose_found",
                     Some(dockerfile_path),
                     "A numeric EXPOSE instruction provides a container-port hint.",
+                ));
+            }
+            if healthcheck_path.is_some() {
+                reasons.push(reason(
+                    "dockerfile_healthcheck_found",
+                    Some(dockerfile_path),
+                    "An HTTP(S) Dockerfile HEALTHCHECK provides a path hint.",
                 ));
             }
             return SourceInspection {
@@ -225,6 +245,7 @@ impl SourceInspectionService {
                 compose_file_path: None,
                 docker_context: Some(".".to_string()),
                 container_port_hint: port,
+                healthcheck_path_hint: healthcheck_path,
                 static_output_dir_hint: None,
                 package_manager,
                 framework_hint,
@@ -261,6 +282,7 @@ impl SourceInspectionService {
                 compose_file_path: None,
                 docker_context: Some(".".to_string()),
                 container_port_hint: None,
+                healthcheck_path_hint: Some("/".to_string()),
                 static_output_dir_hint: Some(if vite { "dist" } else { "." }.to_string()),
                 package_manager,
                 framework_hint,
@@ -292,6 +314,7 @@ impl SourceInspectionService {
             compose_file_path: None,
             docker_context: Some(".".to_string()),
             container_port_hint: None,
+            healthcheck_path_hint: None,
             static_output_dir_hint: None,
             package_manager,
             framework_hint,
@@ -366,6 +389,39 @@ fn dockerfile_exposed_port(content: &str) -> Option<u16> {
     None
 }
 
+fn dockerfile_healthcheck_path(content: &str) -> Option<String> {
+    for line in content.lines() {
+        let instruction = line.trim();
+        if !instruction
+            .split_whitespace()
+            .next()
+            .map(|value| value.eq_ignore_ascii_case("HEALTHCHECK"))
+            .unwrap_or(false)
+        {
+            continue;
+        }
+
+        for scheme in ["http://", "https://"] {
+            if let Some(start) = instruction.find(scheme) {
+                let rest = &instruction[start + scheme.len()..];
+                let path = rest.find('/').map(|index| &rest[index..]).unwrap_or("/");
+                let path = path
+                    .split_whitespace()
+                    .next()
+                    .unwrap_or("/")
+                    .trim_matches(|ch| matches!(ch, '\'' | '"' | ')' | ']' | ';'));
+                if path.starts_with('/')
+                    && path.len() <= 256
+                    && !path.contains(['\n', '\r', '\0'])
+                {
+                    return Some(path.to_string());
+                }
+            }
+        }
+    }
+    None
+}
+
 fn reason(code: &str, path: Option<&str>, message: &str) -> DetectionReason {
     DetectionReason {
         code: code.to_string(),
@@ -392,12 +448,13 @@ mod tests {
     fn detects_dockerfile_and_exposed_port() {
         let result = SourceInspectionService::inspect(&snapshot(&[(
             "Dockerfile",
-            "FROM alpine\nEXPOSE 8080/tcp\nCMD [\"app\"]\n",
+            "FROM alpine\nEXPOSE 8080/tcp\nHEALTHCHECK CMD curl -fsS http://localhost:8080/health || exit 1\nCMD [\"app\"]\n",
         )]));
         assert_eq!(result.strategy, SourceBuildStrategy::Dockerfile);
         assert_eq!(result.confidence, InspectionConfidence::High);
         assert_eq!(result.dockerfile_path.as_deref(), Some("Dockerfile"));
         assert_eq!(result.container_port_hint, Some(8080));
+        assert_eq!(result.healthcheck_path_hint.as_deref(), Some("/health"));
     }
 
     #[test]
