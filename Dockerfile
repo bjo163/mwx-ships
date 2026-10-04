@@ -42,6 +42,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     git \
     openssh-client \
+    docker.io \
     && rm -rf /var/lib/apt/lists/*
 
 # Create persistent data directory
@@ -64,6 +65,10 @@ EXPOSE 5150
 
 VOLUME ["/app/data"]
 
-USER 1000:1000
+# The MVP deployment engine talks to the host Docker daemon through the
+# mounted Docker socket. Access to that socket is already root-equivalent, so
+# the Compose deployment runs this control-plane container as root to avoid
+# host-specific docker-group GID mismatches.
+USER root
 
 CMD ["moonships-cli", "start", "--server-and-worker"]
