@@ -1,6 +1,6 @@
 use crate::{
     models::{
-        _entities::{applications, projects, registry_credentials, server_pool_members, servers},
+        _entities::{applications, projects, registry_credentials, servers},
         api_tokens::{CreateApiTokenParams, Model as ApiTokenModel},
         audit_events::{AuditEventInput, Model as AuditEventModel},
         auth_rate_limits::Model as AuthRateLimitModel,
