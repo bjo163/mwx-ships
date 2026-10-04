@@ -38,6 +38,21 @@ impl BackgroundWorker<DeploymentWorkerArgs> for DeploymentWorker {
                 );
                 Ok(())
             }
+            Err(DeploymentError::ExecutionClaimUnavailable { status }) => {
+                tracing::info!(
+                    deployment_id = args.deployment_id,
+                    status = %status,
+                    "DeploymentWorker skipped duplicate delivery because another worker owns the lease"
+                );
+                Ok(())
+            }
+            Err(DeploymentError::ExecutionClaimLost) => {
+                tracing::info!(
+                    deployment_id = args.deployment_id,
+                    "DeploymentWorker stopped because execution lease ownership changed"
+                );
+                Ok(())
+            }
             Err(err) => {
                 tracing::error!(
                     deployment_id = args.deployment_id,
