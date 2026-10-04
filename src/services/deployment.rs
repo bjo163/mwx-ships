@@ -1,5 +1,6 @@
 use crate::models::{
-    applications, deployment_logs, deployments, domains, environment_variables, servers,
+    applications, deployment_logs, deployment_revisions, deployments, domains,
+    environment_variables, servers,
 };
 use crate::services::{
     crypto::CryptoService,
@@ -193,33 +194,70 @@ impl DeploymentService {
         )
         .await;
 
+        let revision = match deployment_revisions::Model::create_or_get(
+            db,
+            &app,
+            &server,
+            &commit_sha,
+            Some(commit_message.clone()),
+        )
+        .await
+        {
+            Ok(revision) => revision,
+            Err(err) => {
+                return Err(Self::record_failure(
+                    db,
+                    dep.id,
+                    app.id,
+                    "REVISION_SNAPSHOT_FAILED",
+                    "cloning",
+                    &err.to_string(),
+                    None,
+                )
+                .await);
+            }
+        };
+
+        if let Err(err) = deployments::Model::attach_revision(
+            db,
+            dep.id,
+            revision.id,
+            &commit_sha,
+            Some(commit_message.clone()),
+        )
+        .await
+        {
+            return Err(Self::record_failure(
+                db,
+                dep.id,
+                app.id,
+                "REVISION_BIND_FAILED",
+                "cloning",
+                &err.to_string(),
+                None,
+            )
+            .await);
+        }
+
+        let _ = deployment_logs::Model::append(
+            db,
+            dep.id,
+            "system",
+            &format!(
+                "Prepared immutable revision {} using image '{}'",
+                &revision.revision_hash[..12.min(revision.revision_hash.len())],
+                revision.image_reference
+            ),
+        )
+        .await;
+
         let _ = deployments::Model::update_status(db, dep.id, "building").await;
         let _ = applications::Model::update_status(db, app.id, "building").await;
 
-        let image_tag = format!(
-            "moonships/{}:{}",
-            app.slug,
-            &commit_sha[..7.min(commit_sha.len())]
-        );
-
         let build_result = if app.build_type == "prebuilt_image" {
-            match app.docker_image.as_deref() {
-                Some(image) if !image.trim().is_empty() => runtime.pull_image(image).await,
-                _ => {
-                    return Err(Self::record_failure(
-                        db,
-                        dep.id,
-                        app.id,
-                        "DEPLOYMENT_CONFIG_INVALID",
-                        "building",
-                        "prebuilt_image deployment requires docker_image",
-                        None,
-                    )
-                    .await);
-                }
-            }
+            runtime.pull_image(&revision.image_reference).await
         } else {
-            runtime.build_image(&app, &image_tag).await
+            runtime.build_image(&app, &revision.image_reference).await
         };
 
         if let Err(err) = build_result {
@@ -323,13 +361,7 @@ impl DeploymentService {
 
         let container_config = ContainerConfig {
             name: app.container_name.clone(),
-            image: if app.build_type == "prebuilt_image" {
-                app.docker_image
-                    .clone()
-                    .expect("validated prebuilt image before container start")
-            } else {
-                image_tag
-            },
+            image: revision.image_reference.clone(),
             container_port: app.container_port,
             published_port: app.published_port,
             env_vars: decrypted_envs,
@@ -423,15 +455,42 @@ impl DeploymentService {
             }
         }
 
+        if let Err(err) = deployment_revisions::Model::mark_healthy(db, revision.id).await {
+            return Err(Self::record_failure(
+                db,
+                dep.id,
+                app.id,
+                "REVISION_FINALIZE_FAILED",
+                "healthchecking",
+                &err.to_string(),
+                None,
+            )
+            .await);
+        }
+
+        if let Err(err) = applications::Model::promote_revision(db, app.id, revision.id).await {
+            return Err(Self::record_failure(
+                db,
+                dep.id,
+                app.id,
+                "REVISION_PROMOTE_FAILED",
+                "healthchecking",
+                &err.to_string(),
+                None,
+            )
+            .await);
+        }
+
         let _ = deployments::Model::update_status(db, dep.id, "success").await;
-        let _ = applications::Model::update_status(db, app.id, "running").await;
         let _ = deployment_logs::Model::append(
             db,
             dep.id,
             "system",
             &format!(
-                "Deployment #{} completed successfully on target server '{}'",
-                dep.id, server.name
+                "Deployment #{} completed successfully on target server '{}' with revision {}",
+                dep.id,
+                server.name,
+                &revision.revision_hash[..12.min(revision.revision_hash.len())]
             ),
         )
         .await;
@@ -452,6 +511,13 @@ impl DeploymentService {
         let _ =
             deployments::Model::record_failure(db, deployment_id, error_code, message, exit_code)
                 .await;
+
+        if let Ok(deployment) = deployments::Model::find_by_id(db, deployment_id).await {
+            if let Some(revision_id) = deployment.revision_id {
+                let _ = deployment_revisions::Model::mark_failed(db, revision_id).await;
+            }
+        }
+
         let _ = applications::Model::update_status(db, application_id, "failed").await;
 
         DeploymentError::StepFailed {
