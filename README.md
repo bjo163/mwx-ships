@@ -291,6 +291,8 @@ Comprehensive technical guides are available in the [`docs/`](docs/) directory:
 - [Operations Runbook](docs/operations.md)
 - [Troubleshooting Runbook](docs/troubleshooting.md)
 - [Platform Roadmap](docs/roadmap.md)
+- [v1.0 Grand Plan](docs/grand-plan-v1.md)
+- [Branch Strategy](docs/branch-strategy.md)
 - [ADR 0001: Control Plane Architecture](docs/adr/0001-control-plane.md)
 - [ADR 0002: SQLite-First Canonical Storage](docs/adr/0002-sqlite-first.md)
 - [ADR 0003: SQLite Worker Queue](docs/adr/0003-sqlite-worker-queue.md)
