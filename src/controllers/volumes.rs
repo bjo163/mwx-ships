@@ -115,8 +115,7 @@ async fn audit_volume(
 pub async fn list(headers: HeaderMap, State(ctx): State<AppContext>) -> Result<Response> {
     let principal = Principal::authenticate(&ctx, &headers).await?;
     let organization_ids = principal.organization_ids(&ctx.db).await?;
-    let volumes =
-        PersistentVolumeModel::all_for_organizations(&ctx.db, &organization_ids).await?;
+    let volumes = PersistentVolumeModel::all_for_organizations(&ctx.db, &organization_ids).await?;
 
     let mut result = Vec::with_capacity(volumes.len());
     for volume in volumes {
@@ -184,12 +183,9 @@ pub async fn set_protection(
     let (principal, volume) =
         authorized_volume(&ctx, &headers, id, Permission::ManageApplications).await?;
     let organization_id = volume.organization_id;
-    let updated = PersistentVolumeModel::set_deletion_protection(
-        &ctx.db,
-        id,
-        params.deletion_protected,
-    )
-    .await?;
+    let updated =
+        PersistentVolumeModel::set_deletion_protection(&ctx.db, id, params.deletion_protected)
+            .await?;
 
     audit_volume(
         &ctx,
@@ -220,11 +216,7 @@ pub async fn attach(
         authorized_volume(&ctx, &headers, id, Permission::ManageApplications).await?;
     let application = ApplicationModel::find_by_id(&ctx.db, params.application_id).await?;
     let application_org = principal
-        .application_organization(
-            &ctx.db,
-            application.id,
-            Permission::ManageApplications,
-        )
+        .application_organization(&ctx.db, application.id, Permission::ManageApplications)
         .await?;
 
     if application_org != volume.organization_id {
