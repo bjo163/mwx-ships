@@ -122,11 +122,17 @@ impl PreviewService {
                     project_id: base_app.project_id,
                     environment_id: preview_environment.id,
                     server_id: base_app.server_id,
+                    server_pool_id: None,
+                    resource_units: Some(base_app.resource_units),
                     name: format!("{} Preview #{}", base_app.name, external_request_id),
                     slug: Some(preview.preview_slug.clone()),
                     git_repository: base_app.git_repository.clone(),
                     git_branch: Some(source_ref.to_string()),
                     build_type: Some(base_app.build_type.clone()),
+                    workload_type: Some(base_app.workload_type.clone()),
+                    compose_file_path: base_app.compose_file_path.clone(),
+                    compose_project_name: Some(format!("moonships-{}", preview.preview_slug)),
+                    registry_credential_id: base_app.registry_credential_id,
                     dockerfile_path: Some(base_app.dockerfile_path.clone()),
                     docker_context: Some(base_app.docker_context.clone()),
                     docker_image: base_app.docker_image.clone(),
@@ -314,10 +320,16 @@ impl PreviewService {
     ) -> Result<ApplicationModel, PreviewError> {
         let mut active: applications::ActiveModel = preview.into();
         active.server_id = Set(base.server_id);
+        active.server_pool_id = Set(None);
+        active.resource_units = Set(base.resource_units);
         active.environment_id = Set(preview_environment_id);
         active.git_repository = Set(base.git_repository.clone());
         active.git_branch = Set(source_ref.to_string());
         active.build_type = Set(base.build_type.clone());
+        active.workload_type = Set(base.workload_type.clone());
+        active.compose_file_path = Set(base.compose_file_path.clone());
+        active.compose_project_name = Set(Some(format!("moonships-{}", preview.preview_slug)));
+        active.registry_credential_id = Set(base.registry_credential_id);
         active.dockerfile_path = Set(base.dockerfile_path.clone());
         active.docker_context = Set(base.docker_context.clone());
         active.docker_image = Set(base.docker_image.clone());
