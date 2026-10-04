@@ -1,11 +1,19 @@
 use crate::{
     models::{
-        _entities::{projects, servers},
+        _entities::{applications, projects, registry_credentials, server_pool_members, servers},
         api_tokens::{CreateApiTokenParams, Model as ApiTokenModel},
         audit_events::{AuditEventInput, Model as AuditEventModel},
         auth_rate_limits::Model as AuthRateLimitModel,
         organization_memberships::{Model as MembershipModel, SetMembershipParams},
         organizations::{CreateOrganizationParams, Model as OrganizationModel},
+        registry_credentials::{
+            CreateRegistryCredentialParams, Model as RegistryCredentialModel,
+        },
+        server_pool_members::{
+            Model as ServerPoolMemberModel, SetServerPoolMemberParams,
+        },
+        server_pools::{CreateServerPoolParams, Model as ServerPoolModel},
+        servers::Model as ServerModel,
     },
     services::access_control::{Permission, Principal},
 };
@@ -26,6 +34,18 @@ pub fn routes() -> Routes {
         .add("{id}/tokens", post(create_token))
         .add("{id}/tokens/{token_id}", delete(revoke_token))
         .add("{id}/audit", get(list_audit))
+        .add("{id}/server-pools", get(list_server_pools))
+        .add("{id}/server-pools", post(create_server_pool))
+        .add(
+            "{id}/server-pools/{pool_id}/members",
+            put(upsert_server_pool_member),
+        )
+        .add("{id}/registry-credentials", get(list_registry_credentials))
+        .add("{id}/registry-credentials", post(create_registry_credential))
+        .add(
+            "{id}/registry-credentials/{credential_id}",
+            delete(remove_registry_credential),
+        )
         .add("{id}/claim-legacy", post(claim_legacy))
 }
 
@@ -359,4 +379,161 @@ pub async fn claim_legacy(
             "servers_claimed": server_result.rows_affected
         }
     }))
+}
+
+
+#[debug_handler]
+pub async fn list_server_pools(
+    headers: HeaderMap,
+    Path(id): Path<i64>,
+    State(ctx): State<AppContext>,
+) -> Result<Response> {
+    let principal = Principal::authenticate(&ctx, &headers).await?;
+    principal.require(&ctx.db, id, Permission::View).await?;
+    let pools = ServerPoolModel::list_for_organization(&ctx.db, id).await?;
+    format::json(serde_json::json!({"data": pools}))
+}
+
+#[debug_handler]
+pub async fn create_server_pool(
+    headers: HeaderMap,
+    Path(id): Path<i64>,
+    State(ctx): State<AppContext>,
+    Json(params): Json<CreateServerPoolParams>,
+) -> Result<Response> {
+    let principal = Principal::authenticate(&ctx, &headers).await?;
+    principal.require(&ctx.db, id, Permission::ManageServers).await?;
+    let pool = ServerPoolModel::create(&ctx.db, id, &params).await?;
+
+    let (actor_kind, actor_id) = principal.audit_actor();
+    let _ = AuditEventModel::append(
+        &ctx.db,
+        AuditEventInput {
+            organization_id: Some(id),
+            actor_kind: actor_kind.to_string(),
+            actor_id,
+            action: "server_pool.create".to_string(),
+            resource_type: Some("server_pool".to_string()),
+            resource_id: Some(pool.id.to_string()),
+            outcome: "success".to_string(),
+            request_id: Some(principal.request_id.clone()),
+            metadata: principal.audit_metadata(Some(serde_json::json!({
+                "required_tags": pool.required_tags().unwrap_or_default(),
+            }))),
+        },
+    )
+    .await;
+
+    format::json(serde_json::json!({"data": pool}))
+}
+
+#[debug_handler]
+pub async fn upsert_server_pool_member(
+    headers: HeaderMap,
+    Path((id, pool_id)): Path<(i64, i64)>,
+    State(ctx): State<AppContext>,
+    Json(params): Json<SetServerPoolMemberParams>,
+) -> Result<Response> {
+    let principal = Principal::authenticate(&ctx, &headers).await?;
+    principal.require(&ctx.db, id, Permission::ManageServers).await?;
+
+    let pool = ServerPoolModel::find_by_id(&ctx.db, pool_id).await?;
+    if pool.organization_id != id {
+        return unauthorized("server pool belongs to another organization");
+    }
+
+    let server = ServerModel::find_by_id(&ctx.db, params.server_id).await?;
+    if server.organization_id != Some(id) {
+        return unauthorized("server belongs to another organization");
+    }
+
+    let member = ServerPoolMemberModel::upsert(&ctx.db, pool_id, &params).await?;
+    format::json(serde_json::json!({"data": member}))
+}
+
+#[debug_handler]
+pub async fn list_registry_credentials(
+    headers: HeaderMap,
+    Path(id): Path<i64>,
+    State(ctx): State<AppContext>,
+) -> Result<Response> {
+    let principal = Principal::authenticate(&ctx, &headers).await?;
+    principal.require(&ctx.db, id, Permission::View).await?;
+    let credentials = RegistryCredentialModel::list_for_organization(&ctx.db, id)
+        .await?
+        .iter()
+        .map(RegistryCredentialModel::to_safe)
+        .collect::<Vec<_>>();
+    format::json(serde_json::json!({"data": credentials}))
+}
+
+#[debug_handler]
+pub async fn create_registry_credential(
+    headers: HeaderMap,
+    Path(id): Path<i64>,
+    State(ctx): State<AppContext>,
+    Json(params): Json<CreateRegistryCredentialParams>,
+) -> Result<Response> {
+    let principal = Principal::authenticate(&ctx, &headers).await?;
+    principal
+        .require(&ctx.db, id, Permission::ManageApplications)
+        .await?;
+    enforce_sensitive_action(&ctx, &principal, id, "registry_credential.create").await?;
+
+    let credential = RegistryCredentialModel::create(&ctx.db, id, &params).await?;
+    let (actor_kind, actor_id) = principal.audit_actor();
+    let _ = AuditEventModel::append(
+        &ctx.db,
+        AuditEventInput {
+            organization_id: Some(id),
+            actor_kind: actor_kind.to_string(),
+            actor_id,
+            action: "registry_credential.create".to_string(),
+            resource_type: Some("registry_credential".to_string()),
+            resource_id: Some(credential.id.to_string()),
+            outcome: "success".to_string(),
+            request_id: Some(principal.request_id.clone()),
+            metadata: principal.audit_metadata(Some(serde_json::json!({
+                "registry": credential.registry,
+                "username": credential.username,
+            }))),
+        },
+    )
+    .await;
+
+    format::json(serde_json::json!({"data": credential.to_safe()}))
+}
+
+#[debug_handler]
+pub async fn remove_registry_credential(
+    headers: HeaderMap,
+    Path((id, credential_id)): Path<(i64, i64)>,
+    State(ctx): State<AppContext>,
+) -> Result<Response> {
+    let principal = Principal::authenticate(&ctx, &headers).await?;
+    principal
+        .require(&ctx.db, id, Permission::ManageApplications)
+        .await?;
+    enforce_sensitive_action(&ctx, &principal, id, "registry_credential.delete").await?;
+
+    let credential = RegistryCredentialModel::find_by_id(&ctx.db, credential_id).await?;
+    if credential.organization_id != id {
+        return unauthorized("registry credential belongs to another organization");
+    }
+
+    let in_use = applications::Entity::find()
+        .filter(applications::Column::RegistryCredentialId.eq(credential_id))
+        .one(&ctx.db)
+        .await?
+        .is_some();
+    if in_use {
+        return Err(Error::BadRequest(
+            "registry credential is still referenced by an application".to_string(),
+        ));
+    }
+
+    registry_credentials::Entity::delete_by_id(credential_id)
+        .exec(&ctx.db)
+        .await?;
+    format::json(serde_json::json!({"data": null, "message": "Registry credential removed"}))
 }
