@@ -1,72 +1,88 @@
 # Deployment Engine & Orchestration
 
-Moonships v0.2 transforms Git source code into Docker containers on the **selected remote server**. The control plane records state and queues work in SQLite, while Git/Docker/healthcheck operations execute over SSH on the target.
+Moonships executes Git/Docker operations on the **selected remote server** over hardened SSH. v0.3 introduced immutable revisions, rollback, safe retry/cancel, and worker execution leases. v0.4 adds a managed ingress path that starts candidates beside the active runtime and switches traffic only after health succeeds.
 
-## Orchestration Flow
+## Two Runtime Modes
+
+### Managed ingress / zero-downtime mode
+
+Activated when an application revision has at least one domain and **no published host port**.
 
 ```
-POST /api/applications/:id/deploy  (JWT required)
-              |
-              v
-     Create Deployment Record
-              |
-              v
-     Enqueue into SQLite Worker Queue
-              |
-              v
-     Return HTTP 202 Accepted (Deployment ID)
-              |
-              v
-     DeploymentWorker
-              |
-              v
-     selected Server -> hardened SSH session
-              |
-              v
-     queued
-       -> connecting      SSH + remote Docker preflight
-       -> cloning         remote Git clone/fetch/checkout
-       -> building        remote Docker build or image pull
-       -> stopping_old    stop/remove previous container
-       -> starting_new    run replacement with env + labels
-       -> healthchecking  target-local HTTP retry loop
+queued
+  -> connecting
+  -> cloning
+  -> building
+  -> starting_candidate
+  -> healthchecking
+  -> switching_traffic
+  -> draining_old
+  -> success | failed
+```
+
+The candidate container:
+- has a deterministic revision-specific runtime name;
+- joins the `moonships-ingress` Docker network;
+- does not publish a host port;
+- is healthchecked over its Docker-network address before it can receive traffic.
+
+After health succeeds, Moonships writes a complete Traefik file-provider route to a temporary file and atomically renames it into place. Only then is the revision promoted to current known-good and the previous runtime drained/removed.
+
+If candidate start or healthcheck fails, the candidate is removed and the existing active runtime stays serving traffic.
+
+### Direct published-port mode
+
+Applications that explicitly configure a published host port retain the compatibility replacement path:
+
+```
+queued -> connecting -> cloning -> building
+       -> stopping_old -> starting_new -> healthchecking
        -> success | failed
 ```
 
-The deployment log records the selected server identity so operators can distinguish the execution target without exposing credentials.
+This path is intentionally not advertised as zero-downtime.
 
-## Remote Execution Boundary
+## Managed Traefik
 
-- SSH host/port/username values are validated before command execution.
-- SSH uses strict host-key checking with an isolated `known_hosts` file. An optional configured SHA256 fingerprint turns host discovery into explicit pinning.
-- Remote commands have bounded timeouts.
-- Repository/Docker paths and environment-variable keys are validated.
-- Values inserted into remote command strings are shell-quoted.
-- Secret environment values are transferred through SSH stdin to a temporary remote env file and are not placed in persisted command logs.
-- The production control plane does **not** require the host Docker socket.
+Moonships can maintain a target-side Traefik container named `moonships-traefik` on network `moonships-ingress`.
 
-## Failure Categories
+Configuration:
+- `MOONSHIPS_TRAEFIK_IMAGE` defaults to `traefik:v3.1`;
+- `MOONSHIPS_ACME_EMAIL` is required when managed HTTPS domains exist;
+- ports 80 and 443 on the target must be available to the managed proxy;
+- dynamic route files live under `$HOME/.moonships/traefik/dynamic`;
+- ACME state lives in a target-side `acme.json` with restrictive permissions.
 
-Deployments persist stable error codes for operational diagnosis, including:
+Moonships starts an existing managed proxy rather than replacing an arbitrary external Traefik installation. Operators should not reuse the reserved container/network names for unrelated workloads.
 
-- `SSH_CONNECT_FAILED`
-- `REMOTE_DOCKER_UNAVAILABLE`
-- `REMOTE_GIT_FAILED`
-- `REMOTE_DOCKER_BUILD_FAILED`
-- `REMOTE_DOCKER_PULL_FAILED`
-- `REMOTE_DOCKER_REPLACE_FAILED`
-- `REMOTE_DOCKER_RUN_FAILED`
-- `SECRET_DECRYPT_FAILED`
-- `REMOTE_HEALTHCHECK_FAILED`
+## Domain Verification & TLS
 
-## Concurrency Policy
+Before managed traffic is switched, each revision domain must resolve to the selected target server. Domain state records:
+- `verification_status`;
+- `verified_at`;
+- `tls_status`;
+- `last_error`.
 
-Moonships enforces one active deployment per application. A new deployment is rejected with HTTP 409 while another deployment is in an active state such as `queued`, `connecting`, `cloning`, `building`, `stopping_old`, `starting_new`, or `healthchecking`.
+HTTPS routes use Let's Encrypt HTTP-01 through the managed Traefik resolver. HTTP requests for HTTPS-enabled domains are redirected to HTTPS. TLS readiness is observable separately from deployment success because ACME issuance may complete shortly after a healthy route switch.
 
-## Replacement Semantics
+## Reliability Boundary
 
-v0.2 uses **stop-old -> start-new** replacement. This is intentionally documented as a non-zero-downtime strategy. Blue/green or rolling replacement is future work.
+- Deployment revisions are immutable and retain encrypted rollback material.
+- Retry/rollback target the recorded source commit/configuration, not current mutable app config.
+- Execution leases prevent duplicate workers from advancing the same deployment.
+- Candidate runtime identity is deterministic, allowing stale worker recovery to reconcile an already-running candidate.
+- Current/previous known-good revisions are protected from retention cleanup.
 
-## Log Safety
+## Security Boundary
 
-Deployment logs use monotonic sequence numbers and stdout/stderr/system streams. Known secret environment values are redacted before surfaced runtime errors/container logs are returned. SSH private keys are never persisted in deployment logs.
+- Operational API routes require JWT.
+- SSH uses strict host-key checking and optional fingerprint pinning.
+- Secrets remain encrypted at rest and are sent to target runtimes through SSH stdin-backed temporary env files.
+- The control plane does not mount a Docker socket.
+- Managed route writes use an atomic temporary-file replacement rather than partial in-place mutation.
+
+## Known Limitations
+
+- Zero-downtime applies to managed-ingress applications, not explicit published-port deployments.
+- HTTP-01 requires public reachability of ports 80/443 and correct DNS.
+- Automatic DNS provider integration / DNS-01 is not part of v0.4.
