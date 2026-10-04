@@ -5,6 +5,37 @@ All notable changes to **Moonships** will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0] - 2026-10-05
+
+### Added
+- **Passive Source Inspection**: authenticated application onboarding can inspect a Git repository on the selected remote target and deterministically classify Compose, Dockerfile, static, or unresolved source layouts without executing repository package/build scripts.
+- **Explainable Detection**: source inspection returns confidence, candidate strategies, reason codes, exact commit identity, safe Dockerfile/Compose hints, package-manager metadata, numeric `EXPOSE` hints, and conservative HTTP healthcheck-path hints.
+- **Immutable Deployment Plans**: `POST /api/deployment-plans` validates application deployment inputs and persists reviewed intent as the existing immutable deployment revision before any worker job is queued.
+- **Plan-Exact Queueing**: `POST /api/deployment-plans/{revision_id}/deploy` queues the exact reviewed source/config/target snapshot and preserves the plan fingerprint in deployment provenance.
+- **Focused Onboarding UX**: the Applications flow now follows Source -> Inspect -> Override -> Plan -> Deploy, shows why values were inferred, and displays the immutable plan fingerprint before queueing.
+
+### Reliability
+- Full Git object IDs are normalized before revision fingerprinting.
+- Pre-queue validation rejects malformed ports, healthcheck paths, unsafe relative build paths, unsupported workload/build combinations, missing prebuilt images, duplicate domain ownership, published-port conflicts, and unsupported Compose/managed-ingress combinations.
+- Existing deployment revisions remain the single source of truth for immutable deployable intent; v1.1 does not add a parallel plan table.
+- Existing advanced/manual application controls remain available after onboarding.
+
+### Security
+- Repository inspection stays on the selected SSH target; the control plane does not clone arbitrary application repositories.
+- Inspection reads only a bounded allowlist of small regular non-symlink metadata files and removes the temporary remote workspace.
+- `GIT_TERMINAL_PROMPT=0` and `GIT_LFS_SKIP_SMUDGE=1` keep passive inspection non-interactive and avoid LFS side effects.
+- Embedded HTTP Git credentials are rejected by source inspection and deployment planning.
+- Deployment plan responses expose environment keys, secret classification, and value fingerprints only; plaintext and encrypted secret material are never returned.
+
+### Compatibility
+- v1.1 is additive to the frozen v1 route/method contract.
+- Legacy application deployment APIs remain available; the v1.1 onboarding path prefers immutable plan-first deployment.
+- No schema migration is required solely for v1.1 source inspection/planning because the existing immutable deployment-revision model is reused.
+
+### Validation Boundary
+- v1.1 release readiness is verified through SQLite/PostgreSQL tests, migration drills, frontend build, clippy, security audit, Docker production-image smoke, and release-image verification.
+- A real production VPS rollout is intentionally not required by the repository release gate.
+
 ## [1.0.0] - 2026-10-05
 
 ### Production GA
