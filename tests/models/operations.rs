@@ -1,7 +1,6 @@
 use chrono::Utc;
-use loco_rs::testing::prelude::*;
+use migration::{Migrator, MigratorTrait};
 use moonships::{
-    app::App,
     models::{
         _entities::environment_variables,
         applications::{CreateApplicationParams, Model as ApplicationModel},
@@ -55,26 +54,15 @@ async fn backup_restore_drill_preserves_schema_revision_and_secret() {
         .await
         .expect("create temp root");
     let source = root.join("source.sqlite");
-    let queue = root.join("queue.sqlite");
     let backup_dir = root.join("backups");
     let restored = root.join("restored.sqlite");
 
     let env_guard = EnvGuard::new(&[
-        "DATABASE_URL",
-        "QUEUE_URL",
         "ENCRYPTION_KEY",
         "MOONSHIPS_BACKUP_DIR",
         "MOONSHIPS_BACKUP_ENCRYPT",
         "MOONSHIPS_BACKUP_RETENTION",
     ]);
-    env_guard.set(
-        "DATABASE_URL",
-        format!("sqlite://{}?mode=rwc", source.display()),
-    );
-    env_guard.set(
-        "QUEUE_URL",
-        format!("sqlite://{}?mode=rwc", queue.display()),
-    );
     env_guard.set(
         "ENCRYPTION_KEY",
         "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
@@ -83,8 +71,12 @@ async fn backup_restore_drill_preserves_schema_revision_and_secret() {
     env_guard.set("MOONSHIPS_BACKUP_ENCRYPT", "true");
     env_guard.set("MOONSHIPS_BACKUP_RETENTION", "3");
 
-    let boot = boot_test::<App>().await.expect("boot isolated backup test");
-    let db = &boot.app_context.db;
+    let db = Database::connect(format!("sqlite://{}?mode=rwc", source.display()))
+        .await
+        .expect("open isolated backup source");
+    Migrator::up(&db, None)
+        .await
+        .expect("migrate isolated backup source");
 
     let server = servers::ActiveModel {
         name: Set("Restore Target".to_string()),
@@ -97,12 +89,12 @@ async fn backup_restore_drill_preserves_schema_revision_and_secret() {
         updated_at: Set(Utc::now().into()),
         ..Default::default()
     }
-    .insert(db)
+    .insert(&db)
     .await
     .expect("insert server");
 
     let project = ProjectModel::create_project(
-        db,
+        &db,
         &CreateProjectParams {
             name: "Restore Drill".to_string(),
             slug: Some(format!("restore-{}", Uuid::new_v4().simple())),
@@ -113,7 +105,7 @@ async fn backup_restore_drill_preserves_schema_revision_and_secret() {
     .expect("create project");
 
     let environment = EnvironmentModel::create_environment(
-        db,
+        &db,
         &CreateEnvironmentParams {
             project_id: project.id,
             name: "Production".to_string(),
@@ -125,7 +117,7 @@ async fn backup_restore_drill_preserves_schema_revision_and_secret() {
     .expect("create environment");
 
     let app = ApplicationModel::create_application(
-        db,
+        &db,
         &CreateApplicationParams {
             project_id: project.id,
             environment_id: environment.id,
@@ -160,14 +152,14 @@ async fn backup_restore_drill_preserves_schema_revision_and_secret() {
         updated_at: Set(Utc::now().into()),
         ..Default::default()
     }
-    .insert(db)
+    .insert(&db)
     .await
     .expect("insert encrypted env");
 
     let revision = DeploymentRevisionModel::create_or_get(
-        db,
+        &db,
         &app,
-        &ServerModel::find_by_id(db, server.id)
+        &ServerModel::find_by_id(&db, server.id)
             .await
             .expect("load server"),
         "0123456789abcdef",
@@ -176,7 +168,7 @@ async fn backup_restore_drill_preserves_schema_revision_and_secret() {
     .await
     .expect("create immutable revision");
 
-    let backup = BackupService::run(db)
+    let backup = BackupService::run_from_source(&db, &source)
         .await
         .expect("create verified encrypted backup");
     assert!(backup.run.verified);
@@ -226,7 +218,7 @@ async fn backup_restore_drill_preserves_schema_revision_and_secret() {
     );
 
     drop(restored_db);
-    drop(boot);
+    drop(db);
     drop(env_guard);
     let _ = tokio::fs::remove_dir_all(&root).await;
 }
@@ -238,23 +230,17 @@ async fn notification_claim_deduplicates_during_cooldown() {
     tokio::fs::create_dir_all(&root)
         .await
         .expect("create alert temp root");
-    let env_guard = EnvGuard::new(&["DATABASE_URL", "QUEUE_URL", "ENCRYPTION_KEY"]);
-    env_guard.set(
-        "DATABASE_URL",
-        format!("sqlite://{}?mode=rwc", root.join("db.sqlite").display()),
-    );
-    env_guard.set(
-        "QUEUE_URL",
-        format!("sqlite://{}?mode=rwc", root.join("queue.sqlite").display()),
-    );
-    env_guard.set(
-        "ENCRYPTION_KEY",
-        "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
-    );
 
-    let boot = boot_test::<App>().await.expect("boot alert test");
+    let db_path = root.join("db.sqlite");
+    let db = Database::connect(format!("sqlite://{}?mode=rwc", db_path.display()))
+        .await
+        .expect("open isolated alert database");
+    Migrator::up(&db, None)
+        .await
+        .expect("migrate isolated alert database");
+
     let first = moonships::models::notification_events::Model::claim(
-        &boot.app_context.db,
+        &db,
         "target_unhealthy",
         "warning",
         "target unavailable",
@@ -266,7 +252,7 @@ async fn notification_claim_deduplicates_during_cooldown() {
     assert!(first.should_send);
 
     let duplicate = moonships::models::notification_events::Model::claim(
-        &boot.app_context.db,
+        &db,
         "target_unhealthy",
         "warning",
         "target unavailable again",
@@ -278,7 +264,6 @@ async fn notification_claim_deduplicates_during_cooldown() {
     assert!(!duplicate.should_send);
     assert_eq!(duplicate.event.id, first.event.id);
 
-    drop(boot);
-    drop(env_guard);
+    drop(db);
     let _ = tokio::fs::remove_dir_all(&root).await;
 }
