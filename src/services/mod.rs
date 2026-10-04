@@ -8,3 +8,6 @@ pub mod proxy;
 pub mod remote;
 pub mod retention;
 pub mod ssh;
+pub mod backup;
+pub mod notification;
+pub mod operations;
