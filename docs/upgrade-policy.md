@@ -15,6 +15,7 @@ The v1 upgrade gate continuously tests forward schema upgrades from these releas
 | v0.6.x | 12 | Supported |
 | v0.7.x | 13 | Supported |
 | v0.8.x | 15 | Supported |
+| v0.9.x | 15 | Supported |
 
 The automated fixture creates each historical schema prefix, inserts core application state plus encrypted secret bytes, applies all current migrations, and verifies data preservation and database integrity.
 
