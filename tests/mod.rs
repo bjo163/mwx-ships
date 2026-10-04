@@ -3,3 +3,4 @@ mod requests;
 mod services;
 mod tasks;
 mod workers;
+mod upgrade;
