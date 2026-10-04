@@ -14,8 +14,38 @@ use moonships::{
 };
 use sea_orm::{ActiveModelTrait, ActiveValue::Set, Database, EntityTrait, PaginatorTrait};
 use serial_test::serial;
-use std::path::PathBuf;
+use std::{env, ffi::OsString};
 use uuid::Uuid;
+
+struct EnvGuard {
+    values: Vec<(String, Option<OsString>)>,
+}
+
+impl EnvGuard {
+    fn new(names: &[&str]) -> Self {
+        Self {
+            values: names
+                .iter()
+                .map(|name| ((*name).to_string(), env::var_os(name)))
+                .collect(),
+        }
+    }
+
+    fn set(&self, name: &str, value: impl AsRef<std::ffi::OsStr>) {
+        env::set_var(name, value);
+    }
+}
+
+impl Drop for EnvGuard {
+    fn drop(&mut self) {
+        for (name, value) in self.values.drain(..) {
+            match value {
+                Some(value) => env::set_var(name, value),
+                None => env::remove_var(name),
+            }
+        }
+    }
+}
 
 #[tokio::test]
 #[serial]
@@ -29,21 +59,29 @@ async fn backup_restore_drill_preserves_schema_revision_and_secret() {
     let backup_dir = root.join("backups");
     let restored = root.join("restored.sqlite");
 
-    std::env::set_var(
+    let env_guard = EnvGuard::new(&[
+        "DATABASE_URL",
+        "QUEUE_URL",
+        "ENCRYPTION_KEY",
+        "MOONSHIPS_BACKUP_DIR",
+        "MOONSHIPS_BACKUP_ENCRYPT",
+        "MOONSHIPS_BACKUP_RETENTION",
+    ]);
+    env_guard.set(
         "DATABASE_URL",
         format!("sqlite://{}?mode=rwc", source.display()),
     );
-    std::env::set_var(
+    env_guard.set(
         "QUEUE_URL",
         format!("sqlite://{}?mode=rwc", queue.display()),
     );
-    std::env::set_var(
+    env_guard.set(
         "ENCRYPTION_KEY",
         "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
     );
-    std::env::set_var("MOONSHIPS_BACKUP_DIR", &backup_dir);
-    std::env::set_var("MOONSHIPS_BACKUP_ENCRYPT", "true");
-    std::env::set_var("MOONSHIPS_BACKUP_RETENTION", "3");
+    env_guard.set("MOONSHIPS_BACKUP_DIR", &backup_dir);
+    env_guard.set("MOONSHIPS_BACKUP_ENCRYPT", "true");
+    env_guard.set("MOONSHIPS_BACKUP_RETENTION", "3");
 
     let boot = boot_test::<App>().await.expect("boot isolated backup test");
     let db = &boot.app_context.db;
@@ -189,6 +227,7 @@ async fn backup_restore_drill_preserves_schema_revision_and_secret() {
 
     drop(restored_db);
     drop(boot);
+    drop(env_guard);
     let _ = tokio::fs::remove_dir_all(&root).await;
 }
 
@@ -199,15 +238,16 @@ async fn notification_claim_deduplicates_during_cooldown() {
     tokio::fs::create_dir_all(&root)
         .await
         .expect("create alert temp root");
-    std::env::set_var(
+    let env_guard = EnvGuard::new(&["DATABASE_URL", "QUEUE_URL", "ENCRYPTION_KEY"]);
+    env_guard.set(
         "DATABASE_URL",
         format!("sqlite://{}?mode=rwc", root.join("db.sqlite").display()),
     );
-    std::env::set_var(
+    env_guard.set(
         "QUEUE_URL",
         format!("sqlite://{}?mode=rwc", root.join("queue.sqlite").display()),
     );
-    std::env::set_var(
+    env_guard.set(
         "ENCRYPTION_KEY",
         "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
     );
@@ -239,5 +279,6 @@ async fn notification_claim_deduplicates_during_cooldown() {
     assert_eq!(duplicate.event.id, first.event.id);
 
     drop(boot);
+    drop(env_guard);
     let _ = tokio::fs::remove_dir_all(&root).await;
 }
