@@ -594,7 +594,10 @@ impl DeploymentService {
                 "REMOTE_DOCKER_BUILD_FAILED"
             };
             return Err(Self::record_failure(
-                db, dep.id, app.id, error_code, "building", &message, exit_code,
+                db,
+                &execution_token,
+                dep.id,
+                app.id, error_code, "building", &message, exit_code,
             )
             .await);
         }
@@ -686,6 +689,7 @@ impl DeploymentService {
                     Err(err) => {
                         return Err(Self::record_failure(
                             db,
+                            &execution_token,
                             dep.id,
                             app.id,
                             "SECRET_DECRYPT_FAILED",
