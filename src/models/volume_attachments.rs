@@ -119,16 +119,13 @@ pub fn normalize_mount_path(value: &str) -> Result<String> {
         ));
     }
 
-    let safe = value
-        .split('/')
-        .skip(1)
-        .all(|segment| {
-            !segment.is_empty()
-                && !matches!(segment, "." | "..")
-                && segment
-                    .chars()
-                    .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '.'))
-        });
+    let safe = value.split('/').skip(1).all(|segment| {
+        !segment.is_empty()
+            && !matches!(segment, "." | "..")
+            && segment
+                .chars()
+                .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '.'))
+    });
     if !safe || value.contains(['\n', '\r', '\0']) {
         return Err(Error::BadRequest(
             "volume mount path contains unsupported characters or traversal".to_string(),
