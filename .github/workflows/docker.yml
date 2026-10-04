@@ -33,8 +33,8 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - name: Verify Runtime Tooling
-        run: docker run --rm moonships:latest docker --version
+      - name: Verify Remote Runtime Tooling
+        run: docker run --rm moonships:latest ssh -V
 
       - name: Smoke Test Production Container
         run: |

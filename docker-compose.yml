@@ -20,7 +20,6 @@ services:
       - LOG_LEVEL=info
     volumes:
       - moonships-data:/app/data
-      - /var/run/docker.sock:/var/run/docker.sock:ro
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:5150/api/health"]
       interval: 30s

@@ -57,6 +57,7 @@ impl Model {
     ) -> Result<bool> {
         let active_statuses = vec![
             "queued".to_string(),
+            "connecting".to_string(),
             "cloning".to_string(),
             "building".to_string(),
             "stopping_old".to_string(),
@@ -102,7 +103,7 @@ impl Model {
         let mut active: ActiveModel = dep.into();
         let now = Utc::now();
 
-        if status == "cloning" && active.started_at.as_ref().is_none() {
+        if (status == "connecting" || status == "cloning") && active.started_at.as_ref().is_none() {
             active.started_at = Set(Some(now.into()));
         }
 

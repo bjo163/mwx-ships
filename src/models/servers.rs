@@ -13,6 +13,7 @@ pub struct CreateServerParams {
     pub username: String,
     pub authentication_type: Option<String>,
     pub private_key: Option<String>,
+    pub known_host_fingerprint: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -23,6 +24,7 @@ pub struct UpdateServerParams {
     pub username: Option<String>,
     pub authentication_type: Option<String>,
     pub private_key: Option<String>,
+    pub known_host_fingerprint: Option<String>,
 }
 
 impl Model {

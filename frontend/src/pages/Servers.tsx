@@ -27,6 +27,7 @@ export function Servers() {
     username: 'root',
     authentication_type: 'ssh_key',
     private_key: '',
+    known_host_fingerprint: '',
   });
 
   async function loadServers() {
@@ -53,6 +54,7 @@ export function Servers() {
           ...form,
           port: Number(form.port),
           private_key: form.private_key || undefined,
+          known_host_fingerprint: form.known_host_fingerprint || undefined,
         }),
       });
       setShowAddModal(false);
@@ -63,6 +65,7 @@ export function Servers() {
         username: 'root',
         authentication_type: 'ssh_key',
         private_key: '',
+        known_host_fingerprint: '',
       });
       await loadServers();
     } catch (err: any) {
@@ -329,6 +332,22 @@ export function Servers() {
                   onChange={(e) => setForm({ ...form, username: e.target.value })}
                   style={{ width: '100%', padding: '10px 14px', borderRadius: '8px', background: 'rgba(0, 0, 0, 0.3)', border: '1px solid var(--border-color)', color: '#fff' }}
                 />
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, marginBottom: '6px' }}>
+                  SSH Host Fingerprint (optional SHA256 pin)
+                </label>
+                <input
+                  type="text"
+                  placeholder="SHA256:..."
+                  value={form.known_host_fingerprint}
+                  onChange={(e) => setForm({ ...form, known_host_fingerprint: e.target.value })}
+                  style={{ width: '100%', padding: '10px 14px', borderRadius: '8px', background: 'rgba(0, 0, 0, 0.3)', border: '1px solid var(--border-color)', color: '#fff', fontFamily: 'var(--font-mono)', fontSize: '0.78rem' }}
+                />
+                <p style={{ marginTop: '6px', color: 'var(--text-muted)', fontSize: '0.75rem' }}>
+                  When set, Moonships refuses SSH if the scanned host key does not match this fingerprint.
+                </p>
               </div>
 
               <div>
