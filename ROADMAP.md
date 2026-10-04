@@ -10,8 +10,8 @@ The roadmap is risk-ordered. Each version removes a production failure class bef
 | **v0.3** | Deployment Reliability & Rollback | Can a bad/interrupted deployment be recovered safely? |
 | **v0.4** | Managed Ingress, TLS & Zero-Downtime | Can traffic move to a healthy candidate without intentional outage? **Released.** |
 | **v0.5** | Git Automation & Previews | Can source-control events trigger authenticated, idempotent deployments? **Released.** |
-| **v0.6** | Operations & Observability | Can operators detect, diagnose, back up, and restore production? **Release-ready.** |
-| **v0.7** | Teams, RBAC & Audit | Can multiple people operate Moonships with least privilege and accountability? |
+| **v0.6** | Operations & Observability | Can operators detect, diagnose, back up, and restore production? **Released.** |
+| **v0.7** | Teams, RBAC & Audit | Can multiple people operate Moonships with least privilege and accountability? **Release-ready.** |
 | **v0.8** | Scale & Advanced Workloads | Can the control plane scale and support multi-container workloads without abandoning SQLite-first? |
 | **v0.9** | GA Hardening / RC | Can upgrades, failures, restores, load, and security review survive release-candidate testing? |
 | **v1.0** | Production GA | Is the behavior/API/upgrade contract stable enough to support as production software? |
