@@ -62,16 +62,32 @@ impl RemoteRuntime {
         app: &applications::Model,
         requested_commit: Option<&str>,
     ) -> Result<(String, String), RemoteError> {
-        if app.git_repository.trim().is_empty() || app.git_branch.trim().is_empty() {
+        self.sync_repository_config(
+            app.id,
+            &app.git_repository,
+            &app.git_branch,
+            requested_commit,
+        )
+        .await
+    }
+
+    pub async fn sync_repository_config(
+        &self,
+        application_id: i64,
+        git_repository: &str,
+        git_branch: &str,
+        requested_commit: Option<&str>,
+    ) -> Result<(String, String), RemoteError> {
+        if git_repository.trim().is_empty() || git_branch.trim().is_empty() {
             return Err(RemoteError::Validation(
                 "git repository and branch must not be empty".to_string(),
             ));
         }
 
-        let workspace = Self::workspace_expr(app.id);
-        let branch = shell_quote(&app.git_branch);
-        let remote_branch = shell_quote(&format!("origin/{}", app.git_branch));
-        let repository = shell_quote(&app.git_repository);
+        let workspace = Self::workspace_expr(application_id);
+        let branch = shell_quote(git_branch);
+        let remote_branch = shell_quote(&format!("origin/{git_branch}"));
+        let repository = shell_quote(git_repository);
 
         let sync_command = format!(
             "mkdir -p \"$HOME/.moonships/apps\" && \
@@ -130,27 +146,43 @@ impl RemoteRuntime {
         app: &applications::Model,
         image_tag: &str,
     ) -> Result<String, RemoteError> {
+        self.build_image_config(
+            app.id,
+            &app.docker_context,
+            &app.dockerfile_path,
+            image_tag,
+        )
+        .await
+    }
+
+    pub async fn build_image_config(
+        &self,
+        application_id: i64,
+        docker_context: &str,
+        dockerfile_path: &str,
+        image_tag: &str,
+    ) -> Result<String, RemoteError> {
         DockerService::validate_image_name(image_tag)
             .map_err(|e| RemoteError::Validation(e.to_string()))?;
-        validate_relative_path(&app.docker_context)?;
-        validate_relative_path(&app.dockerfile_path)?;
+        validate_relative_path(docker_context)?;
+        validate_relative_path(dockerfile_path)?;
 
-        let dockerfile = if app.docker_context == "." {
-            app.dockerfile_path.clone()
+        let dockerfile = if docker_context == "." {
+            dockerfile_path.to_string()
         } else {
             format!(
                 "{}/{}",
-                app.docker_context.trim_end_matches('/'),
-                app.dockerfile_path.trim_start_matches("./")
+                docker_context.trim_end_matches('/'),
+                dockerfile_path.trim_start_matches("./")
             )
         };
 
         let command = format!(
             "cd {} && docker build -t {} -f {} {}",
-            Self::workspace_expr(app.id),
+            Self::workspace_expr(application_id),
             shell_quote(image_tag),
             shell_quote(&dockerfile),
-            shell_quote(&app.docker_context)
+            shell_quote(docker_context)
         );
 
         self.exec_checked("docker_build", &command, Duration::from_secs(1200))
