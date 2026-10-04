@@ -1,0 +1,4 @@
+version=0.2.0
+channel=production
+requested=2026-10-04
+scope=secure-remote-deployment
