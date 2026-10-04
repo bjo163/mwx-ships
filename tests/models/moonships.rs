@@ -578,6 +578,22 @@ async fn test_models_lifecycle_and_constraints() {
         "same provider delivery must map to one ledger row"
     );
 
+    let same_commit_new_delivery = WebhookDeliveryModel::create_or_get(
+        db,
+        &WebhookDeliveryInput {
+            delivery_id: "delivery-model-test-2".to_string(),
+            ..delivery_input.clone()
+        },
+    )
+    .await
+    .expect("dedupe same commit under new provider delivery id");
+    assert!(!same_commit_new_delivery.inserted);
+    assert_eq!(
+        same_commit_new_delivery.delivery.id,
+        first_delivery.delivery.id,
+        "same push commit/ref must map to one deployment intent"
+    );
+
     // 16. Preview identity is stable across synchronize events.
     let preview = PreviewModel::upsert(
         db,
