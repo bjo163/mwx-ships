@@ -107,10 +107,14 @@ pub async fn create(
 
 #[debug_handler]
 pub async fn get_one(
-    _auth: auth::JWT,
+    headers: HeaderMap,
     Path(id): Path<i64>,
     State(ctx): State<AppContext>,
 ) -> Result<Response> {
+    let principal = Principal::authenticate(&ctx, &headers).await?;
+    principal
+        .server_organization(&ctx.db, id, Permission::View)
+        .await?;
     let server = ServerModel::find_by_id(&ctx.db, id).await?;
     format::json(serde_json::json!({
         "data": {
@@ -132,11 +136,15 @@ pub async fn get_one(
 
 #[debug_handler]
 pub async fn update(
-    _auth: auth::JWT,
+    headers: HeaderMap,
     Path(id): Path<i64>,
     State(ctx): State<AppContext>,
     Json(params): Json<UpdateServerParams>,
 ) -> Result<Response> {
+    let principal = Principal::authenticate(&ctx, &headers).await?;
+    principal
+        .server_organization(&ctx.db, id, Permission::ManageServers)
+        .await?;
     let server = ServerModel::find_by_id(&ctx.db, id).await?;
     let mut active: ActiveModel = server.into();
 
@@ -182,10 +190,14 @@ pub async fn update(
 
 #[debug_handler]
 pub async fn remove(
-    _auth: auth::JWT,
+    headers: HeaderMap,
     Path(id): Path<i64>,
     State(ctx): State<AppContext>,
 ) -> Result<Response> {
+    let principal = Principal::authenticate(&ctx, &headers).await?;
+    principal
+        .server_organization(&ctx.db, id, Permission::ManageServers)
+        .await?;
     let server = ServerModel::find_by_id(&ctx.db, id).await?;
     Entity::delete_by_id(server.id).exec(&ctx.db).await?;
 
@@ -197,10 +209,14 @@ pub async fn remove(
 
 #[debug_handler]
 pub async fn test_conn(
-    _auth: auth::JWT,
+    headers: HeaderMap,
     Path(id): Path<i64>,
     State(ctx): State<AppContext>,
 ) -> Result<Response> {
+    let principal = Principal::authenticate(&ctx, &headers).await?;
+    principal
+        .server_organization(&ctx.db, id, Permission::ManageServers)
+        .await?;
     let server = ServerModel::find_by_id(&ctx.db, id).await?;
     let is_connected = SshService::connect(&server).await.is_ok();
 
@@ -218,10 +234,14 @@ pub async fn test_conn(
 }
 #[debug_handler]
 pub async fn preflight(
-    _auth: auth::JWT,
+    headers: HeaderMap,
     Path(id): Path<i64>,
     State(ctx): State<AppContext>,
 ) -> Result<Response> {
+    let principal = Principal::authenticate(&ctx, &headers).await?;
+    principal
+        .server_organization(&ctx.db, id, Permission::ManageServers)
+        .await?;
     let server = ServerModel::find_by_id(&ctx.db, id).await?;
     let report = SshService::run_preflight(&server)
         .await
