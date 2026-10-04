@@ -10,6 +10,7 @@ pub struct Model {
     pub id: i64,
     pub application_id: i64,
     pub server_id: i64,
+    pub revision_id: Option<i64>,
     pub commit_hash: Option<String>,
     pub commit_message: Option<String>,
     pub status: String,
@@ -41,6 +42,14 @@ pub enum Relation {
         on_delete = "Restrict"
     )]
     Servers,
+    #[sea_orm(
+        belongs_to = "super::deployment_revisions::Entity",
+        from = "Column::RevisionId",
+        to = "super::deployment_revisions::Column::Id",
+        on_update = "NoAction",
+        on_delete = "SetNull"
+    )]
+    DeploymentRevisions,
     #[sea_orm(has_many = "super::deployment_logs::Entity")]
     DeploymentLogs,
 }
@@ -60,6 +69,12 @@ impl Related<super::servers::Entity> for Entity {
 impl Related<super::deployment_logs::Entity> for Entity {
     fn to() -> RelationDef {
         Relation::DeploymentLogs.def()
+    }
+}
+
+impl Related<super::deployment_revisions::Entity> for Entity {
+    fn to() -> RelationDef {
+        Relation::DeploymentRevisions.def()
     }
 }
 
