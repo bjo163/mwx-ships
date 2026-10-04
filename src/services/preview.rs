@@ -74,28 +74,27 @@ impl PreviewService {
         ProxyService::validate_hostname(&preview_hostname)
             .map_err(|err| PreviewError::Setup(err.to_string()))?;
 
-        let preview_environment = if let Some(preview_environment_id) =
-            preview.preview_environment_id
-        {
-            EnvironmentModel::find_by_id(db, preview_environment_id)
+        let preview_environment =
+            if let Some(preview_environment_id) = preview.preview_environment_id {
+                EnvironmentModel::find_by_id(db, preview_environment_id)
+                    .await
+                    .map_err(|err| PreviewError::Setup(err.to_string()))?
+            } else {
+                EnvironmentModel::create_environment(
+                    db,
+                    &CreateEnvironmentParams {
+                        project_id: base_app.project_id,
+                        name: format!("Preview #{}", external_request_id),
+                        slug: Some(preview.preview_slug.clone()),
+                        description: Some(format!(
+                            "{} {} preview environment",
+                            provider, external_request_id
+                        )),
+                    },
+                )
                 .await
                 .map_err(|err| PreviewError::Setup(err.to_string()))?
-        } else {
-            EnvironmentModel::create_environment(
-                db,
-                &CreateEnvironmentParams {
-                    project_id: base_app.project_id,
-                    name: format!("Preview #{}", external_request_id),
-                    slug: Some(preview.preview_slug.clone()),
-                    description: Some(format!(
-                        "{} {} preview environment",
-                        provider, external_request_id
-                    )),
-                },
-            )
-            .await
-            .map_err(|err| PreviewError::Setup(err.to_string()))?
-        };
+            };
 
         let preview_app = if let Some(preview_application_id) = preview.preview_application_id {
             if DeploymentModel::has_active_deployment(db, preview_application_id)
