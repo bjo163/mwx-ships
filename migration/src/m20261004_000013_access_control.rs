@@ -311,11 +311,7 @@ impl MigrationTrait for Migration {
         m.alter_table(
             Table::alter()
                 .table(Servers::Table)
-                .add_column(
-                    ColumnDef::new(Servers::OrganizationId)
-                        .big_integer()
-                        .null(),
-                )
+                .add_column(ColumnDef::new(Servers::OrganizationId).big_integer().null())
                 .to_owned(),
         )
         .await?;
@@ -393,13 +389,8 @@ impl MigrationTrait for Migration {
                 .to_owned(),
         )
         .await?;
-        m.drop_table(
-            Table::drop()
-                .table(ApiTokens::Table)
-                .if_exists()
-                .to_owned(),
-        )
-        .await?;
+        m.drop_table(Table::drop().table(ApiTokens::Table).if_exists().to_owned())
+            .await?;
         m.drop_table(
             Table::drop()
                 .table(OrganizationMemberships::Table)
