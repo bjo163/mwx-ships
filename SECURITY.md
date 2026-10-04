@@ -2,14 +2,13 @@
 
 ## Supported Versions
 
-Moonships is pre-GA until v1.0. Security fixes are prioritized for the latest released minor and, when practical, the immediately previous minor.
+Moonships v1.x is the stable production security-support line. Critical fixes are prioritized for the latest v1.x release; v0.9.x receives best-effort critical fixes during the initial GA transition.
 
 | Version | Security support |
 | --- | --- |
-| 0.8.x | Current |
-| 0.7.x | Best-effort critical fixes |
-| <= 0.6.x | Upgrade required |
-| 1.x | Becomes the stable support line at GA |
+| 1.x | Current stable line |
+| 0.9.x | Best-effort critical fixes during GA transition |
+| <= 0.8.x | Upgrade required |
 
 See [docs/upgrade-policy.md](docs/upgrade-policy.md) for the tested forward-upgrade matrix.
 
@@ -39,7 +38,7 @@ Core properties include:
 - immutable revisions, health-before-switch, and rollback;
 - tested backup/restore and supported upgrade paths;
 - security/advisory/secret/dependency-policy CI gates;
-- release SBOM and signed build provenance for v0.9+.
+- release SBOM and signed build provenance for v1 releases (introduced in v0.9 RC).
 
 ## Operator Responsibilities
 
