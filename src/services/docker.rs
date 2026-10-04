@@ -338,7 +338,10 @@ impl DockerService {
         for mount in &config.volume_mounts {
             Self::validate_volume_name(&mount.source)?;
             Self::validate_volume_mount_path(&mount.target)?;
-            let mut spec = format!("type=volume,source={},target={}", mount.source, mount.target);
+            let mut spec = format!(
+                "type=volume,source={},target={}",
+                mount.source, mount.target
+            );
             if mount.read_only {
                 spec.push_str(",readonly");
             }
