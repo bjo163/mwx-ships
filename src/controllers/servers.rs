@@ -15,6 +15,12 @@ use axum::http::HeaderMap;
 use chrono::Utc;
 use loco_rs::prelude::*;
 use sea_orm::{ActiveValue::Set, EntityTrait};
+use serde::Deserialize;
+
+#[derive(Debug, Deserialize)]
+pub struct OrganizationQuery {
+    pub organization_id: Option<i64>,
+}
 
 pub fn routes() -> Routes {
     Routes::new()
@@ -61,10 +67,19 @@ pub async fn list(headers: HeaderMap, State(ctx): State<AppContext>) -> Result<R
 
 #[debug_handler]
 pub async fn create(
-    _auth: auth::JWT,
+    headers: HeaderMap,
+    Query(query): Query<OrganizationQuery>,
     State(ctx): State<AppContext>,
     Json(params): Json<CreateServerParams>,
 ) -> Result<Response> {
+    let principal = Principal::authenticate(&ctx, &headers).await?;
+    let organization_id = principal
+        .resolve_organization(&ctx.db, query.organization_id)
+        .await?;
+    principal
+        .require(&ctx.db, organization_id, Permission::ManageServers)
+        .await?;
+
     let now = Utc::now();
     let encrypted_key = if let Some(key) = params.private_key {
         Some(CryptoService::encrypt(&key).map_err(|e| Error::BadRequest(e.to_string()))?)
@@ -73,6 +88,7 @@ pub async fn create(
     };
 
     let active = ActiveModel {
+        organization_id: Set(Some(organization_id)),
         name: Set(params.name),
         host: Set(params.host),
         port: Set(params.port.unwrap_or(22)),
