@@ -27,14 +27,12 @@ GitHub Issues are the canonical source of truth.
   - [x] #82 scoped API tokens/session revocation
   - [x] #83 immutable audit/abuse controls
 
-## v0.8 — Scale Adapter & Advanced Workloads
-- [ ] #63 milestone release
-- [ ] #31 PostgreSQL scale adapter
-- [ ] #84 SQLite/PostgreSQL parity + verified migration
-- [ ] #85 multi-worker locking/heartbeat/race gates
-- [ ] #86 Compose/private registries/server placement
-
-Implementation and validation are release-ready on `dev`; mark complete only after the v0.8.0 release candidate passes every CI/Docker/Security gate and the published image is smoke-tested.
+## Released v0.8 — Scale Adapter & Advanced Workloads
+- [x] #63 milestone release
+- [x] #31 PostgreSQL scale adapter
+- [x] #84 SQLite/PostgreSQL parity + verified migration
+- [x] #85 multi-worker locking/heartbeat/race gates
+- [x] #86 Compose/private registries/server placement
 
 ## v0.9 — GA Hardening / Release Candidate
 - [ ] #64 milestone
