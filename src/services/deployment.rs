@@ -113,6 +113,67 @@ impl DeploymentService {
         Ok(dep)
     }
 
+    pub async fn trigger_planned_deploy(
+        db: &DatabaseConnection,
+        app_id: i64,
+        revision_id: i64,
+    ) -> Result<deployments::Model, DeploymentError> {
+        let app = applications::Model::find_by_id(db, app_id)
+            .await
+            .map_err(|_| DeploymentError::AppNotFound(app_id))?;
+        let revision = deployment_revisions::Model::find_by_id(db, revision_id)
+            .await
+            .map_err(|error| DeploymentError::StepFailed {
+                step: "load_deployment_plan".to_string(),
+                message: error.to_string(),
+            })?;
+
+        if revision.application_id != app.id {
+            return Err(DeploymentError::StepFailed {
+                step: "validate_deployment_plan".to_string(),
+                message: "deployment plan belongs to a different application".to_string(),
+            });
+        }
+
+        let server = servers::Model::find_by_id(db, revision.server_id)
+            .await
+            .map_err(|_| DeploymentError::ServerNotFound(revision.server_id))?;
+
+        let deployment = deployments::Model::create_deployment_attempt(
+            db,
+            app.id,
+            server.id,
+            Some(revision.source_commit_hash.clone()),
+            revision.source_commit_message.clone(),
+            "planned",
+            None,
+            Some(revision.id),
+        )
+        .await
+        .map_err(|error| DeploymentError::StepFailed {
+            step: "create_planned_deployment".to_string(),
+            message: error.to_string(),
+        })?;
+
+        let deployment = Self::claim_application_attempt(db, deployment).await?;
+        let _ = applications::Model::update_status(db, app.id, "queued").await;
+        let _ = deployment_logs::Model::append(
+            db,
+            deployment.id,
+            "system",
+            &format!(
+                "Deployment #{} queued from immutable plan {} for commit {} on target server '{}'",
+                deployment.id,
+                &revision.revision_hash[..12.min(revision.revision_hash.len())],
+                &revision.source_commit_hash[..7.min(revision.source_commit_hash.len())],
+                server.name
+            ),
+        )
+        .await;
+
+        Ok(deployment)
+    }
+
     pub async fn cancel_deployment(
         db: &DatabaseConnection,
         deployment_id: i64,
