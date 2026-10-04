@@ -55,10 +55,13 @@
 - [x] #29 Implement SQLite backup and disaster recovery procedures
 - [x] #30 Author comprehensive documentation tree and ADRs
 
-## Release Follow-up
+## v0.2 Release
 
-- [ ] #46 Implement deployment execution on selected remote server
-- [ ] #47 Protect management API routes with JWT authentication
+- [x] #46 Implement deployment execution on selected remote server
+- [x] #47 Protect management API routes with JWT authentication
+- [x] #51 Harden remote deployment lifecycle, failure classification, and secret safety
+- [ ] #52 Add v0.2 authentication and remote deployment integration/E2E release gates
+- [ ] #53 Release Moonships v0.2.0 — Secure Remote Deployment
 
 ## Future Scale Phases
 
