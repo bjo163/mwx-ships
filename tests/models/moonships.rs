@@ -9,8 +9,13 @@ use moonships::{
         deployments::Model as DeploymentModel,
         domains::{CreateDomainParams, Model as DomainModel},
         environments::{CreateEnvironmentParams, Model as EnvironmentModel},
+        git_integrations::{
+            Model as GitIntegrationModel, UpsertGitIntegrationParams,
+        },
+        preview_deployments::{Model as PreviewModel, UpsertPreviewInput},
         projects::{CreateProjectParams, Model as ProjectModel},
         servers::{self, Model as ServerModel},
+        webhook_deliveries::{Model as WebhookDeliveryModel, WebhookDeliveryInput},
     },
     services::{crypto::CryptoService, deployment::DeploymentService},
 };
@@ -511,4 +516,95 @@ async fn test_models_lifecycle_and_constraints() {
     assert_eq!(cancelled.status, "cancelled");
     assert!(cancelled.execution_token.is_none());
     assert!(cancelled.lease_expires_at.is_none());
+
+    // 14. Git provider credentials remain encrypted and safe API output is secret-free.
+    let integration = GitIntegrationModel::upsert(
+        db,
+        app.id,
+        &UpsertGitIntegrationParams {
+            provider: "github".to_string(),
+            repository_ref: "bjo163/mwx-ships".to_string(),
+            api_base_url: None,
+            token: Some("github-token-super-secret".to_string()),
+            webhook_secret: "webhook-secret-1234567890".to_string(),
+            enabled: Some(true),
+        },
+    )
+    .await
+    .expect("create git integration");
+
+    assert_ne!(
+        integration.encrypted_token.as_deref(),
+        Some("github-token-super-secret")
+    );
+    assert_ne!(
+        integration.encrypted_webhook_secret,
+        "webhook-secret-1234567890"
+    );
+    assert_eq!(
+        integration.token().expect("decrypt token").as_deref(),
+        Some("github-token-super-secret")
+    );
+    assert_eq!(
+        integration.webhook_secret().expect("decrypt webhook secret"),
+        "webhook-secret-1234567890"
+    );
+    let safe_json = serde_json::to_string(&integration.to_safe()).expect("serialize safe integration");
+    assert!(!safe_json.contains("github-token-super-secret"));
+    assert!(!safe_json.contains("webhook-secret-1234567890"));
+
+    // 15. Webhook delivery identity is idempotent even when provider retries.
+    let delivery_input = WebhookDeliveryInput {
+        application_id: app.id,
+        provider: "github".to_string(),
+        delivery_id: "delivery-model-test".to_string(),
+        event_kind: "push".to_string(),
+        source_ref: Some("main".to_string()),
+        commit_sha: Some("0123456789abcdef".to_string()),
+        external_request_id: None,
+        action: None,
+    };
+    let first_delivery = WebhookDeliveryModel::create_or_get(db, &delivery_input)
+        .await
+        .expect("create webhook delivery");
+    assert!(first_delivery.inserted);
+    let duplicate_delivery = WebhookDeliveryModel::create_or_get(db, &delivery_input)
+        .await
+        .expect("dedupe webhook delivery");
+    assert!(!duplicate_delivery.inserted);
+    assert_eq!(
+        duplicate_delivery.delivery.id,
+        first_delivery.delivery.id,
+        "same provider delivery must map to one ledger row"
+    );
+
+    // 16. Preview identity is stable across synchronize events.
+    let preview = PreviewModel::upsert(
+        db,
+        &UpsertPreviewInput {
+            application_id: app.id,
+            provider: "github".to_string(),
+            external_request_id: "42".to_string(),
+            source_ref: "feature/preview".to_string(),
+            commit_sha: "abcdef0123456789".to_string(),
+        },
+    )
+    .await
+    .expect("create preview identity");
+    assert_eq!(preview.preview_slug, format!("preview-{}-42", app.id));
+
+    let preview_updated = PreviewModel::upsert(
+        db,
+        &UpsertPreviewInput {
+            application_id: app.id,
+            provider: "github".to_string(),
+            external_request_id: "42".to_string(),
+            source_ref: "feature/preview".to_string(),
+            commit_sha: "fedcba9876543210".to_string(),
+        },
+    )
+    .await
+    .expect("update preview identity");
+    assert_eq!(preview_updated.id, preview.id);
+    assert_eq!(preview_updated.commit_sha, "fedcba9876543210");
 }
