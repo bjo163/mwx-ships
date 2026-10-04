@@ -6,7 +6,9 @@ use sea_orm::{
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-use super::{applications, domains, environment_variables, servers};
+use super::{
+    applications, domains, environment_variables, registry_credentials, servers,
+};
 
 pub use super::_entities::deployment_revisions::{self, ActiveModel, Entity, Model};
 
@@ -28,12 +30,32 @@ pub struct RevisionDomain {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct RevisionRegistryCredential {
+    pub registry: String,
+    pub username: String,
+    pub encrypted_password: String,
+    pub password_fingerprint: String,
+}
+
+fn default_workload_type() -> String {
+    "single".to_string()
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct RuntimeSnapshot {
     pub schema_version: u8,
     pub server_id: i64,
     pub git_repository: String,
     pub git_branch: String,
     pub build_type: String,
+    #[serde(default = "default_workload_type")]
+    pub workload_type: String,
+    #[serde(default)]
+    pub compose_file_path: Option<String>,
+    #[serde(default)]
+    pub compose_project_name: Option<String>,
+    #[serde(default)]
+    pub registry_credential: Option<RevisionRegistryCredential>,
     pub dockerfile_path: String,
     pub docker_context: String,
     pub docker_image: Option<String>,
@@ -188,12 +210,29 @@ impl Model {
             })
             .collect();
 
+        let registry_credential = match app.registry_credential_id {
+            Some(id) => {
+                let credential = registry_credentials::Model::find_by_id(db, id).await?;
+                Some(RevisionRegistryCredential {
+                    registry: credential.registry,
+                    username: credential.username,
+                    password_fingerprint: sha256_hex(&credential.encrypted_password),
+                    encrypted_password: credential.encrypted_password,
+                })
+            }
+            None => None,
+        };
+
         Ok(RuntimeSnapshot {
-            schema_version: 1,
+            schema_version: 2,
             server_id: server.id,
             git_repository: app.git_repository.clone(),
             git_branch: app.git_branch.clone(),
             build_type: app.build_type.clone(),
+            workload_type: app.workload_type.clone(),
+            compose_file_path: app.compose_file_path.clone(),
+            compose_project_name: app.compose_project_name.clone(),
+            registry_credential,
             dockerfile_path: app.dockerfile_path.clone(),
             docker_context: app.docker_context.clone(),
             docker_image: app.docker_image.clone(),
