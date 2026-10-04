@@ -16,6 +16,7 @@ mod m20261004_000012_operations;
 mod m20261004_000013_access_control;
 mod m20261004_000014_active_deployment_lock;
 mod m20261004_000015_scale_workloads;
+mod m20261005_000016_persistent_volumes;
 
 pub struct Migrator;
 
@@ -38,6 +39,7 @@ impl MigratorTrait for Migrator {
             Box::new(m20261004_000013_access_control::Migration),
             Box::new(m20261004_000014_active_deployment_lock::Migration),
             Box::new(m20261004_000015_scale_workloads::Migration),
+            Box::new(m20261005_000016_persistent_volumes::Migration),
             // inject-above (do not remove this comment)
         ]
     }
