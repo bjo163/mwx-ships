@@ -1,60 +1,90 @@
 # Moonships Architecture
 
-Moonships is a lightweight, independent, self-hosted Mini-PaaS and deployment control plane built in Rust with Loco.rs, SQLite-first persistence, SeaORM, Docker, and Traefik.
+Moonships is a self-hosted Mini-PaaS **control plane**. It stores desired state, authorizes operators, schedules durable deployment work, and orchestrates Git/Docker/Compose/Traefik operations over SSH on selected Linux targets.
 
 ```
                          MOONSHIPS CONTROL PLANE
-                                    |
-                    ┌───────────────┴───────────────┐
-                    |                               |
-              React Dashboard                   REST API
-            (Tailored Dark Theme)                   |
-                                                    v
-                                                Loco.rs
-                                                    |
-               ┌────────────────────────────────────┼───────────────────┐
-               |                                    |                   |
-               v                                    v                   v
-        SQLite Database                     Persistent Queue           Auth
-     (data/moonships.sqlite)               (_loco_queue table)     (JWT / Admin)
-               |                                    |
-               |                                    v
-               |                            DeploymentWorker
-               |                                    |
-               |                                    v
-               |                            DeploymentService
-               |                              /     |     \
-               |                            Git    SSH   Docker
-               |                             |      |      |
-               └─────────────────────────────┼──────┼──────┤
-                                             |      |      |
-                                             v      v      v
-                                          Target Linux Server (Docker Host)
-                                                    |
-                                                 Traefik
-                                         (Reverse Proxy Ingress)
-                                                    |
-                                      ┌─────────────┴─────────────┐
-                                      |                           |
-                                App Container               App Container
+             ┌──────────────────┼──────────────────┐
+             │                  │                  │
+        React Dashboard      REST API        Background Workers
+                                │                  │
+                         Auth / RBAC / Audit       │
+                                │                  │
+                                └─────────┬────────┘
+                                          v
+                       SQLite (single node, default)
+                                OR
+                   PostgreSQL (multi-worker scale mode)
+                                          │
+                              durable queue + CAS/leases
+                                          │
+                                          v
+                              DeploymentService
+                         Git / SSH / Docker / Compose
+                                          │
+                                          v
+                               Target Linux Server
+                                  Docker + Traefik
+                           blue/green or Compose runtime
 ```
 
-## Core Components
+## 1. Control Plane vs Runtime
 
-### 1. Control Plane vs Runtime
-Moonships is strictly a **control plane**, not a container runtime. It coordinates source code retrieval, image building, and container life cycles over SSH on target Linux hosts without running user workloads inside the control plane process.
+Moonships never treats the control-plane host as the application runtime. Source synchronization, image build/pull, Compose lifecycle, container lifecycle, healthchecks, and managed Traefik changes execute on the selected remote target over SSH.
 
-### 2. SQLite-First Engine
-Moonships requires **zero external database infrastructure** (no PostgreSQL, no Redis). All relational application state and the persistent deployment queue reside in `data/moonships.sqlite` configured in Write-Ahead Logging (WAL) mode.
+## 2. Persistence Modes
 
-### 3. Asynchronous Worker & Durability
-Deployments are long-running operations. When a client triggers `POST /api/applications/:id/deploy`, the controller records a `Deployment` row in state `queued`, pushes `{ deployment_id }` onto Loco's `BackgroundQueue`, and immediately responds with `202 Accepted`.
-The `DeploymentWorker` processes the job sequentially, ensuring that even if Moonships restarts, jobs remain persistent in SQLite and resume automatically.
+### SQLite-first
+SQLite is the default and supported production mode for one writable control-plane node. It keeps installation and recovery simple and supports verified online backups.
 
-### 4. Infrastructure Services
-- **`GitService`**: Provides shared Git URL/branch validation helpers.
-- **`SshService`**: Establishes strict host-key-checked SSH sessions, decrypts configured keys into temporary files, supports optional SHA256 fingerprint pinning, and enforces bounded execution timeouts.
-- **`RemoteRuntime`**: Runs validated/shell-quoted Git synchronization, Docker build/pull/run/lifecycle/log operations, and target-local HTTP healthchecks on the selected server.
-- **`DockerService`**: Supplies container/image validation and configuration types; v0.2 application lifecycle operations do not use the control-plane Docker daemon.
-- **`ProxyService`**: Generates Traefik routing labels for target containers. The current replacement strategy is stop-old -> start-new; zero-downtime rollout is not yet implemented.
-- **`CryptoService`**: Encrypts sensitive secrets and SSH private keys using AES-256-GCM.
+### PostgreSQL scale adapter
+PostgreSQL is optional for installations requiring multiple Moonships workers/control-plane processes. In scale mode both `DATABASE_URL` and the persistent queue use PostgreSQL. The same backend suite runs on both databases.
+
+The verified migration path is documented in [postgresql-scale.md](postgresql-scale.md).
+
+## 3. Durable Work & Distributed Ownership
+
+Deployment requests become persistent Deployment rows and durable queue jobs.
+
+Correctness is layered:
+1. `applications.active_deployment_id` is claimed with a conditional compare-and-set update;
+2. a worker claims the Deployment with a random execution token and expiry lease;
+3. long-running executions renew the lease periodically;
+4. every state transition requires the current token;
+5. after a worker crash, lease renewal stops and a later worker may reclaim stale work.
+
+Webhook delivery/source-intent uniqueness prevents source-control retries from multiplying deployment intents.
+
+## 4. Immutable Revisions & Traffic
+
+A deployment is bound to an immutable revision snapshot containing source/runtime identity while secret material remains ciphertext/fingerprinted. Applications retain current/previous known-good revision pointers.
+
+Managed-ingress workloads use revision-specific candidates:
+candidate start → healthcheck → atomic Traefik route switch → previous runtime drain.
+
+Explicit host-port deployments retain a compatibility replacement path.
+
+## 5. Workload Types
+
+Moonships supports:
+- single-container Dockerfile builds;
+- prebuilt images, including encrypted private-registry credentials;
+- Docker Compose application projects with build/pull/up/down/status/health/log aggregation.
+
+Server pools add required tags, capacity accounting, weights, and deterministic placement.
+
+## 6. Organization Security
+
+Projects and servers may be owned by organizations. Owner/Admin/Deployer/Viewer permissions protect resource actions. JWT sessions are revocable, organization API tokens are scoped and hashed, and sensitive operations are appended to an immutable audit trail.
+
+## 7. Git Automation
+
+GitHub, GitLab, and Gitea integrations use encrypted credentials and signed webhook verification. Delivery/source-intent dedupe keeps events idempotent. Pull/merge-request previews create isolated Environment/Application records and deterministic preview routing.
+
+## 8. Operations & Recovery
+
+Moonships exposes bounded operational health/metrics, target-health history, retention state, queue/lease health, and deduplicated notifications. SQLite mode has scheduled verified backups and restore drills. PostgreSQL backup/HA belongs to the database operator/provider.
+
+## 9. Release Boundary
+
+`dev` is the integration branch. `main` is production. Releases publish from `main`, push versioned + `:latest` GHCR images, pull the published image back, smoke-test `/api/health`, then create the annotated tag and GitHub Release.
