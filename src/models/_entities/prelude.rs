@@ -1,6 +1,9 @@
 //! `SeaORM` Entity Prelude for Moonships
 
 pub use super::applications::Entity as Applications;
+pub use super::api_tokens::Entity as ApiTokens;
+pub use super::audit_events::Entity as AuditEvents;
+pub use super::auth_rate_limits::Entity as AuthRateLimits;
 pub use super::backup_runs::Entity as BackupRuns;
 pub use super::deployment_logs::Entity as DeploymentLogs;
 pub use super::deployment_revisions::Entity as DeploymentRevisions;
@@ -11,6 +14,8 @@ pub use super::environments::Entity as Environments;
 pub use super::git_integrations::Entity as GitIntegrations;
 pub use super::notification_events::Entity as NotificationEvents;
 pub use super::operational_events::Entity as OperationalEvents;
+pub use super::organization_memberships::Entity as OrganizationMemberships;
+pub use super::organizations::Entity as Organizations;
 pub use super::preview_deployments::Entity as PreviewDeployments;
 pub use super::projects::Entity as Projects;
 pub use super::server_health_checks::Entity as ServerHealthChecks;
