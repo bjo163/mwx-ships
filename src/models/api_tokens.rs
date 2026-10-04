@@ -1,6 +1,8 @@
 use chrono::{Duration, Utc};
 use loco_rs::prelude::*;
-use sea_orm::{ActiveModelTrait, ActiveValue::Set, ColumnTrait, EntityTrait, QueryFilter, QueryOrder};
+use sea_orm::{
+    ActiveModelTrait, ActiveValue::Set, ColumnTrait, EntityTrait, QueryFilter, QueryOrder,
+};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
@@ -31,11 +33,17 @@ impl Model {
     ) -> Result<CreatedApiToken> {
         let name = params.name.trim();
         if name.is_empty() {
-            return Err(Error::BadRequest("token name must not be empty".to_string()));
+            return Err(Error::BadRequest(
+                "token name must not be empty".to_string(),
+            ));
         }
 
         let scopes = normalize_scopes(&params.scopes)?;
-        let raw = format!("{TOKEN_PREFIX}{}{}", Uuid::new_v4().simple(), Uuid::new_v4().simple());
+        let raw = format!(
+            "{TOKEN_PREFIX}{}{}",
+            Uuid::new_v4().simple(),
+            Uuid::new_v4().simple()
+        );
         let hash = token_hash(&raw);
         let prefix = raw.chars().take(12).collect::<String>();
         let now = Utc::now();
@@ -141,7 +149,9 @@ pub fn normalize_scopes(scopes: &[String]) -> Result<Vec<String>> {
     for scope in scopes {
         let scope = scope.trim().to_ascii_lowercase();
         if !allowed.contains(&scope.as_str()) {
-            return Err(Error::BadRequest(format!("unsupported API token scope '{scope}'")));
+            return Err(Error::BadRequest(format!(
+                "unsupported API token scope '{scope}'"
+            )));
         }
         if !normalized.contains(&scope) {
             normalized.push(scope);
