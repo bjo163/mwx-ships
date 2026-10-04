@@ -121,6 +121,16 @@ impl SshSession {
         remote_command: &str,
         input: &str,
     ) -> Result<(i32, String, String), SshError> {
+        self.execute_with_input_timeout(remote_command, input, Self::command_timeout())
+            .await
+    }
+
+    pub async fn execute_with_input_timeout(
+        &self,
+        remote_command: &str,
+        input: &str,
+        command_timeout: Duration,
+    ) -> Result<(i32, String, String), SshError> {
         let mut command = Command::new("ssh");
         command
             .args(self.build_args())
@@ -141,7 +151,7 @@ impl SshSession {
                 .map_err(|e| SshError::ExecutionFailed(e.to_string()))?;
         }
 
-        let output = timeout(Self::command_timeout(), child.wait_with_output())
+        let output = timeout(command_timeout, child.wait_with_output())
             .await
             .map_err(|_| SshError::Timeout {
                 target: self.target(),
