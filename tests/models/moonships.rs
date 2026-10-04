@@ -906,7 +906,6 @@ async fn test_v07_access_control_security_contract() {
     };
 }
 
-
 #[tokio::test]
 #[serial]
 async fn test_active_deployment_claim_is_atomic_under_concurrency() {
