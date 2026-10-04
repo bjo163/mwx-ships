@@ -1368,48 +1368,43 @@ impl DeploymentService {
             )
             .await?;
 
-            let compose_status = match runtime
-                .compose_status(app.id, compose_file, compose_project)
-                .await
-            {
-                Ok(status) if !status.trim().is_empty() => status,
-                Ok(_) => {
-                    let _ = runtime.compose_down(app.id, compose_file, compose_project).await;
-                    return Err(Self::record_failure(
-                        db,
-                        &execution_token,
-                        dep.id,
-                        app.id,
-                        "REMOTE_COMPOSE_EMPTY",
-                        "healthchecking",
-                        "Compose project started no services",
-                        None,
-                    )
-                    .await);
-                }
-                Err(err) => {
-                    let _ = runtime.compose_down(app.id, compose_file, compose_project).await;
-                    let message = redact_secrets(&err.to_string(), &secret_values);
-                    return Err(Self::record_failure(
-                        db,
-                        &execution_token,
-                        dep.id,
-                        app.id,
-                        "REMOTE_COMPOSE_STATUS_FAILED",
-                        "healthchecking",
-                        &message,
-                        err.exit_code(),
-                    )
-                    .await);
-                }
-            };
+            if let Err(err) = runtime.compose_project_healthy(compose_project).await {
+                let status = runtime
+                    .compose_project_status(compose_project)
+                    .await
+                    .unwrap_or_default();
+                let _ = runtime.compose_down(app.id, compose_file, compose_project).await;
+                let message = redact_secrets(
+                    &format!(
+                        "{}; project status: {}",
+                        err,
+                        status.lines().collect::<Vec<_>>().join(" | ")
+                    ),
+                    &secret_values,
+                );
+                return Err(Self::record_failure(
+                    db,
+                    &execution_token,
+                    dep.id,
+                    app.id,
+                    "REMOTE_COMPOSE_HEALTH_FAILED",
+                    "healthchecking",
+                    &message,
+                    err.exit_code(),
+                )
+                .await);
+            }
 
+            let compose_status = runtime
+                .compose_project_status(compose_project)
+                .await
+                .unwrap_or_else(|_| "services running".to_string());
             let _ = deployment_logs::Model::append(
                 db,
                 dep.id,
                 "stdout",
                 &format!(
-                    "Compose project '{}' is running: {}",
+                    "Compose project '{}' is healthy: {}",
                     compose_project,
                     compose_status.lines().next().unwrap_or("services active")
                 ),
