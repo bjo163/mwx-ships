@@ -338,6 +338,8 @@ async fn test_models_lifecycle_and_constraints() {
     assert_eq!(retry.status, "queued");
     assert_eq!(retry.revision_id, Some(second_revision.id));
     assert_eq!(retry.commit_hash.as_deref(), Some("decaf02"));
+    assert_eq!(retry.trigger_kind, "retry");
+    assert_eq!(retry.source_deployment_id, Some(cancelled.id));
 
     let retry_cancelled = DeploymentModel::cancel_if_safe(db, retry.id)
         .await
