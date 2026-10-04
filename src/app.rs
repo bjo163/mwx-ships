@@ -55,12 +55,15 @@ impl Hooks for App {
     }
 
     async fn before_run(app_context: &AppContext) -> Result<()> {
-        let production_default = std::env::var("LOCO_ENV")
+        let production_default = if std::env::var("LOCO_ENV")
             .ok()
             .map(|value| value.eq_ignore_ascii_case("production"))
             .unwrap_or(false)
-            .then_some(86_400u64)
-            .unwrap_or(0);
+        {
+            86_400u64
+        } else {
+            0
+        };
 
         let interval = std::env::var("MOONSHIPS_BACKUP_INTERVAL_SECS")
             .ok()
@@ -90,7 +93,7 @@ impl Hooks for App {
         let operations_interval = std::env::var("MOONSHIPS_OPERATIONS_POLL_INTERVAL_SECS")
             .ok()
             .and_then(|value| value.parse::<u64>().ok())
-            .unwrap_or_else(|| if production_default > 0 { 300 } else { 0 });
+            .unwrap_or(if production_default > 0 { 300 } else { 0 });
 
         if operations_interval > 0 {
             let ctx = app_context.clone();
