@@ -1,9 +1,11 @@
 use crate::{
     models::{
         _entities::servers::{ActiveModel, Entity},
+        operational_events,
+        server_health_checks,
         servers::{CreateServerParams, Model as ServerModel, UpdateServerParams},
     },
-    services::{crypto::CryptoService, ssh::SshService},
+    services::{crypto::CryptoService, notification::NotificationService, ssh::SshService},
 };
 use chrono::Utc;
 use loco_rs::prelude::*;
@@ -227,6 +229,33 @@ pub async fn preflight(
     };
 
     let _ = ServerModel::update_status(&ctx.db, server.id, status).await;
+    let _ = server_health_checks::Model::record(&ctx.db, &report).await;
+    let _ = operational_events::Model::record(
+        &ctx.db,
+        "target_preflight",
+        if report.healthy { "info" } else { "warning" },
+        Some("server"),
+        Some(server.id),
+        &format!("Manual preflight for '{}' returned {}", server.name, status),
+        Some(&serde_json::json!({
+            "ssh_connected": report.ssh_connected,
+            "docker_running": report.docker_running,
+            "disk_available_gb": report.disk_available_gb,
+            "issues": report.issues,
+        })),
+    )
+    .await;
+
+    if !report.healthy {
+        let _ = NotificationService::notify(
+            &ctx,
+            "target_unhealthy",
+            "warning",
+            &format!("Target {} unhealthy", server.name),
+            &format!("Manual preflight status={status}; {}", report.issues.join("; ")),
+        )
+        .await;
+    }
 
     format::json(serde_json::json!({
         "data": report,
