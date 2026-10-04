@@ -112,6 +112,9 @@ impl Hooks for App {
     fn register_tasks(tasks: &mut Tasks) {
         // tasks-inject (do not remove)
         tasks.register(tasks::user_create::UserCreate);
+        tasks.register(tasks::backup_run::BackupRun);
+        tasks.register(tasks::backup_verify::BackupVerify);
+        tasks.register(tasks::backup_restore::BackupRestore);
     }
     async fn truncate(ctx: &AppContext) -> Result<()> {
         truncate_table(&ctx.db, users::Entity).await?;
