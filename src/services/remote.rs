@@ -37,6 +37,12 @@ pub struct RemoteRuntime {
     session: SshSession,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RemoteSourceSnapshot {
+    pub commit_sha: String,
+    pub files: Vec<(String, String)>,
+}
+
 impl RemoteRuntime {
     pub async fn connect(server: &servers::Model) -> Result<Self, RemoteError> {
         Ok(Self {
@@ -208,6 +214,126 @@ MOONSHIPS_ASKPASS\n\
         }
 
         Ok((commit_sha, commit_message))
+    }
+
+    pub async fn inspect_source_repository(
+        &self,
+        git_repository: &str,
+        git_branch: &str,
+    ) -> Result<RemoteSourceSnapshot, RemoteError> {
+        crate::services::git::GitService::validate_url(git_repository)
+            .map_err(|error| RemoteError::Validation(error.to_string()))?;
+        crate::services::git::GitService::validate_branch(git_branch)
+            .map_err(|error| RemoteError::Validation(error.to_string()))?;
+
+        if matches!(
+            git_repository.split_once("://"),
+            Some((scheme, rest))
+                if matches!(scheme, "http" | "https")
+                    && rest.split('/').next().map(|authority| authority.contains('@')).unwrap_or(false)
+        ) {
+            return Err(RemoteError::Validation(
+                "embedded HTTP Git credentials are not allowed for source inspection".to_string(),
+            ));
+        }
+
+        let inspection_id = uuid::Uuid::new_v4().simple().to_string();
+        let workspace = format!("\"$HOME/.moonships/inspections/{inspection_id}\"");
+        let repository = shell_quote(git_repository);
+        let branch = shell_quote(git_branch);
+        let cleanup_command = format!("rm -rf {workspace}");
+
+        let clone_command = format!(
+            "set -eu; mkdir -p \"$HOME/.moonships/inspections\"; rm -rf {workspace}; \
+             GIT_TERMINAL_PROMPT=0 GIT_LFS_SKIP_SMUDGE=1 \
+             git clone --depth 1 --single-branch --branch {branch} {repository} {workspace} >/dev/null 2>&1; \
+             git -C {workspace} rev-parse HEAD"
+        );
+
+        let commit_sha = match self
+            .exec_checked(
+                "source_inspection_clone",
+                &clone_command,
+                Duration::from_secs(120),
+            )
+            .await
+        {
+            Ok(value) => value.trim().to_string(),
+            Err(error) => {
+                let _ = self
+                    .exec_checked(
+                        "source_inspection_cleanup",
+                        &cleanup_command,
+                        Duration::from_secs(30),
+                    )
+                    .await;
+                return Err(error);
+            }
+        };
+
+        let result: Result<RemoteSourceSnapshot, RemoteError> = async {
+            if commit_sha.is_empty() {
+                return Err(RemoteError::Validation(
+                    "source inspection produced no commit SHA".to_string(),
+                ));
+            }
+
+            const INSPECTION_PATHS: &[&str] = &[
+                "Dockerfile",
+                "docker/Dockerfile",
+                ".docker/Dockerfile",
+                "compose.yaml",
+                "compose.yml",
+                "docker-compose.yaml",
+                "docker-compose.yml",
+                "index.html",
+                "package.json",
+                "pnpm-lock.yaml",
+                "yarn.lock",
+                "package-lock.json",
+                "bun.lock",
+                "bun.lockb",
+                "vite.config.ts",
+                "vite.config.js",
+                "vite.config.mjs",
+            ];
+
+            let mut files = Vec::new();
+            for path in INSPECTION_PATHS {
+                let remote_file =
+                    format!("\"$HOME/.moonships/inspections/{inspection_id}/{path}\"");
+                let command = format!(
+                    "if [ -f {remote_file} ] && [ ! -L {remote_file} ]; then \
+                       size=$(wc -c < {remote_file}); \
+                       if [ \"$size\" -le 65536 ]; then \
+                         printf 'MOONSHIPS_PRESENT\\n'; cat {remote_file}; \
+                       else printf 'MOONSHIPS_SKIPPED\\n'; fi; \
+                     else printf 'MOONSHIPS_ABSENT\\n'; fi"
+                );
+                let output = self
+                    .exec_checked(
+                        "source_inspection_read",
+                        &command,
+                        Duration::from_secs(10),
+                    )
+                    .await?;
+                if let Some(content) = output.strip_prefix("MOONSHIPS_PRESENT\n") {
+                    files.push(((*path).to_string(), content.to_string()));
+                }
+            }
+
+            Ok(RemoteSourceSnapshot { commit_sha, files })
+        }
+        .await;
+
+        let _ = self
+            .exec_checked(
+                "source_inspection_cleanup",
+                &cleanup_command,
+                Duration::from_secs(30),
+            )
+            .await;
+        result
     }
 
     pub async fn build_image(
