@@ -15,6 +15,8 @@ pub struct RevisionEnvironmentVariable {
     pub key: String,
     pub is_secret: bool,
     pub value: Option<String>,
+    #[serde(default)]
+    pub encrypted_value: Option<String>,
     pub value_fingerprint: String,
 }
 
@@ -137,6 +139,9 @@ impl Model {
 
     pub async fn mark_failed(db: &DatabaseConnection, id: i64) -> Result<Model> {
         let revision = Self::find_by_id(db, id).await?;
+        if revision.status == "healthy" {
+            return Ok(revision);
+        }
         let mut active: ActiveModel = revision.into();
         active.status = Set("failed".to_string());
         active.updated_at = Set(Utc::now().into());
@@ -163,6 +168,11 @@ impl Model {
                     None
                 } else {
                     Some(var.encrypted_value.clone())
+                },
+                encrypted_value: if var.is_secret {
+                    Some(var.encrypted_value.clone())
+                } else {
+                    None
                 },
                 value_fingerprint: sha256_hex(&var.encrypted_value),
             })
@@ -199,7 +209,7 @@ impl Model {
     }
 }
 
-fn sha256_hex(value: &str) -> String {
+pub fn sha256_hex(value: &str) -> String {
     hex::encode(Sha256::digest(value.as_bytes()))
 }
 
