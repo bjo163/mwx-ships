@@ -75,12 +75,12 @@ queue:
 mailer:
   smtp:
     enable: <%= get_env(name="MAILER_ENABLE", default="false") %>
-    host: "<%= get_env(name=\"MAILER_HOST\", default=\"localhost\") %>"
+    host: '<%= get_env(name="MAILER_HOST", default="localhost") %>'
     port: <%= get_env(name="MAILER_PORT", default="587") %>
     secure: <%= get_env(name="MAILER_SECURE", default="true") %>
     auth:
-      user: "<%= get_env(name=\"MAILER_USER\", default=\"\") %>"
-      password: "<%= get_env(name=\"MAILER_PASSWORD\", default=\"\") %>"
+      user: '<%= get_env(name="MAILER_USER", default="") %>'
+      password: '<%= get_env(name="MAILER_PASSWORD", default="") %>'
     # Override the SMTP hello name (default is the machine's hostname)
     # hello_name:
 
