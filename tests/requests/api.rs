@@ -2,6 +2,8 @@ use loco_rs::testing::prelude::*;
 use moonships::app::App;
 use serial_test::serial;
 
+use super::prepare_data;
+
 #[tokio::test]
 #[serial]
 async fn test_health_endpoint() {
@@ -17,8 +19,32 @@ async fn test_health_endpoint() {
 
 #[tokio::test]
 #[serial]
-async fn test_full_api_workflow_and_security() {
+async fn test_management_api_requires_authentication() {
     request::<App, _, _>(|request, _ctx| async move {
+        for path in [
+            "/api/servers",
+            "/api/projects",
+            "/api/applications",
+            "/api/deployments",
+        ] {
+            let response = request.get(path).await;
+            assert_eq!(
+                response.status_code(),
+                401,
+                "management endpoint {path} must reject unauthenticated requests"
+            );
+        }
+    })
+    .await;
+}
+
+#[tokio::test]
+#[serial]
+async fn test_full_api_workflow_and_security() {
+    request::<App, _, _>(|request, ctx| async move {
+        let logged_in = prepare_data::init_user_login(&request, &ctx).await;
+        let (auth_key, auth_value) = prepare_data::auth_header(&logged_in.token);
+
         // 1. Create a server with private key
         let server_payload = serde_json::json!({
             "name": "Integration Test Server",
@@ -29,18 +55,28 @@ async fn test_full_api_workflow_and_security() {
             "private_key": "-----BEGIN OPENSSH PRIVATE KEY-----\ntest-secret-key\n-----END OPENSSH PRIVATE KEY-----"
         });
 
-        let res = request.post("/api/servers").json(&server_payload).await;
+        let res = request
+            .post("/api/servers")
+            .json(&server_payload)
+            .add_header(auth_key.clone(), auth_value.clone())
+            .await;
         assert_eq!(res.status_code(), 200);
         let server_res: serde_json::Value = serde_json::from_str(&res.text()).unwrap();
         let server_id = server_res["data"]["id"].as_i64().expect("server id");
 
         // Verify GET /api/servers does NOT expose private_key
-        let res = request.get("/api/servers").await;
+        let res = request
+            .get("/api/servers")
+            .add_header(auth_key.clone(), auth_value.clone())
+            .await;
         assert_eq!(res.status_code(), 200);
         let servers_list: serde_json::Value = serde_json::from_str(&res.text()).unwrap();
         assert!(servers_list["data"].is_array());
         for s in servers_list["data"].as_array().unwrap() {
-            assert!(s.get("private_key").is_none(), "private_key must NEVER be exposed in server list");
+            assert!(
+                s.get("private_key").is_none(),
+                "private_key must NEVER be exposed in server list"
+            );
         }
 
         // 2. Create a project
@@ -48,7 +84,11 @@ async fn test_full_api_workflow_and_security() {
             "name": "E2E Test Project",
             "description": "Integration testing project"
         });
-        let res = request.post("/api/projects").json(&project_payload).await;
+        let res = request
+            .post("/api/projects")
+            .json(&project_payload)
+            .add_header(auth_key.clone(), auth_value.clone())
+            .await;
         assert_eq!(res.status_code(), 200);
         let project_res: serde_json::Value = serde_json::from_str(&res.text()).unwrap();
         let project_id = project_res["data"]["id"].as_i64().expect("project id");
@@ -60,6 +100,7 @@ async fn test_full_api_workflow_and_security() {
         let res = request
             .post(&format!("/api/projects/{}/environments", project_id))
             .json(&env_payload)
+            .add_header(auth_key.clone(), auth_value.clone())
             .await;
         assert_eq!(res.status_code(), 200);
         let env_res: serde_json::Value = serde_json::from_str(&res.text()).unwrap();
@@ -77,7 +118,11 @@ async fn test_full_api_workflow_and_security() {
             "git_branch": "master",
             "container_port": 3000
         });
-        let res = request.post("/api/applications").json(&app_payload).await;
+        let res = request
+            .post("/api/applications")
+            .json(&app_payload)
+            .add_header(auth_key.clone(), auth_value.clone())
+            .await;
         assert_eq!(res.status_code(), 200);
         let app_res: serde_json::Value = serde_json::from_str(&res.text()).unwrap();
         let app_id = app_res["data"]["id"].as_i64().expect("app id");
@@ -91,12 +136,14 @@ async fn test_full_api_workflow_and_security() {
         let res = request
             .post(&format!("/api/applications/{}/environment", app_id))
             .json(&secret_env_payload)
+            .add_header(auth_key.clone(), auth_value.clone())
             .await;
         assert_eq!(res.status_code(), 200);
 
         // Fetch environment variables and verify masking
         let res = request
             .get(&format!("/api/applications/{}/environment", app_id))
+            .add_header(auth_key.clone(), auth_value.clone())
             .await;
         assert_eq!(res.status_code(), 200);
         let envs_res: serde_json::Value = serde_json::from_str(&res.text()).unwrap();
@@ -117,11 +164,15 @@ async fn test_full_api_workflow_and_security() {
         let res = request
             .post(&format!("/api/applications/{}/domains", app_id))
             .json(&domain_payload)
+            .add_header(auth_key.clone(), auth_value.clone())
             .await;
         assert_eq!(res.status_code(), 200);
 
         // 6. Verify Deployments list endpoint
-        let res = request.get("/api/deployments").await;
+        let res = request
+            .get("/api/deployments")
+            .add_header(auth_key.clone(), auth_value.clone())
+            .await;
         assert_eq!(res.status_code(), 200);
         let dep_list: serde_json::Value = serde_json::from_str(&res.text()).unwrap();
         assert!(dep_list["data"].is_array());
@@ -133,6 +184,7 @@ async fn test_full_api_workflow_and_security() {
         let res = request
             .post(&format!("/api/applications/{}/deploy", app_id))
             .json(&deploy_payload)
+            .add_header(auth_key, auth_value)
             .await;
         assert_eq!(
             res.status_code(),
