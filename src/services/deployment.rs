@@ -862,34 +862,54 @@ impl DeploymentService {
                 network: Some(ProxyService::MANAGED_NETWORK.to_string()),
             };
 
-            match runtime.run_container(app.id, &container_config).await {
-                Ok(container_id) => {
-                    let _ = deployment_logs::Model::append(
-                        db,
-                        dep.id,
-                        "stdout",
-                        &format!(
-                            "Candidate runtime '{}' started with container ID {}",
-                            candidate_name,
-                            &container_id[..12.min(container_id.len())]
-                        ),
-                    )
-                    .await;
-                }
-                Err(err) => {
-                    let _ = applications::Model::set_candidate_runtime(db, app.id, None).await;
-                    let message = redact_secrets(&err.to_string(), &secret_values);
-                    return Err(Self::record_failure(
-                        db,
-                        &execution_token,
-                        dep.id,
-                        app.id,
-                        "REMOTE_DOCKER_CANDIDATE_FAILED",
-                        "starting_candidate",
-                        &message,
-                        err.exit_code(),
-                    )
-                    .await);
+            let existing_candidate_status = runtime
+                .container_status(&candidate_name)
+                .await
+                .unwrap_or_else(|_| "stopped".to_string());
+
+            if existing_candidate_status == "running" {
+                let _ = deployment_logs::Model::append(
+                    db,
+                    dep.id,
+                    "system",
+                    &format!(
+                        "Reusing already-running candidate runtime '{}' after execution recovery",
+                        candidate_name
+                    ),
+                )
+                .await;
+            } else {
+                let _ = runtime.stop_and_remove_container(&candidate_name).await;
+                match runtime.run_container(app.id, &container_config).await {
+                    Ok(container_id) => {
+                        let _ = deployment_logs::Model::append(
+                            db,
+                            dep.id,
+                            "stdout",
+                            &format!(
+                                "Candidate runtime '{}' started with container ID {}",
+                                candidate_name,
+                                &container_id[..12.min(container_id.len())]
+                            ),
+                        )
+                        .await;
+                    }
+                    Err(err) => {
+                        let _ =
+                            applications::Model::set_candidate_runtime(db, app.id, None).await;
+                        let message = redact_secrets(&err.to_string(), &secret_values);
+                        return Err(Self::record_failure(
+                            db,
+                            &execution_token,
+                            dep.id,
+                            app.id,
+                            "REMOTE_DOCKER_CANDIDATE_FAILED",
+                            "starting_candidate",
+                            &message,
+                            err.exit_code(),
+                        )
+                        .await);
+                    }
                 }
             }
 
