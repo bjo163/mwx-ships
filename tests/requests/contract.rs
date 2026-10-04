@@ -88,6 +88,7 @@ fn concrete_path(template: &str) -> String {
     template
         .replace("{id}", "1")
         .replace("{domain_id}", "1")
+        .replace("{revision_id}", "1")
         .replace("{token_id}", "1")
         .replace("{pool_id}", "1")
         .replace("{credential_id}", "1")
