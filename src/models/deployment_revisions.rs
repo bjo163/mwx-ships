@@ -7,8 +7,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use super::{
-    applications, domains, environment_variables, registry_credentials, servers,
-    volume_attachments,
+    applications, domains, environment_variables, registry_credentials, servers, volume_attachments,
 };
 
 pub use super::_entities::deployment_revisions::{self, ActiveModel, Entity, Model};
