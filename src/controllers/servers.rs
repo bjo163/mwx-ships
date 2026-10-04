@@ -375,8 +375,8 @@ async fn audit_server(
             resource_type: Some("server".to_string()),
             resource_id: Some(server_id.to_string()),
             outcome: "success".to_string(),
-            request_id: None,
-            metadata,
+            request_id: Some(principal.request_id.clone()),
+            metadata: principal.audit_metadata(metadata),
         },
     )
     .await;
