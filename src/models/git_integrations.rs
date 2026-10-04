@@ -162,7 +162,6 @@ pub fn normalize_provider(provider: &str) -> Result<String> {
     }
 }
 
-
 pub fn provider_capabilities(provider: &str) -> ProviderCapabilities {
     let supported = matches!(provider, "github" | "gitlab" | "gitea");
     ProviderCapabilities {
@@ -179,9 +178,7 @@ pub fn normalize_repository_ref(provider: &str, raw: &str) -> Result<String> {
         || value.contains('?')
         || value.contains('#')
     {
-        return Err(Error::BadRequest(
-            "repository_ref is malformed".to_string(),
-        ));
+        return Err(Error::BadRequest("repository_ref is malformed".to_string()));
     }
 
     let known_https = match provider {
