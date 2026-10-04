@@ -13,7 +13,10 @@ use crate::{
         environment_variables::{Model as EnvVarModel, SetEnvVarParams},
         environments::Model as EnvironmentModel,
         git_integrations::{Model as GitIntegrationModel, UpsertGitIntegrationParams},
+        placement::PlacementService,
         projects::Model as ProjectModel,
+        registry_credentials::Model as RegistryCredentialModel,
+        server_pools::Model as ServerPoolModel,
         servers::Model as ServerModel,
     },
     services::{
@@ -131,21 +134,48 @@ pub async fn list(headers: HeaderMap, State(ctx): State<AppContext>) -> Result<R
 pub async fn create(
     headers: HeaderMap,
     State(ctx): State<AppContext>,
-    Json(params): Json<CreateApplicationParams>,
+    Json(mut params): Json<CreateApplicationParams>,
 ) -> Result<Response> {
     let principal = Principal::authenticate(&ctx, &headers).await?;
     let project_org = principal
         .project_organization(&ctx.db, params.project_id, Permission::ManageApplications)
         .await?;
-    let server_org = principal
-        .server_organization(&ctx.db, params.server_id, Permission::ManageApplications)
+
+    let server_org = if let Some(server_pool_id) = params.server_pool_id {
+        let pool = ServerPoolModel::find_by_id(&ctx.db, server_pool_id).await?;
+        principal
+            .require(&ctx.db, pool.organization_id, Permission::ManageApplications)
+            .await?;
+        let selected = PlacementService::select(
+            &ctx.db,
+            server_pool_id,
+            params.resource_units.unwrap_or(1),
+        )
         .await?;
+        params.server_id = selected.server.id;
+        pool.organization_id
+    } else {
+        principal
+            .server_organization(&ctx.db, params.server_id, Permission::ManageApplications)
+            .await?
+    };
     if project_org != server_org {
         return Err(Error::BadRequest(
             "application project and target server must belong to the same organization"
                 .to_string(),
         ));
     }
+
+    if let Some(registry_credential_id) = params.registry_credential_id {
+        let credential =
+            RegistryCredentialModel::find_by_id(&ctx.db, registry_credential_id).await?;
+        if credential.organization_id != project_org {
+            return Err(Error::BadRequest(
+                "registry credential belongs to another organization".to_string(),
+            ));
+        }
+    }
+
     let environment = EnvironmentModel::find_by_id(&ctx.db, params.environment_id).await?;
     if environment.project_id != params.project_id {
         return Err(Error::BadRequest(
@@ -237,6 +267,58 @@ pub async fn update(
     }
     if let Some(hport) = params.healthcheck_port {
         active.healthcheck_port = Set(Some(hport));
+    }
+    if let Some(server_pool_id) = params.server_pool_id {
+        let pool = ServerPoolModel::find_by_id(&ctx.db, server_pool_id).await?;
+        let project_org = principal
+            .project_organization(&ctx.db, active.project_id.clone().unwrap(), Permission::ManageApplications)
+            .await?;
+        if pool.organization_id != project_org {
+            return Err(Error::BadRequest(
+                "server pool belongs to another organization".to_string(),
+            ));
+        }
+        let selected = PlacementService::select(
+            &ctx.db,
+            server_pool_id,
+            params.resource_units.unwrap_or_else(|| active.resource_units.clone().unwrap_or(1)),
+        )
+        .await?;
+        active.server_pool_id = Set(Some(server_pool_id));
+        active.server_id = Set(selected.server.id);
+    }
+    if let Some(resource_units) = params.resource_units {
+        if resource_units < 1 {
+            return Err(Error::BadRequest(
+                "resource_units must be at least 1".to_string(),
+            ));
+        }
+        active.resource_units = Set(resource_units);
+    }
+    if let Some(workload_type) = params.workload_type {
+        let workload_type = workload_type.to_ascii_lowercase();
+        if !matches!(workload_type.as_str(), "single" | "compose") {
+            return Err(Error::BadRequest(
+                "workload_type must be 'single' or 'compose'".to_string(),
+            ));
+        }
+        active.workload_type = Set(workload_type);
+    }
+    if let Some(compose_file_path) = params.compose_file_path {
+        active.compose_file_path = Set(Some(compose_file_path));
+    }
+    if let Some(compose_project_name) = params.compose_project_name {
+        active.compose_project_name = Set(Some(compose_project_name));
+    }
+    if let Some(registry_credential_id) = params.registry_credential_id {
+        let credential =
+            RegistryCredentialModel::find_by_id(&ctx.db, registry_credential_id).await?;
+        if credential.organization_id != organization_id {
+            return Err(Error::BadRequest(
+                "registry credential belongs to another organization".to_string(),
+            ));
+        }
+        active.registry_credential_id = Set(Some(registry_credential_id));
     }
     if let Some(auto) = params.auto_deploy {
         active.auto_deploy = Set(auto);
