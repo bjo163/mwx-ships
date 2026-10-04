@@ -13,7 +13,7 @@ Moonships follows a risk-ordered release train. A capability is not marked relea
 | **v0.6** | Operations, Backup & Observability | **Released** |
 | **v0.7** | Organizations, RBAC, API Tokens & Audit | **Released** |
 | **v0.8** | PostgreSQL Scale Adapter & Advanced Workloads | **Released** |
-| **v0.9** | GA Hardening / RC | **In hardening** |
+| **v0.9** | GA Hardening / RC | **Release candidate** |
 | **v1.0** | Production GA | Planned |
 
 ## v0.8 — Scale Adapter & Advanced Workloads
