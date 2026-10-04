@@ -1,7 +1,7 @@
 //! `SeaORM` Entity Prelude for Moonships
 
-pub use super::applications::Entity as Applications;
 pub use super::api_tokens::Entity as ApiTokens;
+pub use super::applications::Entity as Applications;
 pub use super::audit_events::Entity as AuditEvents;
 pub use super::auth_rate_limits::Entity as AuthRateLimits;
 pub use super::backup_runs::Entity as BackupRuns;
