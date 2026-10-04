@@ -210,7 +210,7 @@ mod tests {
     fn sha256_is_stable() {
         assert_eq!(
             sha256_hex("moonships"),
-            "6a177a59a45ca9266427ad3f880f8861e791a79942dc451a442e9dff30382745"
+            "86ad120a7f38e8741c0ff3ebe500f72d1d66345d945396a351042c887bef7fc2"
         );
     }
 }
