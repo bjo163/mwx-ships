@@ -10,6 +10,7 @@ pub struct Model {
     pub provider: String,
     pub repository_ref: String,
     pub api_base_url: Option<String>,
+    pub git_username: Option<String>,
     pub encrypted_token: Option<String>,
     pub encrypted_webhook_secret: String,
     pub enabled: bool,
