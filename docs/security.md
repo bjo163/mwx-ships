@@ -1,28 +1,34 @@
 # Security Architecture & Policies
 
-Security is a foundational design requirement for Moonships. Because Moonships manages rootless or privileged Docker execution on remote machines, stringent security policies are enforced across all layers.
+Moonships manages privileged Docker operations on remote target machines, so v0.2 treats the control plane, SSH boundary, secrets, and target runtime as separate trust zones.
 
-## 1. Zero Plaintext Secrets At Rest
-- All SSH private keys (`encrypted_private_key` on servers) and sensitive environment variables (`encrypted_value` where `is_secret = true`) are encrypted using **AES-256-GCM** with a randomized 12-byte nonce before database insertion.
-- Decryption happens exclusively in-memory during deployment execution.
+## 1. Authentication Boundary
 
-## 2. Secret Masking in API & Logs
-- The REST API endpoint `GET /api/applications/:id/environment` masks secret values to `••••••••`.
-- Application secrets and decrypted SSH keys are never written to `deployment_logs`.
-- Error messages returned to clients never leak decrypted keys or environment variables.
+Operational management routes require a valid JWT. `GET /api/health` remains public for liveness checks. Multi-tenant organization RBAC is not yet implemented.
 
-## 3. Command Injection Prevention
-- Moonships strictly avoids string concatenation when executing commands (e.g. `format!("docker run {}", user_input)` is forbidden).
-- All arguments are passed as discrete vectors or sanitized through structured validators:
-  - Container names: `[a-zA-Z0-9_.-]+` only.
-  - Image names: forbid shell metacharacters (`;`, `&`, `|`, `` ` ``, `$`).
-  - Git branch names: reject flag prefixes (`-`), path traversal (`..`), spaces, and metacharacters.
-  - Git URLs: validated to begin with `https://`, `http://`, `git@`, or `ssh://`.
-  - Hostnames: strictly conform to RFC 1123 DNS standards.
+## 2. Secrets At Rest
 
-## 4. Path Traversal Defenses
-- Dockerfile paths and contexts are sanitized to prevent accessing files outside the cloned workspace directory.
+SSH private keys and environment variables marked secret are encrypted with AES-256-GCM and randomized nonces before database insertion. Production requires an operator-provided 32-byte/64-hex-character `ENCRYPTION_KEY`; there is no repository-known fallback.
 
-## 5. Concurrency & Replay Protection
-- Maximum 1 active deployment per application (409 Conflict locks).
-- Nonces prevent ciphertext replay attacks.
+## 3. SSH Credentials and Host Identity
+
+- Decrypted SSH private keys are written only to temporary files with restrictive permissions and removed when the session is dropped.
+- SSH uses `StrictHostKeyChecking=yes` with an isolated scanned `known_hosts` file.
+- A configured SHA256 `known_host_fingerprint` is verified before connecting.
+- Without explicit pinning, scanned host-key discovery is trust-on-first-use and should not be treated as equivalent to out-of-band verification.
+
+## 4. Remote Command Safety
+
+v0.2 uses a remote shell over OpenSSH because Git and Docker workflows require compound target-side commands. Safety is enforced by validating SSH targets, container/image names, Docker context/Dockerfile paths, and environment keys; rejecting path traversal and option-style SSH target injection; shell-quoting inserted values; and applying bounded connection/command timeouts.
+
+## 5. Secret Transfer and Log Redaction
+
+Secret environment values are sent through SSH stdin into a temporary target-side env file created under a restrictive umask. They are not embedded into deployment command log strings. Known decrypted secret values are redacted from surfaced runtime failures and container logs.
+
+## 6. Control-Plane Privilege Reduction
+
+Application workloads execute on the selected target server. The production Moonships container no longer mounts `/var/run/docker.sock` and does not need the Docker CLI for application lifecycle operations.
+
+## 7. Concurrency
+
+Only one active deployment may run per application. This prevents overlapping build/replacement operations. This is concurrency control, not cryptographic replay prevention.
