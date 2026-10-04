@@ -131,6 +131,52 @@ async fn handle_push(
         .clone()
         .ok_or_else(|| Error::BadRequest("push webhook has no commit SHA".to_string()))?;
 
+    if let Some(existing) = crate::models::deployments::Model::find_reusable_commit_attempt(
+        &ctx.db,
+        app.id,
+        &commit_sha,
+        "webhook",
+    )
+    .await?
+    {
+        let delivery = if existing.status == "success" {
+            WebhookDeliveryModel::mark_completed(&ctx.db, delivery.id).await?
+        } else {
+            WebhookDeliveryModel::mark_queued(&ctx.db, delivery.id, existing.id).await?
+        };
+
+        let provider_status = if existing.status == "success" {
+            CommitStatus::Success
+        } else {
+            CommitStatus::Pending
+        };
+        let _ = GitProviderService::set_commit_status(
+            integration,
+            &commit_sha,
+            provider_status,
+            if existing.status == "success" {
+                "Moonships deployment already succeeded for this commit"
+            } else {
+                "Moonships deployment already exists for this commit"
+            },
+            None,
+        )
+        .await;
+
+        return response(
+            StatusCode::ACCEPTED,
+            serde_json::json!({
+                "data":{
+                    "delivery_id":delivery.delivery_id,
+                    "deployment_id":existing.id,
+                    "duplicate_commit":true,
+                    "status":existing.status
+                },
+                "message":"Existing deployment reused for commit"
+            }),
+        );
+    }
+
     match DeploymentService::trigger_deploy_with_provenance(
         &ctx.db,
         app.id,
