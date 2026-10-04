@@ -185,3 +185,52 @@ async fn backup_restore_drill_preserves_schema_revision_and_secret() {
     drop(boot);
     let _ = tokio::fs::remove_dir_all(&root).await;
 }
+
+
+#[tokio::test]
+#[serial]
+async fn notification_claim_deduplicates_during_cooldown() {
+    let root = std::env::temp_dir().join(format!("moonships-alert-test-{}", Uuid::new_v4()));
+    tokio::fs::create_dir_all(&root).await.expect("create alert temp root");
+    std::env::set_var(
+        "DATABASE_URL",
+        format!("sqlite://{}?mode=rwc", root.join("db.sqlite").display()),
+    );
+    std::env::set_var(
+        "QUEUE_URL",
+        format!("sqlite://{}?mode=rwc", root.join("queue.sqlite").display()),
+    );
+    std::env::set_var(
+        "ENCRYPTION_KEY",
+        "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    );
+
+    let boot = boot_test::<App>().await.expect("boot alert test");
+    let first = moonships::models::notification_events::Model::claim(
+        &boot.app_context.db,
+        "target_unhealthy",
+        "warning",
+        "target unavailable",
+        "Target edge-1 unhealthy",
+        900,
+    )
+    .await
+    .expect("first alert claim");
+    assert!(first.should_send);
+
+    let duplicate = moonships::models::notification_events::Model::claim(
+        &boot.app_context.db,
+        "target_unhealthy",
+        "warning",
+        "target unavailable again",
+        "Target edge-1 unhealthy",
+        900,
+    )
+    .await
+    .expect("duplicate alert claim");
+    assert!(!duplicate.should_send);
+    assert_eq!(duplicate.event.id, first.event.id);
+
+    drop(boot);
+    let _ = tokio::fs::remove_dir_all(&root).await;
+}
