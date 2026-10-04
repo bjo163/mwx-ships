@@ -125,9 +125,9 @@ impl RetentionService {
                         .warnings
                         .push(format!("retention: disk check failed: {err}")),
                 },
-                Err(err) => report
-                    .warnings
-                    .push(format!("retention: target connection for disk check failed: {err}")),
+                Err(err) => report.warnings.push(format!(
+                    "retention: target connection for disk check failed: {err}"
+                )),
             },
             Err(err) => report
                 .warnings
@@ -178,7 +178,10 @@ mod tests {
         let revisions = (1..=6).rev().map(revision).collect::<Vec<_>>();
         let protected = HashSet::from([1, 3]);
         let candidates = select_artifact_cleanup_candidates(&revisions, &protected, 2);
-        let ids = candidates.iter().map(|revision| revision.id).collect::<Vec<_>>();
+        let ids = candidates
+            .iter()
+            .map(|revision| revision.id)
+            .collect::<Vec<_>>();
 
         assert_eq!(ids, vec![4, 2]);
         assert!(!ids.contains(&1));
