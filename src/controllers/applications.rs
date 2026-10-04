@@ -93,8 +93,8 @@ async fn audit_application(
             resource_type: Some("application".to_string()),
             resource_id: Some(application_id.to_string()),
             outcome: "success".to_string(),
-            request_id: None,
-            metadata,
+            request_id: Some(principal.request_id.clone()),
+            metadata: principal.audit_metadata(metadata),
         },
     )
     .await;
