@@ -1,7 +1,7 @@
 mod models;
 mod requests;
+mod resilience;
 mod services;
 mod tasks;
-mod workers;
 mod upgrade;
-mod resilience;
+mod workers;
