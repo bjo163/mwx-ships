@@ -60,6 +60,7 @@ impl RemoteRuntime {
     pub async fn sync_repository(
         &self,
         app: &applications::Model,
+        requested_commit: Option<&str>,
     ) -> Result<(String, String), RemoteError> {
         if app.git_repository.trim().is_empty() || app.git_branch.trim().is_empty() {
             return Err(RemoteError::Validation(
@@ -84,6 +85,16 @@ impl RemoteRuntime {
         );
         self.exec_checked("git_sync", &sync_command, Duration::from_secs(600))
             .await?;
+
+        if let Some(commit) = requested_commit {
+            validate_git_commit(commit)?;
+            self.exec_checked(
+                "git_checkout_commit",
+                &format!("git -C {workspace} checkout --detach {}", shell_quote(commit)),
+                Duration::from_secs(60),
+            )
+            .await?;
+        }
 
         let commit_sha = self
             .exec_checked(
@@ -425,6 +436,16 @@ fn validate_relative_path(value: &str) -> Result<(), RemoteError> {
     Ok(())
 }
 
+fn validate_git_commit(value: &str) -> Result<(), RemoteError> {
+    let valid = (7..=64).contains(&value.len()) && value.chars().all(|c| c.is_ascii_hexdigit());
+    if !valid {
+        return Err(RemoteError::Validation(format!(
+            "invalid requested Git commit '{value}'"
+        )));
+    }
+    Ok(())
+}
+
 fn validate_env_key(key: &str) -> Result<(), RemoteError> {
     let mut chars = key.chars();
     let Some(first) = chars.next() else {
@@ -458,6 +479,14 @@ mod tests {
         assert!(validate_relative_path("docker/app").is_ok());
         assert!(validate_relative_path("../secret").is_err());
         assert!(validate_relative_path("/etc").is_err());
+    }
+
+    #[test]
+    fn validates_git_commit_ids() {
+        assert!(validate_git_commit("c0ffee1").is_ok());
+        assert!(validate_git_commit("0123456789abcdef0123456789abcdef01234567").is_ok());
+        assert!(validate_git_commit("HEAD~1").is_err());
+        assert!(validate_git_commit("-deadbee").is_err());
     }
 
     #[test]
