@@ -11,6 +11,8 @@ pub struct Model {
     pub application_id: i64,
     pub server_id: i64,
     pub revision_id: Option<i64>,
+    pub trigger_kind: String,
+    pub source_deployment_id: Option<i64>,
     pub commit_hash: Option<String>,
     pub commit_message: Option<String>,
     pub status: String,
