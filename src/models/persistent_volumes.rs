@@ -6,7 +6,7 @@ use sea_orm::{
 };
 use serde::{Deserialize, Serialize};
 
-use super::volume_attachments;
+use super::_entities::volume_attachments as volume_attachments_entity;
 
 pub use super::_entities::persistent_volumes::{self, ActiveModel, Entity, Model};
 
@@ -95,8 +95,8 @@ impl Model {
     }
 
     pub async fn attachment_count(&self, db: &DatabaseConnection) -> Result<u64> {
-        Ok(volume_attachments::Entity::find()
-            .filter(volume_attachments::Column::VolumeId.eq(self.id))
+        Ok(volume_attachments_entity::Entity::find()
+            .filter(volume_attachments_entity::Column::VolumeId.eq(self.id))
             .count(db)
             .await?)
     }
