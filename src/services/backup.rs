@@ -45,10 +45,18 @@ pub struct BackupService;
 
 impl BackupService {
     pub async fn run(db: &DatabaseConnection) -> Result<BackupResult, BackupError> {
+        let source = database_path_from_env()?;
+        Self::run_from_source(db, &source).await
+    }
+
+    pub async fn run_from_source(
+        db: &DatabaseConnection,
+        source: &Path,
+    ) -> Result<BackupResult, BackupError> {
         let lock = BACKUP_LOCK.get_or_init(|| Mutex::new(()));
         let _guard = lock.try_lock().map_err(|_| BackupError::Busy)?;
 
-        let source = database_path_from_env()?;
+        validate_path(source)?;
         if !source.exists() {
             return Err(BackupError::SourceMissing(source.display().to_string()));
         }
