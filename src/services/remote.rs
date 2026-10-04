@@ -488,6 +488,7 @@ MOONSHIPS_ASKPASS\n\
         .await
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub async fn build_image_config_with_registry(
         &self,
         application_id: i64,
