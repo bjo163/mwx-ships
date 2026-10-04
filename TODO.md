@@ -55,6 +55,10 @@
 - [x] #29 Implement SQLite backup and disaster recovery procedures
 - [x] #30 Author comprehensive documentation tree and ADRs
 
+## Release Follow-up
+
+- [ ] #46 Implement deployment execution on selected remote server
+
 ## Future Scale Phases
 
 - [ ] #31 Design PostgreSQL scale adapter (`M7 PostgreSQL Adapter`)
