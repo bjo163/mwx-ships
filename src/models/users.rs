@@ -286,8 +286,9 @@ impl Model {
             .one(db)
             .await?
             .ok_or(ModelError::EntityNotFound)?;
+        let next_session_version = user.session_version.saturating_add(1);
         let mut active: ActiveModel = user.into();
-        active.session_version = ActiveValue::Set(active.session_version.unwrap_or(0).saturating_add(1));
+        active.session_version = ActiveValue::Set(next_session_version);
         active.updated_at = ActiveValue::Set(Local::now().into());
         active.update(db).await.map_err(ModelError::from)
     }
