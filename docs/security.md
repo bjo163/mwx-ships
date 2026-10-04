@@ -57,3 +57,17 @@ Administrative/destructive actions append immutable audit records containing act
 SQLite is the single-node default. PostgreSQL is the optional multi-worker scale mode. The SQLite→PostgreSQL migration tool copies encrypted values as ciphertext and verifies schema/row/checksum/FK parity; the destination therefore requires the same `ENCRYPTION_KEY`.
 
 PostgreSQL HA, transport policy, and database-provider backup operations remain operator responsibilities.
+
+
+## 10. v1 Threat Model & Release Security
+
+The GA threat model, P0/P1 release-blocking definitions, trust-zone analysis, residual risks, and supply-chain controls are maintained in [threat-model-v1.md](threat-model-v1.md).
+
+The release pipeline for v0.9+:
+- builds and pushes one image digest;
+- generates BuildKit SBOM/provenance metadata;
+- creates a signed GitHub/Sigstore build-provenance attestation for that digest;
+- generates an SPDX JSON SBOM and release checksum;
+- pulls and healthchecks the exact published digest before tagging/releasing.
+
+The checked-in dependency policy requires third-party packages to declare license metadata and requires resolved Git dependencies to be pinned to a concrete commit.
