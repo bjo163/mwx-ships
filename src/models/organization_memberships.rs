@@ -48,9 +48,7 @@ impl Model {
         let role = normalize_role(&params.role)?;
         let now = Utc::now();
 
-        if let Some(existing) =
-            Self::find_for_user(db, organization_id, params.user_id).await?
-        {
+        if let Some(existing) = Self::find_for_user(db, organization_id, params.user_id).await? {
             let mut active: ActiveModel = existing.into();
             active.role = Set(role);
             active.is_active = Set(params.is_active.unwrap_or(true));
@@ -92,6 +90,8 @@ pub fn normalize_role(role: &str) -> Result<String> {
     let role = role.trim().to_ascii_lowercase();
     match role.as_str() {
         OWNER | ADMIN | DEPLOYER | VIEWER => Ok(role),
-        _ => Err(Error::BadRequest(format!("unsupported organization role '{role}'"))),
+        _ => Err(Error::BadRequest(format!(
+            "unsupported organization role '{role}'"
+        ))),
     }
 }
