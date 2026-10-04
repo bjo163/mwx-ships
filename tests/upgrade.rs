@@ -16,6 +16,8 @@ const VERSION_PREFIXES: &[(&str, u32)] = &[
 #[tokio::test]
 #[serial]
 async fn supported_schema_versions_upgrade_to_latest_without_data_loss() {
+    let latest_migration_count = Migrator::migrations().len() as i64;
+
     for (version, migration_count) in VERSION_PREFIXES {
         let db = Database::connect("sqlite::memory:")
             .await
@@ -54,7 +56,7 @@ async fn supported_schema_versions_upgrade_to_latest_without_data_loss() {
         let migration_rows =
             scalar_i64(&db, "SELECT COUNT(*) AS value FROM seaql_migrations").await;
         assert_eq!(
-            migration_rows, 15,
+            migration_rows, latest_migration_count,
             "fixture v{version} must reach every current migration"
         );
 
@@ -63,6 +65,8 @@ async fn supported_schema_versions_upgrade_to_latest_without_data_loss() {
             "organizations",
             "server_pools",
             "registry_credentials",
+            "persistent_volumes",
+            "volume_attachments",
         ] {
             let count = scalar_i64(
                 &db,
