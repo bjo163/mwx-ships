@@ -5,6 +5,41 @@ All notable changes to **Moonships** will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0] - 2026-10-04
+
+### Added
+- **Operational Metrics & Health**: authenticated metrics/health APIs expose deployment queue state, outcomes, stale leases, target availability, disk pressure, and backup health with bounded cardinality.
+- **Target Health Timeline**: periodic and manual preflight results are persisted as server health samples and operational events.
+- **Verified SQLite Backups**: scheduled/manual online SQLite backups support retention, integrity verification, optional whole-export AES-256-GCM encryption, and persistent backup history.
+- **Restore Drill**: automated tests restore an encrypted backup into a clean database and verify schema, application records, immutable deployment revisions, and encrypted secrets.
+- **Operator Backup Tasks/API/UI**: operators can queue backups, inspect history, verify exports, and run documented recovery procedures.
+- **Operational Notifications**: deduplicated webhook/email alerts cover target loss, disk pressure, stale deployment leases, repeated deployment failures, and backup failures.
+- **Incident Runbooks**: documented restore, target-loss, stuck-deployment, notification, and secret-rotation procedures.
+- **Operations Dashboard Signals**: dashboard/settings surfaces target, backup, queue, stale-work, and retention state.
+
+### Reliability
+- Scheduled and manual backups serialize through a process lock.
+- Backup retention prevents unbounded archive growth.
+- Alert claims use a cooldown fingerprint to prevent notification storms.
+- Backup/notification failures never rewrite an otherwise successful deployment result.
+- Restore tests use isolated SeaORM databases and do not mutate Loco process-global DATABASE_URL/QUEUE_URL configuration.
+
+### Security
+- Encrypted backup exports use authenticated AES-256-GCM encryption.
+- Backup files are written with restrictive permissions on Unix.
+- Operational APIs require authenticated control-plane access.
+- Notification payloads contain bounded operational context and no decrypted application secrets.
+
+### Configuration
+- `MOONSHIPS_BACKUP_INTERVAL_SECS`, `MOONSHIPS_BACKUP_DIR`, `MOONSHIPS_BACKUP_ENCRYPT`, and `MOONSHIPS_BACKUP_RETENTION` control backup scheduling/storage.
+- `MOONSHIPS_OPERATIONS_POLL_INTERVAL_SECS` controls target health polling.
+- `MOONSHIPS_ALERT_WEBHOOK_URL`, `MOONSHIPS_ALERT_EMAIL`, and `MOONSHIPS_ALERT_COOLDOWN_SECS` configure alert delivery/deduplication.
+
+### Known limitations
+- v0.6 remains SQLite-first/single-control-plane; PostgreSQL multi-worker mode is the v0.8 milestone.
+- Application data volumes/databases are outside Moonships control-plane backup scope.
+- Automated ENCRYPTION_KEY re-encryption/rotation remains a documented operator procedure rather than an in-place command.
+
 ## [0.5.0] - 2026-10-04
 
 ### Added
