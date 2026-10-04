@@ -271,9 +271,7 @@ impl RemoteRuntime {
                 "--certificatesresolvers.letsencrypt.acme.email={}",
                 shell_quote(email.trim())
             ));
-            args.push(
-                "--certificatesresolvers.letsencrypt.acme.storage=/acme.json".to_string(),
-            );
+            args.push("--certificatesresolvers.letsencrypt.acme.storage=/acme.json".to_string());
             args.push(
                 "--certificatesresolvers.letsencrypt.acme.httpchallenge.entrypoint=web".to_string(),
             );
@@ -291,12 +289,8 @@ impl RemoteRuntime {
             args.join(" ")
         );
 
-        self.exec_checked(
-            "managed_ingress_ensure",
-            &command,
-            Duration::from_secs(600),
-        )
-        .await?;
+        self.exec_checked("managed_ingress_ensure", &command, Duration::from_secs(600))
+            .await?;
         Ok(())
     }
 
@@ -305,12 +299,9 @@ impl RemoteRuntime {
         application_id: i64,
         config_json: &str,
     ) -> Result<(), RemoteError> {
-        let route_path = format!(
-            "\"$HOME/.moonships/traefik/dynamic/app-{application_id}.json\""
-        );
-        let temp_path = format!(
-            "\"$HOME/.moonships/traefik/dynamic/app-{application_id}.json.tmp\""
-        );
+        let route_path = format!("\"$HOME/.moonships/traefik/dynamic/app-{application_id}.json\"");
+        let temp_path =
+            format!("\"$HOME/.moonships/traefik/dynamic/app-{application_id}.json.tmp\"");
         let command = format!(
             "umask 077; mkdir -p \"$HOME/.moonships/traefik/dynamic\"; \
              cat > {temp_path}; test -s {temp_path}; mv -f {temp_path} {route_path}"
@@ -334,9 +325,7 @@ impl RemoteRuntime {
     pub async fn remove_managed_route(&self, application_id: i64) -> Result<(), RemoteError> {
         self.exec_checked(
             "managed_route_remove",
-            &format!(
-                "rm -f \"$HOME/.moonships/traefik/dynamic/app-{application_id}.json\""
-            ),
+            &format!("rm -f \"$HOME/.moonships/traefik/dynamic/app-{application_id}.json\""),
             Duration::from_secs(30),
         )
         .await?;

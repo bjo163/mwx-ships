@@ -895,8 +895,7 @@ impl DeploymentService {
                         .await;
                     }
                     Err(err) => {
-                        let _ =
-                            applications::Model::set_candidate_runtime(db, app.id, None).await;
+                        let _ = applications::Model::set_candidate_runtime(db, app.id, None).await;
                         let message = redact_secrets(&err.to_string(), &secret_values);
                         return Err(Self::record_failure(
                             db,
@@ -941,9 +940,7 @@ impl DeploymentService {
                             db,
                             dep.id,
                             "stdout",
-                            &format!(
-                                "Candidate healthcheck passed on attempt {attempt}/{retries}"
-                            ),
+                            &format!("Candidate healthcheck passed on attempt {attempt}/{retries}"),
                         )
                         .await;
                         last_error = None;
@@ -1090,14 +1087,8 @@ impl DeploymentService {
                 }
             }
 
-            Self::transition_phase(
-                db,
-                dep.id,
-                &execution_token,
-                &["draining_old"],
-                "success",
-            )
-            .await?;
+            Self::transition_phase(db, dep.id, &execution_token, &["draining_old"], "success")
+                .await?;
 
             let _ = deployment_logs::Model::append(
                 db,
@@ -1112,14 +1103,8 @@ impl DeploymentService {
             )
             .await;
         } else {
-            Self::transition_phase(
-                db,
-                dep.id,
-                &execution_token,
-                &["building"],
-                "stopping_old",
-            )
-            .await?;
+            Self::transition_phase(db, dep.id, &execution_token, &["building"], "stopping_old")
+                .await?;
 
             let old_runtime_name = app.resolved_runtime_name();
             if let Err(err) = runtime.stop_and_remove_container(&old_runtime_name).await {
@@ -1287,14 +1272,7 @@ impl DeploymentService {
             } else {
                 &["starting_new"][..]
             };
-            Self::transition_phase(
-                db,
-                dep.id,
-                &execution_token,
-                success_from,
-                "success",
-            )
-            .await?;
+            Self::transition_phase(db, dep.id, &execution_token, success_from, "success").await?;
         }
 
         let _ = deployment_logs::Model::append(
