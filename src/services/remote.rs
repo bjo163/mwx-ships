@@ -978,6 +978,21 @@ MOONSHIPS_ASKPASS\n\
             ));
         }
 
+        for mount in &config.volume_mounts {
+            DockerService::validate_volume_name(&mount.source)
+                .map_err(|e| RemoteError::Validation(e.to_string()))?;
+            DockerService::validate_volume_mount_path(&mount.target)
+                .map_err(|e| RemoteError::Validation(e.to_string()))?;
+            let mut spec = format!(
+                "type=volume,source={},target={}",
+                mount.source, mount.target
+            );
+            if mount.read_only {
+                spec.push_str(",readonly");
+            }
+            args.push(format!("--mount {}", shell_quote(&spec)));
+        }
+
         args.push("--env-file \"$ENV_FILE\"".to_string());
 
         for (key, value) in &config.labels {
@@ -1008,6 +1023,36 @@ MOONSHIPS_ASKPASS\n\
         }
 
         Ok(stdout.trim().to_string())
+    }
+
+    pub async fn ensure_volume(&self, name: &str) -> Result<(), RemoteError> {
+        DockerService::validate_volume_name(name)
+            .map_err(|e| RemoteError::Validation(e.to_string()))?;
+        let quoted = shell_quote(name);
+        self.exec_checked(
+            "docker_volume_ensure",
+            &format!(
+                "docker volume inspect {quoted} >/dev/null 2>&1 || docker volume create {quoted} >/dev/null"
+            ),
+            Duration::from_secs(60),
+        )
+        .await?;
+        Ok(())
+    }
+
+    pub async fn remove_volume(&self, name: &str) -> Result<(), RemoteError> {
+        DockerService::validate_volume_name(name)
+            .map_err(|e| RemoteError::Validation(e.to_string()))?;
+        let quoted = shell_quote(name);
+        self.exec_checked(
+            "docker_volume_remove",
+            &format!(
+                "if docker volume inspect {quoted} >/dev/null 2>&1; then docker volume rm {quoted} >/dev/null; fi"
+            ),
+            Duration::from_secs(60),
+        )
+        .await?;
+        Ok(())
     }
 
     pub async fn start_container(&self, name: &str) -> Result<(), RemoteError> {
