@@ -70,6 +70,12 @@ pub enum Relation {
     Deployments,
     #[sea_orm(has_many = "super::deployment_revisions::Entity")]
     DeploymentRevisions,
+    #[sea_orm(has_many = "super::git_integrations::Entity")]
+    GitIntegrations,
+    #[sea_orm(has_many = "super::webhook_deliveries::Entity")]
+    WebhookDeliveries,
+    #[sea_orm(has_many = "super::preview_deployments::Entity")]
+    PreviewDeployments,
 }
 
 impl Related<super::projects::Entity> for Entity {
@@ -111,6 +117,24 @@ impl Related<super::deployments::Entity> for Entity {
 impl Related<super::deployment_revisions::Entity> for Entity {
     fn to() -> RelationDef {
         Relation::DeploymentRevisions.def()
+    }
+}
+
+impl Related<super::git_integrations::Entity> for Entity {
+    fn to() -> RelationDef {
+        Relation::GitIntegrations.def()
+    }
+}
+
+impl Related<super::webhook_deliveries::Entity> for Entity {
+    fn to() -> RelationDef {
+        Relation::WebhookDeliveries.def()
+    }
+}
+
+impl Related<super::preview_deployments::Entity> for Entity {
+    fn to() -> RelationDef {
+        Relation::PreviewDeployments.def()
     }
 }
 
