@@ -112,8 +112,12 @@ async fn remote_runtime(
 }
 
 #[debug_handler]
-pub async fn list(_auth: auth::JWT, State(ctx): State<AppContext>) -> Result<Response> {
-    let apps = ApplicationModel::all(&ctx.db).await?;
+pub async fn list(headers: HeaderMap, State(ctx): State<AppContext>) -> Result<Response> {
+    let principal = Principal::authenticate(&ctx, &headers).await?;
+    let organization_ids = principal.organization_ids(&ctx.db).await?;
+    let projects = ProjectModel::all_for_organizations(&ctx.db, &organization_ids).await?;
+    let project_ids = projects.into_iter().map(|project| project.id).collect::<Vec<_>>();
+    let apps = ApplicationModel::all_for_projects(&ctx.db, &project_ids).await?;
     format::json(serde_json::json!({
         "data": apps,
         "message": "ok"
@@ -122,11 +126,40 @@ pub async fn list(_auth: auth::JWT, State(ctx): State<AppContext>) -> Result<Res
 
 #[debug_handler]
 pub async fn create(
-    _auth: auth::JWT,
+    headers: HeaderMap,
     State(ctx): State<AppContext>,
     Json(params): Json<CreateApplicationParams>,
 ) -> Result<Response> {
+    let principal = Principal::authenticate(&ctx, &headers).await?;
+    let project_org = principal
+        .project_organization(&ctx.db, params.project_id, Permission::ManageApplications)
+        .await?;
+    let server_org = principal
+        .server_organization(&ctx.db, params.server_id, Permission::ManageApplications)
+        .await?;
+    if project_org != server_org {
+        return Err(Error::BadRequest(
+            "application project and target server must belong to the same organization"
+                .to_string(),
+        ));
+    }
+    let environment = EnvironmentModel::find_by_id(&ctx.db, params.environment_id).await?;
+    if environment.project_id != params.project_id {
+        return Err(Error::BadRequest(
+            "application environment must belong to the selected project".to_string(),
+        ));
+    }
+
     let app = ApplicationModel::create_application(&ctx.db, &params).await?;
+    audit_application(
+        &ctx,
+        &principal,
+        project_org,
+        "application.create",
+        app.id,
+        None,
+    )
+    .await;
     format::json(serde_json::json!({
         "data": app,
         "message": "ok"
@@ -135,11 +168,12 @@ pub async fn create(
 
 #[debug_handler]
 pub async fn get_one(
-    _auth: auth::JWT,
+    headers: HeaderMap,
     Path(id): Path<i64>,
     State(ctx): State<AppContext>,
 ) -> Result<Response> {
-    let app = ApplicationModel::find_by_id(&ctx.db, id).await?;
+    let (_, _, app) =
+        authorized_application(&ctx, &headers, id, Permission::View).await?;
     let latest_deployment = DeploymentModel::latest_for_application(&ctx.db, id).await?;
     let env_count = EnvVarModel::by_application(&ctx.db, id).await?.len();
     let domains = DomainModel::by_application(&ctx.db, id).await?;
@@ -157,12 +191,13 @@ pub async fn get_one(
 
 #[debug_handler]
 pub async fn update(
-    _auth: auth::JWT,
+    headers: HeaderMap,
     Path(id): Path<i64>,
     State(ctx): State<AppContext>,
     Json(params): Json<UpdateApplicationParams>,
 ) -> Result<Response> {
-    let app = ApplicationModel::find_by_id(&ctx.db, id).await?;
+    let (principal, organization_id, app) =
+        authorized_application(&ctx, &headers, id, Permission::ManageApplications).await?;
     let mut active: ActiveModel = app.into();
 
     if let Some(name) = params.name {
@@ -207,6 +242,15 @@ pub async fn update(
     active.updated_at = Set(Utc::now().into());
 
     let updated = active.update(&ctx.db).await?;
+    audit_application(
+        &ctx,
+        &principal,
+        organization_id,
+        "application.update",
+        id,
+        None,
+    )
+    .await;
     format::json(serde_json::json!({
         "data": updated,
         "message": "ok"
@@ -215,11 +259,12 @@ pub async fn update(
 
 #[debug_handler]
 pub async fn remove(
-    _auth: auth::JWT,
+    headers: HeaderMap,
     Path(id): Path<i64>,
     State(ctx): State<AppContext>,
 ) -> Result<Response> {
-    let app = ApplicationModel::find_by_id(&ctx.db, id).await?;
+    let (principal, organization_id, app) =
+        authorized_application(&ctx, &headers, id, Permission::ManageApplications).await?;
     let (_, runtime) = remote_runtime(&ctx.db, &app).await?;
     let runtime_name = app.resolved_runtime_name();
     runtime
@@ -233,6 +278,15 @@ pub async fn remove(
     }
     let _ = runtime.remove_managed_route(app.id).await;
     Entity::delete_by_id(app.id).exec(&ctx.db).await?;
+    audit_application(
+        &ctx,
+        &principal,
+        organization_id,
+        "application.delete",
+        id,
+        None,
+    )
+    .await;
 
     format::json(serde_json::json!({
         "data": null,
