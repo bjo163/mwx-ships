@@ -132,6 +132,8 @@ Traditional PaaS platforms require spinning up PostgreSQL, Redis, and message br
 | **M10 Production Operations** | Backup/restore, observability, notifications | Complete (v0.6) |
 | **M11 Teams & RBAC** | Organizations, roles, API tokens, audit | Complete (v0.7) |
 | **M12 Scale Adapter** | PostgreSQL multi-worker, Compose, registries, placement | Complete (v0.8) |
+| **M13 GA Hardening** | Upgrade matrix, resilience drills, frozen API, SBOM/provenance | Release candidate (v0.9) |
+| **M14 Production GA** | Stable v1 support/upgrade/security contract | Planned (v1.0) |
 
 ---
 
