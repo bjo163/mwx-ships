@@ -2,7 +2,7 @@ use chrono::Utc;
 use loco_rs::testing::prelude::*;
 use moonships::{
     app::App,
-    services::deployment::DeploymentService,
+    services::{crypto::CryptoService, deployment::DeploymentService},
     models::{
         applications::{CreateApplicationParams, Model as ApplicationModel},
         deployment_logs::Model as DeploymentLogModel,
@@ -20,6 +20,11 @@ use serial_test::serial;
 #[tokio::test]
 #[serial]
 async fn test_models_lifecycle_and_constraints() {
+    std::env::set_var(
+        "ENCRYPTION_KEY",
+        "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+    );
+
     let boot = boot_test::<App>()
         .await
         .expect("Failed to boot test application");
@@ -109,7 +114,9 @@ async fn test_models_lifecycle_and_constraints() {
     let env_active = moonships::models::environment_variables::ActiveModel {
         application_id: Set(app.id),
         key: Set("APP_KEY".to_string()),
-        encrypted_value: Set("SUPER_SECRET_123".to_string()),
+        encrypted_value: Set(
+            CryptoService::encrypt("SUPER_SECRET_123").expect("encrypt test secret"),
+        ),
         is_secret: Set(true),
         created_at: Set(Utc::now().into()),
         updated_at: Set(Utc::now().into()),
@@ -203,6 +210,15 @@ async fn test_models_lifecycle_and_constraints() {
         "secret revision entries must not persist plaintext values"
     );
     assert!(!secret.value_fingerprint.is_empty());
+    let encrypted_secret = secret
+        .encrypted_value
+        .as_deref()
+        .expect("revision must retain encrypted secret material");
+    assert!(!encrypted_secret.contains("SUPER_SECRET_123"));
+    assert_eq!(
+        CryptoService::decrypt(encrypted_secret).expect("decrypt revision secret"),
+        "SUPER_SECRET_123"
+    );
 
     let duplicate = DeploymentRevisionModel::create_or_get(
         db,
