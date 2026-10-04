@@ -30,6 +30,17 @@ impl Model {
             .await?)
     }
 
+    pub async fn list_for_user(
+        db: &DatabaseConnection,
+        user_id: i64,
+    ) -> Result<Vec<Model>> {
+        Ok(Entity::find()
+            .filter(organization_memberships::Column::UserId.eq(user_id))
+            .filter(organization_memberships::Column::IsActive.eq(true))
+            .all(db)
+            .await?)
+    }
+
     pub async fn list_for_organization(
         db: &DatabaseConnection,
         organization_id: i64,
