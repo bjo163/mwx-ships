@@ -597,7 +597,11 @@ impl DeploymentService {
                 db,
                 &execution_token,
                 dep.id,
-                app.id, error_code, "building", &message, exit_code,
+                app.id,
+                error_code,
+                "building",
+                &message,
+                exit_code,
             )
             .await);
         }
