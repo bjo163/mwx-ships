@@ -33,3 +33,24 @@ fn remote_executor_contains_secret_redaction_and_host_pinning() {
     assert!(ssh.contains("known_host_fingerprint"));
     assert!(ssh.contains("StrictHostKeyChecking=yes"));
 }
+
+#[test]
+fn source_inspection_stays_on_remote_boundary() {
+    let inspection = include_str!("../../src/services/source_inspection.rs");
+    let remote = include_str!("../../src/services/remote.rs");
+    let controller = include_str!("../../src/controllers/source_inspection.rs");
+
+    assert!(
+        !inspection.contains("tokio::process::Command")
+            && !inspection.contains("std::process::Command")
+            && !controller.contains("tokio::process::Command")
+            && !controller.contains("std::process::Command"),
+        "source inspection must not clone or execute repository tooling on the control-plane host"
+    );
+    assert!(controller.contains("RemoteRuntime"));
+    assert!(remote.contains("source_inspection_clone"));
+    assert!(remote.contains("GIT_TERMINAL_PROMPT=0"));
+    assert!(remote.contains("GIT_LFS_SKIP_SMUDGE=1"));
+    assert!(remote.contains("[ ! -L"));
+    assert!(remote.contains("65536"));
+}
