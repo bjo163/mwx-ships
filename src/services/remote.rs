@@ -187,6 +187,35 @@ impl RemoteRuntime {
             .await
     }
 
+    pub async fn remove_image(&self, image: &str) -> Result<(), RemoteError> {
+        DockerService::validate_image_name(image)
+            .map_err(|e| RemoteError::Validation(e.to_string()))?;
+        self.exec_checked(
+            "docker_image_remove",
+            &format!(
+                "docker image rm {} >/dev/null 2>&1 || true",
+                shell_quote(image)
+            ),
+            Duration::from_secs(60),
+        )
+        .await?;
+        Ok(())
+    }
+
+    pub async fn disk_available_gb(&self) -> Result<f64, RemoteError> {
+        let output = self
+            .exec_checked(
+                "disk_available",
+                "df -Pk \"$HOME\" | tail -1 | awk '{print $4}'",
+                Duration::from_secs(30),
+            )
+            .await?;
+        let kbytes = output.trim().parse::<f64>().map_err(|_| {
+            RemoteError::Validation("unable to parse remote disk availability".to_string())
+        })?;
+        Ok((kbytes / 1024.0 / 1024.0 * 10.0).round() / 10.0)
+    }
+
     pub async fn pull_image(&self, image: &str) -> Result<String, RemoteError> {
         DockerService::validate_image_name(image)
             .map_err(|e| RemoteError::Validation(e.to_string()))?;
