@@ -224,7 +224,7 @@ Settings are configured via `config/*.yaml` and environment variables:
    - Add an environment (e.g. `production`).
 3. **Create Application**:
    - Navigate to **Applications** -> **Create Application**.
-   - Provide Git repo URL (`https://github.com/bjo163/mwx-ships.git`) and branch (`master`).
+   - Provide Git repo URL (`https://github.com/bjo163/mwx-ships.git`) and branch (`main`).
    - Specify internal port (e.g. `80`) and optional published port.
 4. **Trigger Deployment**:
    - Click **Deploy**. The request returns `202 Accepted` and enqueues into SQLite.
@@ -314,6 +314,17 @@ If you intentionally expose Moonships beyond localhost, use TLS and a trusted ne
 - **Authorization Model**: v0.2 authenticates operational routes with JWT, but multi-tenant organizations and role-based authorization remain a later milestone.
 - **SSH Trust Bootstrap**: Without an explicit pinned fingerprint, first host-key discovery is trust-on-first-use. Pin fingerprints for production targets.
 - **Deployment Replacement**: The current state machine stops the previous container before starting the replacement; zero-downtime rollout is not yet implemented.
+
+---
+
+## Development Branches
+
+The canonical repository intentionally uses only two working branches:
+
+- `dev` — integration/development; all normal work lands here.
+- `main` — production; only green `dev -> main` promotions are merged.
+
+Release branches and feature branches are intentionally avoided. See [Branch Strategy](docs/branch-strategy.md).
 
 ---
 
