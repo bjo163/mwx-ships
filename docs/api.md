@@ -68,3 +68,15 @@ The request supplies `project_id`, `server_id`, `git_repository`, and optional `
 Inspection happens on the selected remote target, not on the Moonships control plane. Moonships shallow-clones into a temporary inspection workspace, reads only an allowlist of small non-symlink metadata files, returns a typed strategy/confidence/reason result, and removes the workspace. Repository package/build scripts are never executed during inspection.
 
 Supported initial signals are Compose files, common Dockerfile locations, root static `index.html`, Vite metadata, package-manager lockfiles, and numeric Dockerfile `EXPOSE` hints. Ambiguous multiple Compose/Dockerfile definitions return `unresolved` so the user can explicitly choose rather than relying on hidden guessing.
+
+## Deployment Plans
+
+Moonships can persist deployment intent **before queueing worker execution**.
+
+`POST /api/deployment-plans` accepts an `application_id`, full Git `commit_hash`, and optional commit message. The endpoint validates the application configuration before worker execution and persists the plan using the existing immutable deployment revision model.
+
+The response includes a stable `plan_fingerprint` and `revision_id`. Environment variables expose only key, secret classification, and value fingerprint; plaintext or encrypted secret material is never returned.
+
+`POST /api/deployment-plans/{revision_id}/deploy` queues the exact persisted plan. Execution checks out the plan's exact commit and verifies it matches before build/start. If application settings change after planning, the queued planned deployment still uses the immutable revision snapshot that was reviewed.
+
+Initial pre-queue validation covers Git source syntax, workload/build strategy, safe relative build paths, container/published/health ports, healthcheck path, hostname validity, duplicate hostname ownership, published-port conflicts on the same server, required prebuilt-image input, and the current Compose/managed-ingress compatibility boundary.
