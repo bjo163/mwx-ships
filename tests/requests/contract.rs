@@ -20,7 +20,9 @@ async fn v1_openapi_protected_routes_exist_and_fail_closed() {
         .iter()
         .flat_map(|(path, methods)| {
             methods.iter().filter_map(move |(method, operation)| {
-                operation.get("security").map(|_| (method.clone(), concrete_path(path)))
+                operation
+                    .get("security")
+                    .map(|_| (method.clone(), concrete_path(path)))
             })
         })
         .collect::<Vec<_>>();
@@ -47,7 +49,11 @@ async fn v1_openapi_protected_routes_exist_and_fail_closed() {
         }
 
         let health = request.get("/api/health").await;
-        assert_eq!(health.status_code(), 200, "public health route must remain available");
+        assert_eq!(
+            health.status_code(),
+            200,
+            "public health route must remain available"
+        );
     })
     .await;
 }
@@ -71,7 +77,9 @@ fn v1_openapi_contract_has_unique_operation_ids_and_expected_public_surfaces() {
 
     assert!(operation_count >= 70, "v1 API contract unexpectedly shrank");
     assert!(spec.paths.contains_key("/api/health"));
-    assert!(spec.paths.contains_key("/api/webhooks/{provider}/{application_id}"));
+    assert!(spec
+        .paths
+        .contains_key("/api/webhooks/{provider}/{application_id}"));
     assert!(spec.paths.contains_key("/api/organizations/{id}/audit"));
     assert!(spec.paths.contains_key("/api/applications/{id}/rollback"));
 }
