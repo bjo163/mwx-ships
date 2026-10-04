@@ -47,6 +47,25 @@ impl DeploymentService {
         commit_hash: Option<String>,
         commit_message: Option<String>,
     ) -> Result<deployments::Model, DeploymentError> {
+        Self::trigger_deploy_with_provenance(
+            db,
+            app_id,
+            commit_hash,
+            commit_message,
+            "manual",
+            None,
+        )
+        .await
+    }
+
+    pub async fn trigger_deploy_with_provenance(
+        db: &DatabaseConnection,
+        app_id: i64,
+        commit_hash: Option<String>,
+        commit_message: Option<String>,
+        trigger_kind: &str,
+        source_deployment_id: Option<i64>,
+    ) -> Result<deployments::Model, DeploymentError> {
         let app = applications::Model::find_by_id(db, app_id)
             .await
             .map_err(|_| DeploymentError::AppNotFound(app_id))?;
@@ -64,12 +83,15 @@ impl DeploymentService {
             return Err(DeploymentError::Conflict);
         }
 
-        let dep = deployments::Model::create_deployment(
+        let dep = deployments::Model::create_deployment_attempt(
             db,
             app.id,
             server.id,
             commit_hash,
             commit_message,
+            trigger_kind,
+            source_deployment_id,
+            None,
         )
         .await
         .map_err(|e| DeploymentError::StepFailed {
@@ -83,8 +105,14 @@ impl DeploymentService {
             dep.id,
             "system",
             &format!(
-                "Deployment #{} queued for application '{}' on target server '{}' ({}@{}:{})",
-                dep.id, app.name, server.name, server.username, server.host, server.port
+                "Deployment #{} queued for application '{}' on target server '{}' ({}@{}:{}) via {}",
+                dep.id,
+                app.name,
+                server.name,
+                server.username,
+                server.host,
+                server.port,
+                trigger_kind
             ),
         )
         .await;
