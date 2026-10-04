@@ -1,69 +1,31 @@
-# MOONSHIPS — Task Index (TODO)
+# MOONSHIPS — Task Index
 
-> **Notice**: GitHub Issues on repository [`bjo163/mwx-ships`](https://github.com/bjo163/mwx-ships/issues) are the canonical source of truth for task tracking. This document serves strictly as an index referencing verified GitHub Issue IDs.
+GitHub Issues are the canonical source of truth.
 
----
+## Released
+- [x] v0.2.0 Secure Remote Deployment
+- [x] #46 selected-server remote execution
+- [x] #47 JWT management API protection
+- [x] #51 remote lifecycle/security hardening
+- [x] #52 v0.2 release gates
+- [x] #53 v0.2 release
 
-## Phase 0: Foundation (`M0 Foundation`)
+## Grand Plan to v1
+- [ ] #57 Grand Plan: Moonships v1.0 Production GA
+- [ ] #58 v0.3 Deployment Reliability, Revisions, Cancellation & Rollback
+  - [ ] #66 immutable deployment revisions
+  - [ ] #67 cancel and retry
+  - [ ] #68 one-click rollback
+  - [ ] #69 idempotent/restart-safe worker
+  - [ ] #70 retention and cleanup
+- [ ] #59 v0.4 Managed Ingress, TLS & Zero-Downtime
+- [ ] #60 v0.5 Git Provider Automation & Preview Deployments
+- [ ] #61 v0.6 Production Operations, Backup, Restore & Observability
+- [ ] #62 v0.7 Organizations, RBAC, API Tokens & Audit Trail
+- [ ] #63 v0.8 PostgreSQL Scale Adapter, Multi-Worker & Advanced Workloads
+  - [ ] #31 PostgreSQL scale adapter
+- [ ] #64 v0.9 GA Hardening, Upgrade Safety & Release Candidate
+- [ ] #65 v1.0 Moonships Production GA
 
-- [x] #1 Initialize Moonships Loco project scaffold and directory layout
-- [x] #2 Configure SQLite database engine and PRAGMA reliability settings
-- [x] #3 Configure persistent SQLite worker queue
-- [x] #4 Configure Antigravity project rules and custom agents
-- [x] #5 Configure Antigravity engineering skills
-- [x] #6 Configure GitHub Actions CI workflows and Dependabot
-- [x] #7 Configure repository governance, templates, and guidelines
-
-## Phase 1: SQLite Domain Models (`M1 SQLite Domain`)
-
-- [x] #8 Implement Server model and migrations
-- [x] #9 Implement Project and Environment models and migrations
-- [x] #10 Implement Application model and migrations
-- [x] #11 Implement EnvironmentVariable model and secret storage
-- [x] #12 Implement Domain model and routing configuration
-- [x] #13 Implement Deployment and DeploymentLog models
-
-## Phase 2: Remote Infrastructure Services (`M2 Remote Infrastructure`)
-
-- [x] #14 Implement CryptoService for AES-256-GCM secret encryption
-- [x] #15 Implement GitService for generic repository operations
-- [x] #16 Implement SshService for remote server access
-- [x] #17 Implement DockerService for remote container lifecycle
-- [x] #18 Implement ProxyService for Traefik label generation
-- [x] #19 Implement Server Preflight inspection endpoint
-
-## Phase 3: Deployment Engine (`M3 Deployment Engine`)
-
-- [x] #20 Implement DeploymentService orchestration engine
-- [x] #21 Implement DeploymentWorker with persistent SQLite queue
-- [x] #22 Implement deployment state machine and transition persistence
-- [x] #23 Implement deployment concurrency locking (single active deployment)
-- [x] #24 Implement structured deployment logging stream
-- [x] #25 Implement HTTP healthcheck verification loop
-
-## Phase 4: Modern Dashboard (`M4 Dashboard`)
-
-- [x] #26 Implement React Single Page Dashboard application
-- [x] #27 Implement real-time deployment log viewer and status monitor
-
-## Phase 5: Security & Verification (`M5 Security`)
-
-- [x] #28 Implement security boundary tests (injection, traversal, secret masking)
-
-## Phase 6: Documentation & Operations (`M6 Documentation`)
-
-- [x] #29 Implement SQLite backup and disaster recovery procedures
-- [x] #30 Author comprehensive documentation tree and ADRs
-
-## v0.2 Release
-
-- [x] #46 Implement deployment execution on selected remote server
-- [x] #47 Protect management API routes with JWT authentication
-- [x] #51 Harden remote deployment lifecycle, failure classification, and secret safety
-- [ ] #52 Add v0.2 authentication and remote deployment integration/E2E release gates
-- [ ] #53 Release Moonships v0.2.0 — Secure Remote Deployment
-
-## Future Scale Phases
-
-- [ ] #31 Design PostgreSQL scale adapter (`M7 PostgreSQL Adapter`)
-- [ ] #32 Plan webhooks, Compose, rollback, and multi-node clustering (`M8 Advanced Platform`)
+## Superseded
+- #32 broad advanced-platform umbrella is superseded by #57–#65.
