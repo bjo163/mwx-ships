@@ -1,6 +1,10 @@
-use crate::models::{
-    _entities::{deployments, servers},
-    backup_runs, operational_events, server_health_checks,
+use crate::{
+    models::{
+        _entities::{deployments, servers},
+        backup_runs, operational_events, server_health_checks,
+        servers::Model as ServerModel,
+    },
+    services::{notification::NotificationService, ssh::SshService},
 };
 use chrono::{Duration, Utc};
 use loco_rs::prelude::*;
@@ -230,6 +234,125 @@ impl OperationsService {
             issues,
             metrics,
         })
+    }
+
+    pub async fn poll_targets(ctx: &AppContext) -> Result<()> {
+        let targets = servers::Entity::find().all(&ctx.db).await?;
+        let disk_warning_gb = std::env::var("MOONSHIPS_DISK_WARNING_GB")
+            .ok()
+            .and_then(|value| value.parse::<f64>().ok())
+            .unwrap_or(2.0)
+            .max(0.1);
+
+        for target in targets {
+            let previous_status = target.status.clone();
+            match SshService::run_preflight(&target).await {
+                Ok(report) => {
+                    let status = if report.healthy {
+                        "online"
+                    } else if report.ssh_connected {
+                        "error"
+                    } else {
+                        "offline"
+                    };
+
+                    let _ = ServerModel::update_status(&ctx.db, target.id, status).await;
+                    let _ = server_health_checks::Model::record(&ctx.db, &report).await;
+
+                    if previous_status != status || !report.healthy {
+                        let severity = if report.healthy { "info" } else { "warning" };
+                        let _ = operational_events::Model::record(
+                            &ctx.db,
+                            "target_health",
+                            severity,
+                            Some("server"),
+                            Some(target.id),
+                            &format!("Target '{}' is {}", target.name, status),
+                            Some(&serde_json::json!({
+                                "ssh_connected": report.ssh_connected,
+                                "docker_running": report.docker_running,
+                                "disk_available_gb": report.disk_available_gb,
+                                "issues": report.issues,
+                            })),
+                        )
+                        .await;
+                    }
+
+                    if !report.healthy {
+                        let _ = NotificationService::notify(
+                            ctx,
+                            "target_unhealthy",
+                            "warning",
+                            &format!("Target {} unhealthy", target.name),
+                            &format!(
+                                "Target {} ({}@{}:{}) status={} issues={}",
+                                target.name,
+                                target.username,
+                                target.host,
+                                target.port,
+                                status,
+                                report.issues.join("; ")
+                            ),
+                        )
+                        .await;
+                    }
+
+                    if let Some(gb) = report.disk_available_gb {
+                        if gb < disk_warning_gb {
+                            let _ = NotificationService::notify(
+                                ctx,
+                                "disk_pressure",
+                                "warning",
+                                &format!("Disk pressure on {}", target.name),
+                                &format!(
+                                    "Target {} has {:.1} GB available; threshold is {:.1} GB",
+                                    target.name, gb, disk_warning_gb
+                                ),
+                            )
+                            .await;
+                        }
+                    }
+                }
+                Err(error) => {
+                    let _ = ServerModel::update_status(&ctx.db, target.id, "offline").await;
+                    let _ = operational_events::Model::record(
+                        &ctx.db,
+                        "target_health",
+                        "warning",
+                        Some("server"),
+                        Some(target.id),
+                        &format!("Target '{}' preflight failed", target.name),
+                        Some(&serde_json::json!({"error": error.to_string()})),
+                    )
+                    .await;
+                    let _ = NotificationService::notify(
+                        ctx,
+                        "target_unhealthy",
+                        "warning",
+                        &format!("Target {} unreachable", target.name),
+                        &error.to_string(),
+                    )
+                    .await;
+                }
+            }
+        }
+
+        let health = Self::health(&ctx.db).await?;
+        if health.metrics.deployments.stale_leases > 0 {
+            let _ = NotificationService::notify(
+                ctx,
+                "stale_deployment_lease",
+                "critical",
+                "Stale deployment execution lease",
+                &format!(
+                    "{} active deployment lease(s) are stale and eligible for recovery",
+                    health.metrics.deployments.stale_leases
+                ),
+            )
+            .await;
+        }
+
+        Ok(())
     }
 
     pub async fn recent_events(
