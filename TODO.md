@@ -26,7 +26,10 @@ GitHub Issues are the canonical source of truth.
   - [x] #75 Git provider abstraction + encrypted credentials
   - [x] #76 signed webhooks + dedupe + status callbacks
   - [x] #77 pull/merge-request preview lifecycle
-- [ ] #61 v0.6 Production Operations, Backup, Restore & Observability
+- [x] #61 v0.6 Production Operations, Backup, Restore & Observability
+  - [x] #78 metrics and operational health
+  - [x] #79 scheduled backup + verified restore
+  - [x] #80 notifications + retention visibility + runbooks
 - [ ] #62 v0.7 Organizations, RBAC, API Tokens & Audit Trail
 - [ ] #63 v0.8 PostgreSQL Scale Adapter, Multi-Worker & Advanced Workloads
   - [ ] #31 PostgreSQL scale adapter
