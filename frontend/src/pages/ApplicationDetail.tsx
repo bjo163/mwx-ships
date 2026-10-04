@@ -264,6 +264,18 @@ export function ApplicationDetail() {
     }
   }
 
+  async function handleVerifyDomain(domainId: number) {
+    if (!id) return;
+    try {
+      await apiRequest(`/api/applications/${id}/domains/${domainId}/verify`, {
+        method: 'POST',
+      });
+      await loadDomains();
+    } catch (e: any) {
+      alert(`Domain verification failed: ${e.message}`);
+    }
+  }
+
   async function handleDeleteDomain(domainId: number) {
     if (!id || !confirm('Remove this domain mapping?')) return;
     try {
@@ -472,6 +484,22 @@ export function ApplicationDetail() {
                 </label>
                 <div style={{ marginTop: '4px', fontFamily: 'monospace', fontSize: '0.9rem' }}>
                   {app.previous_revision_id ? `#${app.previous_revision_id}` : 'None'}
+                </div>
+              </div>
+              <div>
+                <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', textTransform: 'uppercase' }}>
+                  Active Runtime
+                </label>
+                <div style={{ marginTop: '4px', fontFamily: 'monospace', fontSize: '0.9rem' }}>
+                  {app.active_runtime_name || app.container_name || 'None'}
+                </div>
+              </div>
+              <div>
+                <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', textTransform: 'uppercase' }}>
+                  Candidate Runtime
+                </label>
+                <div style={{ marginTop: '4px', fontFamily: 'monospace', fontSize: '0.9rem' }}>
+                  {app.candidate_runtime_name || 'None'}
                 </div>
               </div>
             </div>
@@ -755,7 +783,7 @@ export function ApplicationDetail() {
           <div className="card">
             <h3 style={{ fontSize: '1.1rem', fontWeight: 600, marginBottom: '8px' }}>Custom Domains & Routing</h3>
             <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginBottom: '20px' }}>
-              Configured hostnames generate Traefik dynamic labels routing incoming HTTP/HTTPS traffic to this container.
+              Domains without a published host port use Moonships-managed Traefik. Candidates are healthchecked before an atomic traffic switch; HTTPS uses Let's Encrypt when the domain is verified.
             </p>
 
             <form
@@ -814,23 +842,40 @@ export function ApplicationDetail() {
                     border: '1px solid var(--border-color)',
                   }}
                 >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
                     <Globe size={18} color="var(--indigo-primary)" />
                     <span style={{ fontWeight: 600 }}>{dom.hostname}</span>
                     <span style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>Port: {dom.port}</span>
+                    <span className={`status-badge ${dom.verification_status === 'verified' ? 'status-running' : ''}`}>
+                      DNS: {dom.verification_status || 'pending'}
+                    </span>
                     {dom.https_enabled ? (
-                      <span className="status-badge status-running">HTTPS Enabled</span>
+                      <span className={`status-badge ${dom.tls_status === 'active' ? 'status-running' : ''}`}>
+                        TLS: {dom.tls_status || 'pending'}
+                      </span>
                     ) : (
                       <span className="status-badge">HTTP Only</span>
                     )}
+                    {dom.last_error && (
+                      <span style={{ color: 'var(--danger)', fontSize: '0.78rem' }}>{dom.last_error}</span>
+                    )}
                   </div>
-                  <button
-                    onClick={() => handleDeleteDomain(dom.id)}
-                    className="btn btn-danger"
-                    style={{ padding: '6px 10px' }}
-                  >
-                    <Trash2 size={14} />
-                  </button>
+                  <div style={{ display: 'flex', gap: '8px' }}>
+                    <button
+                      onClick={() => handleVerifyDomain(dom.id)}
+                      className="btn btn-secondary"
+                      style={{ padding: '6px 10px' }}
+                    >
+                      <RefreshCw size={14} /> Verify
+                    </button>
+                    <button
+                      onClick={() => handleDeleteDomain(dom.id)}
+                      className="btn btn-danger"
+                      style={{ padding: '6px 10px' }}
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
                 </div>
               ))}
               {domains.length === 0 && (
