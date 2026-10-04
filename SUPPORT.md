@@ -2,6 +2,12 @@
 
 Welcome to the Moonships community! Here are the best ways to get help and support:
 
+## Supported Release Line
+
+Moonships v1.x is the stable production line. v0.9.x receives best-effort critical fixes during the initial GA transition; operators on v0.8.x or earlier should upgrade to the latest v1.x release.
+
+Before filing upgrade issues, include the source Moonships version, target version, database mode (SQLite/PostgreSQL), image digest, and whether the documented backup/restore verification was completed.
+
 ## Community & Discussions
 
 - **GitHub Discussions**: Use [GitHub Discussions](https://github.com/bjo163/mwx-ships/discussions) to ask general questions, propose architectural ideas, and share deployment configurations.
