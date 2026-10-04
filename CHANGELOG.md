@@ -5,6 +5,41 @@ All notable changes to **Moonships** will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] - 2026-10-04
+
+### Added
+- **Git Provider Integrations**: GitHub, GitLab, and Gitea integrations persist normalized repository identity, capability metadata, encrypted provider tokens, encrypted webhook secrets, and optional Git usernames.
+- **Signed Webhook Ingestion**: GitHub/Gitea HMAC signatures and GitLab webhook tokens are verified before event processing; forged requests are rejected.
+- **Webhook Intent Ledger**: Provider delivery IDs are persisted and replay-safe, while push/preview commit intent keys prevent duplicate deployments even when a provider retries with a different delivery ID.
+- **Source-Control Deployment Provenance**: Webhook deployments are recorded with explicit trigger provenance and provider delivery linkage.
+- **Provider Commit Status**: Pending/success/failure deployment state is reported back to supported providers with bounded HTTP timeouts.
+- **Private Repository Authentication**: HTTPS Git clone/fetch can use encrypted provider credentials through remote `GIT_ASKPASS`; tokens travel over SSH stdin and are never embedded in repository URLs or process arguments.
+- **Preview Deployments**: Pull/merge requests create deterministic preview identities with isolated Environment/Application records, copied encrypted runtime configuration, deterministic hostnames, and preview deployment provenance.
+- **Preview Teardown**: Close/merge events remove managed routes and preview runtimes, then clean preview Application/Environment records deterministically.
+- **Git Integration API**: JWT-protected application endpoints expose safe integration metadata while provider tokens and webhook secrets remain write-only.
+
+### Reliability
+- Duplicate provider deliveries are idempotent by both delivery identity and source commit intent.
+- Failed webhook deliveries remain retryable without reopening completed deliveries.
+- Preview update events fail closed while a prior preview deployment is active.
+- Provider status callback failure never changes an otherwise successful Moonships deployment.
+- Preview applications inherit encrypted source credentials/configuration without decrypt/re-encrypt churn.
+
+### Security
+- Provider secrets are AES-256-GCM encrypted at rest and never returned by safe API serialization.
+- Remote private-repository credentials use temporary `0600` token files and an ephemeral `GIT_ASKPASS` script that is removed by a shell trap.
+- Git credentials are added to deployment redaction inputs before remote Git failures are persisted.
+- Preview webhook integrations are disabled on derived preview applications to avoid creating unintended webhook ingress surfaces.
+
+### Configuration
+- `MOONSHIPS_PREVIEW_BASE_DOMAIN` defines the DNS suffix for deterministic preview hostnames and is required for preview creation.
+- `MOONSHIPS_PREVIEW_HTTPS=true` enables HTTPS on generated preview domains; managed ACME requirements from v0.4 still apply.
+
+### Known limitations
+- Preview creation expects wildcard/appropriate DNS for `MOONSHIPS_PREVIEW_BASE_DOMAIN`; Moonships does not create DNS provider records in v0.5.
+- Provider status callbacks are best-effort and intentionally do not fail a deployment when the external Git provider is unavailable.
+- Preview teardown returns a conflict while its deployment is actively running; the provider can retry the close delivery after the deployment reaches a terminal state.
+
 ## [0.4.0] - 2026-10-04
 
 ### Added
