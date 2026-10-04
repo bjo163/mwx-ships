@@ -132,7 +132,7 @@ async fn scalar_text(db: &sea_orm::DatabaseConnection, sql: &str) -> String {
         .await
         .expect("query scalar text")
         .expect("scalar text row");
-    row.try_get("", "value").expect("scalar text value")
+    row.try_get_by_index(0).expect("scalar text value")
 }
 
 async fn scalar_i64(db: &sea_orm::DatabaseConnection, sql: &str) -> i64 {
@@ -141,5 +141,5 @@ async fn scalar_i64(db: &sea_orm::DatabaseConnection, sql: &str) -> i64 {
         .await
         .expect("query scalar integer")
         .expect("scalar integer row");
-    row.try_get("", "value").expect("scalar integer value")
+    row.try_get_by_index(0).expect("scalar integer value")
 }
