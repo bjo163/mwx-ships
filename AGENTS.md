@@ -20,7 +20,7 @@ Moonships is an independent self-hosted Mini-PaaS / deployment control plane bui
 12. **Docs required**: Keep architectural decision records (ADRs), user manuals, API specs, and runbooks updated under `docs/`.
 13. **GitHub issues required**: GitHub Issues are the single source of truth for task tracking. Keep `TODO.md` in sync as an index referencing real issue IDs.
 14. **No duplicate domain concepts**: Maintain clean, non-overlapping models: `Server`, `Project`, `Environment`, `Application`, `EnvironmentVariable`, `Domain`, `Deployment`, `DeploymentLog`.
-15. **Two-branch policy**: Canonical development uses only `dev` and `main`. Work directly on `dev`; promote only a green `dev -> main` PR for production. Do not create feature/release/hotfix/dependency branches in the canonical repository.
+15. **Two-branch policy**: Canonical development uses only `dev` and `main`. Work directly on `dev`; promote only the exact green `dev` commit to `main` for production. Do not create feature/release/hotfix/dependency branches in the canonical repository.
 16. **Release-from-main only**: `main` is production. Version/changelog preparation happens on `dev`; the release workflow publishes from `main` only when the package version changes.
 
 ## Code & Structure Conventions
