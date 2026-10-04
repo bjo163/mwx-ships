@@ -12,7 +12,7 @@ services:
       - LOCO_ENV=production
       - PORT=5150
       - BINDING=0.0.0.0
-      - HOST=http://localhost:5150
+      - HOST=${HOST:-http://localhost:5150}
       - DATABASE_URL=sqlite:///app/data/moonships.sqlite?mode=rwc
       - QUEUE_URL=sqlite:///app/data/moonships.sqlite?mode=rwc
       - ENCRYPTION_KEY=${ENCRYPTION_KEY:?ENCRYPTION_KEY must be set to a secure 64-character hex value}
