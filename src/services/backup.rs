@@ -8,8 +8,9 @@ use sha2::{Digest, Sha256};
 use std::{
     env,
     path::{Path, PathBuf},
+    sync::OnceLock,
 };
-use tokio::{fs, process::Command};
+use tokio::{fs, process::Command, sync::Mutex};
 use uuid::Uuid;
 
 #[derive(Debug, thiserror::Error)]
@@ -28,6 +29,8 @@ pub enum BackupError {
     Crypto(String),
     #[error("backup integrity verification failed: {0}")]
     Verification(String),
+    #[error("another backup is already running")]
+    Busy,
 }
 
 #[derive(Debug, Clone)]
@@ -36,10 +39,15 @@ pub struct BackupResult {
     pub path: PathBuf,
 }
 
+static BACKUP_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+
 pub struct BackupService;
 
 impl BackupService {
     pub async fn run(db: &DatabaseConnection) -> Result<BackupResult, BackupError> {
+        let lock = BACKUP_LOCK.get_or_init(|| Mutex::new(()));
+        let _guard = lock.try_lock().map_err(|_| BackupError::Busy)?;
+
         let source = database_path_from_env()?;
         if !source.exists() {
             return Err(BackupError::SourceMissing(source.display().to_string()));
