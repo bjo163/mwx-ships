@@ -4,7 +4,7 @@ use crate::models::{
 };
 use crate::services::{
     crypto::CryptoService,
-    docker::ContainerConfig,
+    docker::{ContainerConfig, VolumeMount},
     git_provider::{CommitStatus, GitProviderService},
     proxy::ProxyService,
     remote::{redact_secrets, RemoteRuntime},
@@ -805,6 +805,46 @@ impl DeploymentService {
         };
 
         let is_compose = revision_snapshot.workload_type == "compose";
+        if is_compose && !revision_snapshot.volumes.is_empty() {
+            return Err(Self::record_failure(
+                db,
+                &execution_token,
+                dep.id,
+                app.id,
+                "PERSISTENT_VOLUME_COMPOSE_UNSUPPORTED",
+                "building",
+                "Moonships-managed persistent volume attachments are not supported for Compose workloads",
+                None,
+            )
+            .await);
+        }
+
+        for volume in &revision_snapshot.volumes {
+            if let Err(err) = runtime.ensure_volume(&volume.docker_volume_name).await {
+                return Err(Self::record_failure(
+                    db,
+                    &execution_token,
+                    dep.id,
+                    app.id,
+                    "PERSISTENT_VOLUME_PREPARE_FAILED",
+                    "building",
+                    &err.to_string(),
+                    err.exit_code(),
+                )
+                .await);
+            }
+        }
+
+        let volume_mounts = revision_snapshot
+            .volumes
+            .iter()
+            .map(|volume| VolumeMount {
+                source: volume.docker_volume_name.clone(),
+                target: volume.mount_path.clone(),
+                read_only: volume.read_only,
+            })
+            .collect::<Vec<_>>();
+
         let compose_file = revision_snapshot
             .compose_file_path
             .as_deref()
@@ -1120,6 +1160,7 @@ impl DeploymentService {
                 labels: Vec::new(),
                 restart_policy: "unless-stopped".to_string(),
                 network: Some(ProxyService::MANAGED_NETWORK.to_string()),
+                volume_mounts: volume_mounts.clone(),
             };
 
             let existing_candidate_status = runtime
@@ -1576,6 +1617,7 @@ impl DeploymentService {
                 labels,
                 restart_policy: "unless-stopped".to_string(),
                 network: None,
+                volume_mounts: volume_mounts.clone(),
             };
 
             if let Err(err) = runtime.run_container(app.id, &container_config).await {
