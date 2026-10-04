@@ -29,6 +29,8 @@ pub struct Model {
     pub auto_deploy: bool,
     pub current_revision_id: Option<i64>,
     pub previous_revision_id: Option<i64>,
+    pub active_runtime_name: Option<String>,
+    pub candidate_runtime_name: Option<String>,
     pub status: String,
     pub created_at: DateTimeWithTimeZone,
     pub updated_at: DateTimeWithTimeZone,
