@@ -157,44 +157,49 @@ impl DeploymentService {
             });
         }
 
-        let retry = Self::trigger_deploy(
-            db,
-            original.application_id,
-            original.commit_hash.clone(),
-            original.commit_message.clone(),
-        )
-        .await?;
-
-        if let Some(revision_id) = original.revision_id {
-            let commit_hash = original.commit_hash.clone().unwrap_or_default();
-            let _ = deployments::Model::attach_revision(
-                db,
-                retry.id,
-                revision_id,
-                &commit_hash,
-                original.commit_message.clone(),
-            )
+        if deployments::Model::has_active_deployment(db, original.application_id)
             .await
             .map_err(|err| DeploymentError::StepFailed {
-                step: "retry_revision_bind".to_string(),
+                step: "retry_lock_check".to_string(),
                 message: err.to_string(),
-            })?;
+            })?
+        {
+            return Err(DeploymentError::Conflict);
         }
 
+        let retry = deployments::Model::create_deployment_attempt(
+            db,
+            original.application_id,
+            original.server_id,
+            original.commit_hash.clone(),
+            original.commit_message.clone(),
+            "retry",
+            Some(original.id),
+            original.revision_id,
+        )
+        .await
+        .map_err(|err| DeploymentError::StepFailed {
+            step: "create_retry".to_string(),
+            message: err.to_string(),
+        })?;
+
+        let _ = applications::Model::update_status(db, original.application_id, "queued").await;
         let _ = deployment_logs::Model::append(
             db,
             retry.id,
             "system",
-            &format!("Retry requested from deployment #{}", original.id),
+            &format!(
+                "Retry queued from deployment #{}{}",
+                original.id,
+                original
+                    .revision_id
+                    .map(|revision_id| format!(" using immutable revision #{revision_id}"))
+                    .unwrap_or_default()
+            ),
         )
         .await;
 
-        deployments::Model::find_by_id(db, retry.id)
-            .await
-            .map_err(|err| DeploymentError::StepFailed {
-                step: "reload_retry".to_string(),
-                message: err.to_string(),
-            })
+        Ok(retry)
     }
 
     pub async fn execute_deployment(
