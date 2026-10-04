@@ -2518,6 +2518,116 @@
           }
         }
       }
+    },
+    "/api/deployment-plans": {
+      "post": {
+        "operationId": "post_api_deployment_plans",
+        "x-moonships-stability": "v1-additive",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "application_id",
+                  "commit_hash"
+                ],
+                "properties": {
+                  "application_id": {
+                    "type": "integer",
+                    "format": "int64"
+                  },
+                  "commit_hash": {
+                    "type": "string",
+                    "minLength": 40,
+                    "maxLength": 64
+                  },
+                  "commit_message": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success"
+          },
+          "202": {
+            "description": "Accepted"
+          },
+          "400": {
+            "description": "Bad request"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "409": {
+            "description": "Conflict"
+          }
+        }
+      }
+    },
+    "/api/deployment-plans/{revision_id}/deploy": {
+      "post": {
+        "operationId": "post_api_deployment_plan_deploy",
+        "x-moonships-stability": "v1-additive",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "revision_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success"
+          },
+          "202": {
+            "description": "Accepted"
+          },
+          "400": {
+            "description": "Bad request"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "409": {
+            "description": "Conflict"
+          }
+        }
+      }
     }
   }
 }
