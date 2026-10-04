@@ -27,6 +27,8 @@ pub struct Model {
     pub healthcheck_path: Option<String>,
     pub healthcheck_port: Option<i32>,
     pub auto_deploy: bool,
+    pub current_revision_id: Option<i64>,
+    pub previous_revision_id: Option<i64>,
     pub status: String,
     pub created_at: DateTimeWithTimeZone,
     pub updated_at: DateTimeWithTimeZone,
@@ -64,6 +66,8 @@ pub enum Relation {
     Domains,
     #[sea_orm(has_many = "super::deployments::Entity")]
     Deployments,
+    #[sea_orm(has_many = "super::deployment_revisions::Entity")]
+    DeploymentRevisions,
 }
 
 impl Related<super::projects::Entity> for Entity {
@@ -99,6 +103,12 @@ impl Related<super::domains::Entity> for Entity {
 impl Related<super::deployments::Entity> for Entity {
     fn to() -> RelationDef {
         Relation::Deployments.def()
+    }
+}
+
+impl Related<super::deployment_revisions::Entity> for Entity {
+    fn to() -> RelationDef {
+        Relation::DeploymentRevisions.def()
     }
 }
 
