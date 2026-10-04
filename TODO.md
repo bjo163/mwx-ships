@@ -18,7 +18,10 @@ GitHub Issues are the canonical source of truth.
   - [ ] #68 one-click rollback
   - [ ] #69 idempotent/restart-safe worker
   - [ ] #70 retention and cleanup
-- [ ] #59 v0.4 Managed Ingress, TLS & Zero-Downtime
+- [x] #59 v0.4 Managed Ingress, TLS & Zero-Downtime
+  - [x] #72 managed Traefik runtime/network
+  - [x] #73 blue/green health-before-switch
+  - [x] #74 domain verification + ACME TLS lifecycle
 - [ ] #60 v0.5 Git Provider Automation & Preview Deployments
 - [ ] #61 v0.6 Production Operations, Backup, Restore & Observability
 - [ ] #62 v0.7 Organizations, RBAC, API Tokens & Audit Trail
