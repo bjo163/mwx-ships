@@ -484,14 +484,54 @@ impl DeploymentService {
             })
             .unwrap_or((&app.git_repository, &app.git_branch));
 
+        let git_integration =
+            git_integrations::Model::find_for_repository(db, app.id, git_repository)
+                .await
+                .map_err(|err| DeploymentError::StepFailed {
+                    step: "git_integration_lookup".to_string(),
+                    message: err.to_string(),
+                })?;
+
+        let (git_username, git_token) = match git_integration.as_ref() {
+            Some(integration)
+                if git_repository.starts_with("https://")
+                    || git_repository.starts_with("http://") =>
+            {
+                let username = integration
+                    .resolved_git_username()
+                    .map_err(|err| DeploymentError::StepFailed {
+                        step: "git_credential_username".to_string(),
+                        message: err.to_string(),
+                    })?;
+                let token = integration
+                    .token()
+                    .map_err(|err| DeploymentError::StepFailed {
+                        step: "git_credential_decrypt".to_string(),
+                        message: err.to_string(),
+                    })?;
+                (username, token)
+            }
+            _ => (None, None),
+        };
+
         let (commit_sha, commit_message) = match runtime
-            .sync_repository_config(app.id, git_repository, git_branch, requested_commit)
+            .sync_repository_config_with_credentials(
+                app.id,
+                git_repository,
+                git_branch,
+                requested_commit,
+                git_username.as_deref(),
+                git_token.as_deref(),
+            )
             .await
         {
             Ok(revision) => revision,
             Err(err) => {
                 let exit_code = err.exit_code();
-                let message = err.to_string();
+                let message = redact_secrets(
+                    &err.to_string(),
+                    &git_token.iter().cloned().collect::<Vec<_>>(),
+                );
                 return Err(Self::record_failure(
                     db,
                     &execution_token,
@@ -647,7 +687,7 @@ impl DeploymentService {
         .await;
 
         let mut decrypted_envs = Vec::new();
-        let mut secret_values = Vec::new();
+        let mut secret_values = git_token.iter().cloned().collect::<Vec<_>>();
 
         for env in &revision_snapshot.environment {
             let value = if env.is_secret {
