@@ -117,6 +117,22 @@ impl Model {
         Ok(updated)
     }
 
+    pub async fn attach_revision(
+        db: &DatabaseConnection,
+        id: i64,
+        revision_id: i64,
+        commit_hash: &str,
+        commit_message: Option<String>,
+    ) -> Result<Model> {
+        let dep = Self::find_by_id(db, id).await?;
+        let mut active: ActiveModel = dep.into();
+        active.revision_id = Set(Some(revision_id));
+        active.commit_hash = Set(Some(commit_hash.to_string()));
+        active.commit_message = Set(commit_message);
+        active.updated_at = Set(Utc::now().into());
+        Ok(active.update(db).await?)
+    }
+
     pub async fn record_failure(
         db: &DatabaseConnection,
         id: i64,
