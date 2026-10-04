@@ -11,18 +11,20 @@ Moonships follows a disciplined, SQLite-first progression from zero-infrastructu
 - Implement Antigravity development discipline, repository policy, and CI quality gates.
 - Configure repository governance, security disclosure policies, and contributor guidelines.
 
-### Phase 1 — SQLite Mini-PaaS (Current MVP Target)
+### Phase 1 — SQLite Mini-PaaS (v0.1 Complete)
 - Canonical SQLite domain entities (`Server`, `Project`, `Environment`, `Application`, `EnvironmentVariable`, `Domain`, `Deployment`, `DeploymentLog`).
-- Remote infrastructure primitives (`SshService` preflight) plus local-host deployment services (`GitService`, `DockerService`, `ProxyService`, `CryptoService`).
-- v0.1 deployment execution targets the control-plane Docker host; selected remote-server execution is tracked in #46.
+- Remote infrastructure primitives (`SshService` preflight) plus deployment services (`GitService`, `DockerService`, `ProxyService`, `CryptoService`).
+- v0.1 established the single-node SQLite control plane and local-host deployment baseline.
 - Asynchronous `DeploymentWorker` running on Loco's SQLite persistent queue.
 - Deployment state machine with non-overlapping locking and sequential log persistence.
 - Server preflight checks and HTTP healthchecks.
 - Modern React operational dashboard.
 
-### Phase 2 — Remote Target Execution & Git Automation
-- Execute deployment build/run/healthcheck on the selected remote server (#46).
-- Remove the control-plane Docker socket requirement for remote deployments.
+### Phase 2 — Remote Target Execution & Control-Plane Security (v0.2 Complete)
+- Execute deployment Git sync/build/run/log/status/healthcheck on the selected remote server (#46).
+- Remove the control-plane Docker socket requirement for application deployments.
+- Protect operational management routes with JWT (#47).
+- Add SSH host-key verification, optional fingerprint pinning, bounded timeouts, stable failure categories, and secret-safe transfer/logging.
 
 ### Phase 2B — Git Automation & CI Webhooks
 - Automated push webhooks for GitHub, GitLab, and Gitea.
