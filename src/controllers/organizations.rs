@@ -3,6 +3,7 @@ use crate::{
         _entities::{projects, servers},
         api_tokens::{CreateApiTokenParams, Model as ApiTokenModel},
         audit_events::{AuditEventInput, Model as AuditEventModel},
+        auth_rate_limits::Model as AuthRateLimitModel,
         organization_memberships::{
             Model as MembershipModel, SetMembershipParams,
         },
@@ -33,6 +34,33 @@ pub fn routes() -> Routes {
 #[derive(Debug, Deserialize)]
 pub struct AuditQuery {
     pub limit: Option<u64>,
+}
+
+async fn enforce_sensitive_action(
+    ctx: &AppContext,
+    principal: &Principal,
+    organization_id: i64,
+    action: &str,
+) -> Result<()> {
+    let key = format!("{}:{organization_id}:{action}", principal.user.id);
+    let decision = AuthRateLimitModel::check_and_record(
+        &ctx.db,
+        "sensitive_action",
+        &key,
+        30,
+        60,
+        60,
+    )
+    .await?;
+
+    if !decision.allowed {
+        return Err(Error::BadRequest(format!(
+            "sensitive action rate limited; retry after {} seconds",
+            decision.retry_after_seconds.unwrap_or(60)
+        )));
+    }
+
+    Ok(())
 }
 
 #[debug_handler]
@@ -84,8 +112,8 @@ pub async fn create(
             resource_type: Some("organization".to_string()),
             resource_id: Some(org.id.to_string()),
             outcome: "success".to_string(),
-            request_id: None,
-            metadata: None,
+            request_id: Some(principal.request_id.clone()),
+            metadata: principal.audit_metadata(None),
         },
     )
     .await;
@@ -133,6 +161,7 @@ pub async fn upsert_member(
     let actor_membership = principal
         .require(&ctx.db, id, Permission::ManageOrganization)
         .await?;
+    enforce_sensitive_action(&ctx, &principal, id, "membership.upsert").await?;
 
     let existing = MembershipModel::find_for_user(&ctx.db, id, params.user_id).await?;
     let target_is_owner = existing
@@ -166,8 +195,8 @@ pub async fn upsert_member(
             resource_type: Some("user".to_string()),
             resource_id: Some(params.user_id.to_string()),
             outcome: "success".to_string(),
-            request_id: None,
-            metadata: Some(serde_json::json!({"role": membership.role})),
+            request_id: Some(principal.request_id.clone()),
+            metadata: principal.audit_metadata(Some(serde_json::json!({"role": membership.role}))),
         },
     )
     .await;
@@ -200,7 +229,10 @@ pub async fn create_token(
     Json(mut params): Json<CreateApiTokenParams>,
 ) -> Result<Response> {
     let principal = Principal::authenticate(&ctx, &headers).await?;
-    principal.require(&ctx.db, id, Permission::ManageOrganization).await?;
+    principal
+        .require(&ctx.db, id, Permission::ManageOrganization)
+        .await?;
+    enforce_sensitive_action(&ctx, &principal, id, "api_token.create").await?;
     params.organization_id = id;
 
     let created = ApiTokenModel::create_token(&ctx.db, principal.user.id, &params).await?;
@@ -215,11 +247,11 @@ pub async fn create_token(
             resource_type: Some("api_token".to_string()),
             resource_id: Some(created.record.id.to_string()),
             outcome: "success".to_string(),
-            request_id: None,
-            metadata: Some(serde_json::json!({
+            request_id: Some(principal.request_id.clone()),
+            metadata: principal.audit_metadata(Some(serde_json::json!({
                 "scopes": created.record.scopes(),
                 "token_prefix": created.record.token_prefix,
-            })),
+            }))),
         },
     )
     .await;
@@ -240,7 +272,10 @@ pub async fn revoke_token(
     State(ctx): State<AppContext>,
 ) -> Result<Response> {
     let principal = Principal::authenticate(&ctx, &headers).await?;
-    principal.require(&ctx.db, id, Permission::ManageOrganization).await?;
+    principal
+        .require(&ctx.db, id, Permission::ManageOrganization)
+        .await?;
+    enforce_sensitive_action(&ctx, &principal, id, "api_token.revoke").await?;
 
     let token = ApiTokenModel::revoke_for_organization(&ctx.db, token_id, id).await?;
 
@@ -255,7 +290,7 @@ pub async fn revoke_token(
             resource_type: Some("api_token".to_string()),
             resource_id: Some(token.id.to_string()),
             outcome: "success".to_string(),
-            request_id: None,
+            request_id: Some(principal.request_id.clone()),
             metadata: None,
         },
     )
@@ -309,11 +344,11 @@ pub async fn claim_legacy(
             resource_type: Some("organization".to_string()),
             resource_id: Some(id.to_string()),
             outcome: "success".to_string(),
-            request_id: None,
-            metadata: Some(serde_json::json!({
+            request_id: Some(principal.request_id.clone()),
+            metadata: principal.audit_metadata(Some(serde_json::json!({
                 "projects_claimed": project_result.rows_affected,
                 "servers_claimed": server_result.rows_affected,
-            })),
+            }))),
         },
     )
     .await;
