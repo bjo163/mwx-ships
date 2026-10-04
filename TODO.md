@@ -37,7 +37,7 @@ GitHub Issues are the canonical source of truth.
 ## v0.9 — GA Hardening / Release Candidate
 - [ ] #64 milestone
 - [x] #87 supported upgrade/migration matrix
-- [ ] #88 load/soak/failure-injection/disaster drills
+- [x] #88 load/soak/failure-injection/disaster drills
 - [x] #89 v1 API freeze + SBOM/provenance/security gates
 
 ## v1.0 — Production GA
