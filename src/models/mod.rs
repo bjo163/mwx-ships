@@ -1,5 +1,10 @@
 pub mod _entities;
 pub mod applications;
+pub mod organizations;
+pub mod organization_memberships;
+pub mod auth_rate_limits;
+pub mod audit_events;
+pub mod api_tokens;
 pub mod backup_runs;
 pub mod deployment_logs;
 pub mod deployment_revisions;
