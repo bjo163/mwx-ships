@@ -1,12 +1,26 @@
 # Moonships Platform Roadmap
 
-The canonical production roadmap now lives in:
+The active roadmap is now the focused v3 production plan:
 
-- [Moonships v1.0 Grand Plan](grand-plan-v1.md)
-- [Branch Strategy](branch-strategy.md)
+- [Moonships v3 Production Grand Plan](grand-plan-v3.md)
 - Root [ROADMAP.md](../ROADMAP.md)
+- [Branch Strategy](branch-strategy.md)
 
-GitHub issue #57 is the umbrella planning issue, with version milestones #58–#65.
+GitHub issue #90 is the umbrella plan.
 
-The release sequence is:
-`v0.3 reliability -> v0.4 ingress/zero-downtime -> v0.5 Git automation -> v0.6 operations -> v0.7 RBAC -> v0.8 scale -> v0.9 RC hardening -> v1.0 GA`.
+Release sequence:
+
+```
+v1.0 GA
+  -> v1.1 deploy UX
+  -> v1.2 stateful services
+  -> v1.3 workers/jobs
+  -> v2.0 desired state + promotion
+  -> v2.1 multi-server placement/recovery
+  -> v2.2 drift + bounded auto-recovery
+  -> v3.0 production platform GA
+```
+
+The roadmap intentionally excludes Kubernetes, marketplace, billing, enterprise federation, serverless, global edge scheduling, and provider-side VPS provisioning until after v3.
+
+Production-readiness gates must be reproducible without a real VPS by using local/CI Docker, test SSH targets, fixtures, failure injection, and published-image smoke tests.
