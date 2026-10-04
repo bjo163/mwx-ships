@@ -2,6 +2,7 @@
 
 pub use super::applications::Entity as Applications;
 pub use super::deployment_logs::Entity as DeploymentLogs;
+pub use super::deployment_revisions::Entity as DeploymentRevisions;
 pub use super::deployments::Entity as Deployments;
 pub use super::domains::Entity as Domains;
 pub use super::environment_variables::Entity as EnvironmentVariables;
