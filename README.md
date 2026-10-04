@@ -308,6 +308,7 @@ Comprehensive technical guides are available in the [`docs/`](docs/) directory:
 - [Troubleshooting Runbook](docs/troubleshooting.md)
 - [Platform Roadmap](docs/roadmap.md)
 - [v1.0 Grand Plan](docs/grand-plan-v1.md)
+- [v3 Production Grand Plan](docs/grand-plan-v3.md)
 - [Branch Strategy](docs/branch-strategy.md)
 - [ADR 0001: Control Plane Architecture](docs/adr/0001-control-plane.md)
 - [ADR 0002: SQLite-First Canonical Storage](docs/adr/0002-sqlite-first.md)
@@ -335,6 +336,12 @@ If you intentionally expose Moonships beyond localhost, use TLS and a trusted ne
 Moonships v1.0 is the stable production baseline. The v1 compatibility contract is defined by [docs/openapi-v1.json](docs/openapi-v1.json), the supported upgrade path by [docs/upgrade-policy.md](docs/upgrade-policy.md), and the trust/security boundary by [docs/threat-model-v1.md](docs/threat-model-v1.md).
 
 For upgrades from v0.2.x through v0.9.x, follow [docs/v1-upgrade.md](docs/v1-upgrade.md) and create a verified control-plane backup before migration.
+
+## Roadmap to v3
+
+Post-v1 work stays focused on the self-hosted PaaS core rather than expanding into unrelated platform categories. The sequence is **deploy UX -> stateful services -> workers/jobs -> declarative desired state -> deterministic multi-server recovery -> drift/auto-recovery -> v3 production contract**. See [ROADMAP.md](ROADMAP.md) and [docs/grand-plan-v3.md](docs/grand-plan-v3.md).
+
+Real production VPS deployment is intentionally not required as a repository release gate; acceptance is designed to be reproducible with CI/local Docker, test SSH targets, failure injection, fixtures, and published-image smoke tests.
 
 ---
 
