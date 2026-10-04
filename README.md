@@ -2,7 +2,7 @@
 
 > **Deploy. Control. Own your infrastructure.**
 
-Moonships is an independent, self-hosted **Mini-PaaS and deployment control plane** built in Rust with Loco.rs, SQLite-first persistence, SeaORM, Docker, and Traefik. Conceptually inspired by modern self-hosted tools like Coolify, Moonships is an original, production-grade control plane that gives you full ownership over your servers and workloads.
+Moonships is an independent, self-hosted **Mini-PaaS and deployment control plane** built in Rust with Loco.rs, SeaORM, Docker, and Traefik. SQLite is the first-class single-node default; PostgreSQL is the optional v0.8 scale adapter for multi-worker control planes. Conceptually inspired by modern self-hosted tools like Coolify, Moonships is an original, production-grade control plane that gives you full ownership over your servers and workloads.
 
 > **Important Architecture Principle:**  
 > **Moonships MVP is strictly SQLite-first.**  
@@ -81,8 +81,10 @@ Moonships is a **deployment control plane**, not a container runtime. It provide
 
 ### Core Architecture Principles
 1. **Remote Runtime Boundary**: v0.2 executes application Git/Docker/healthcheck operations on the selected Linux server over SSH. The control plane does not mount the host Docker socket.
-2. **Persistent Queue Engine**: Deployments run as durable background tasks using Loco's SQLite-backed `BackgroundQueue`. In-flight jobs survive control plane restarts.
+2. **Durable Queue Engine**: SQLite-backed queueing is the default single-node mode; PostgreSQL-backed queueing is available for multi-worker scale deployments.
 3. **Validated Remote Shell Boundary**: Remote commands are composed only from validated inputs and shell-quoted values, with strict SSH host-key checking and bounded execution timeouts.
+4. **Least-Privilege Control Plane**: Organization RBAC, scoped API tokens, session revocation, immutable audit events, and abuse controls guard operational actions.
+5. **Recoverable Runtime**: Immutable revisions, blue/green managed ingress, rollback, execution leases/heartbeats, backup/restore, and operational health make failure a first-class path.
 
 ---
 
@@ -90,11 +92,11 @@ Moonships is a **deployment control plane**, not a container runtime. It provide
 
 Traditional PaaS platforms require spinning up PostgreSQL, Redis, and message broker containers before they can boot. For solo developers, small teams, homelabs, and edge deployments, this introduces massive memory overhead and fragile disaster recovery.
 
-**Moonships eliminates database bloat:**
-- **Zero External DB Dependencies**: All state lives in `data/moonships.sqlite`.
-- **Atomic Online Backups**: Point-in-time backups via native SQLite Online Backup API.
-- **Low Footprint**: Operates comfortably on 512MB RAM VPS instances.
-- **WAL Concurrency**: Write-Ahead Logging mode enables non-blocking concurrent reads and safe serialized writes.
+**SQLite remains the simple default:**
+- **Zero External DB Dependencies**: single-node installations can keep all state in `data/moonships.sqlite`.
+- **Atomic Online Backups**: point-in-time backups use the SQLite Online Backup API.
+- **Low Operational Footprint**: ideal for solo developers, small teams, homelabs, and edge deployments.
+- **Optional Scale Adapter**: PostgreSQL can replace both relational state and queue persistence when multiple Moonships control-plane workers are required.
 
 ---
 
@@ -125,11 +127,11 @@ Traditional PaaS platforms require spinning up PostgreSQL, Redis, and message br
 | **M5 Security** | AES-256-GCM encryption, secret masking, injection validation | Complete |
 | **M6 Documentation** | Architectural Decision Records, runbooks, guides | Complete |
 | **M7 Deployment Reliability** | Immutable revisions, cancel/retry, rollback, worker leases, retention | Complete (v0.3) |
-| **M8 Managed Ingress** | Blue/green, managed Traefik, TLS lifecycle | Planned (v0.4) |
-| **M9 Git Automation** | Signed webhooks, provider status, previews | Planned (v0.5) |
-| **M10 Production Operations** | Backup/restore, observability, notifications | Planned (v0.6) |
-| **M11 Teams & RBAC** | Organizations, roles, API tokens, audit | Planned (v0.7) |
-| **M12 Scale Adapter** | PostgreSQL multi-worker and advanced workloads | Planned (v0.8) |
+| **M8 Managed Ingress** | Blue/green, managed Traefik, TLS lifecycle | Complete (v0.4) |
+| **M9 Git Automation** | Signed webhooks, provider status, previews | Complete (v0.5) |
+| **M10 Production Operations** | Backup/restore, observability, notifications | Complete (v0.6) |
+| **M11 Teams & RBAC** | Organizations, roles, API tokens, audit | Complete (v0.7) |
+| **M12 Scale Adapter** | PostgreSQL multi-worker, Compose, registries, placement | Release candidate (v0.8) |
 
 ---
 
@@ -209,7 +211,9 @@ Settings are configured via `config/*.yaml` and environment variables:
 | Variable | Description | Default |
 |---|---|---|
 | `DATABASE_URL` | SQLite connection URI | `sqlite://data/moonships.sqlite?mode=rwc` |
-| `QUEUE_URL` | Persistent SQLite queue URI | `sqlite://data/moonships.sqlite?mode=rwc` |
+| `QUEUE_URL` | Persistent queue URI; SQLite by default, PostgreSQL in scale mode | `sqlite://data/moonships.sqlite?mode=rwc` |
+| `QUEUE_KIND` | Queue adapter (`Sqlite` or `Postgres`) | `Sqlite` |
+| `MOONSHIPS_DEPLOYMENT_HEARTBEAT_SECS` | Multi-worker execution-lease heartbeat | `30` |
 | `ENCRYPTION_KEY` | 32-byte hex key for AES-256-GCM encryption | Required in production |
 | `PORT` | Control plane HTTP port | `5150` |
 | `JWT_SECRET` | Secret key for JWT signing | Configured in yaml |
@@ -259,11 +263,14 @@ Full REST reference is available in [docs/api.md](docs/api.md).
 Moonships maintains automated test coverage across services, models, workers, and security:
 
 ```bash
-# Run unit and integration tests
+# Run unit and integration tests (SQLite by default)
 cargo test -j 2
 
 # Run service tests specifically
 cargo test services -j 2
+
+# CI additionally runs the full suite against PostgreSQL and executes
+# a verified SQLite -> PostgreSQL migration drill.
 ```
 
 ---
@@ -272,7 +279,7 @@ cargo test services -j 2
 
 - **No Plaintext Private Keys**: Encrypted at rest using AES-256-GCM.
 - **No Secret Leakage**: Secrets masked to `••••••••` in API outputs and stripped from logs.
-- **Authenticated Management API**: Operational routes require JWT; `/api/health` remains public.
+- **Authenticated & Authorized Management API**: Operational routes require JWT or scoped API tokens plus organization RBAC; `/api/health` remains public.
 - **Hardened SSH Boundary**: Strict host-key checking, optional SHA256 fingerprint pinning, bounded timeouts, and validated/shell-quoted remote inputs.
 - **No Control-Plane Docker Socket**: v0.2 does not mount `/var/run/docker.sock` or run application Docker commands locally.
 - **Validation**: Strict validation on SSH targets, container/image names, Docker paths, environment keys, Git branches, and hostnames.
@@ -304,13 +311,14 @@ Comprehensive technical guides are available in the [`docs/`](docs/) directory:
 - [ADR 0002: SQLite-First Canonical Storage](docs/adr/0002-sqlite-first.md)
 - [ADR 0003: SQLite Worker Queue](docs/adr/0003-sqlite-worker-queue.md)
 - [ADR 0004: Docker Runtime & Traefik](docs/adr/0004-docker-runtime.md)
-- [ADR 0005: Future PostgreSQL Adapter](docs/adr/0005-postgresql-future-adapter.md)
+- [PostgreSQL Scale Mode](docs/postgresql-scale.md)
+- [ADR 0005: PostgreSQL Scale Adapter](docs/adr/0005-postgresql-future-adapter.md)
 
 ---
 
-## Network Exposure & v0.3 Security Boundary
+## Network Exposure & Production Security Boundary
 
-The v0.3 management API requires JWT on operational routes and keeps `GET /api/health` public. Docker Compose still publishes Moonships to **127.0.0.1:5150 only** by default as defense in depth.
+The management API requires authenticated, authorized access on operational routes and keeps `GET /api/health` public. Docker Compose still publishes Moonships to **127.0.0.1:5150 only** by default as defense in depth.
 
 If you intentionally expose Moonships beyond localhost, use TLS and a trusted network boundary, rotate `JWT_SECRET` and `ENCRYPTION_KEY`, and pin remote-server SSH fingerprints where possible.
 
@@ -319,16 +327,20 @@ If you intentionally expose Moonships beyond localhost, use TLS and a trusted ne
 ## Known Limitations
 
 - **Single Active Deployment per Application**: Concurrent deployments to the same application return 409 Conflict.
-- **Single-Node Control Plane**: SQLite is optimized for single-node deployments; multi-writer active-active control planes are deferred to the PostgreSQL scale adapter (Milestone M7).
-- **Authorization Model**: v0.2 authenticates operational routes with JWT, but multi-tenant organizations and role-based authorization remain a later milestone.
+- **Database Topology**: SQLite is supported for one writable Moonships control-plane node. Use PostgreSQL state + PostgreSQL queue mode for multiple workers; Moonships does not operate PostgreSQL HA/backups for you.
+- **Identity Federation**: organization RBAC, API tokens, and session revocation are supported; enterprise SSO/federation is outside the v1 core scope.
 - **SSH Trust Bootstrap**: Without an explicit pinned fingerprint, first host-key discovery is trust-on-first-use. Pin fingerprints for production targets.
-- **Deployment Replacement**: v0.3 adds deterministic rollback/recovery, but still stops the previous container before starting the replacement; health-before-traffic blue/green rollout begins in v0.4.
+- **Managed-Ingress Boundary**: blue/green health-before-traffic applies to Moonships-managed ingress workloads. Explicit host-port deployments retain compatibility replacement semantics.
 
 ---
 
 ### v0.4 Managed Ingress
 
 Applications with domains and no explicit published host port use Moonships-managed Traefik and revision-specific blue/green runtimes. A candidate must pass its configured healthcheck before Moonships atomically switches the Traefik route; the previous runtime is drained only after the switch. HTTPS domains use Let's Encrypt HTTP-01 when `MOONSHIPS_ACME_EMAIL` is configured.
+
+### v0.8 PostgreSQL Scale Mode
+
+SQLite remains the default single-node production mode. Set `DATABASE_URL`, `QUEUE_KIND=Postgres`, and `QUEUE_URL` to PostgreSQL for multi-worker operation. Moonships tests the full backend suite on both databases and runs a real SQLite→PostgreSQL migration drill in CI. See [docs/postgresql-scale.md](docs/postgresql-scale.md).
 
 ---
 
