@@ -130,10 +130,28 @@ pub async fn upsert_member(
     Json(params): Json<SetMembershipParams>,
 ) -> Result<Response> {
     let principal = Principal::authenticate(&ctx, &headers).await?;
-    let actor_membership = principal.require(&ctx.db, id, Permission::ManageOrganization).await?;
+    let actor_membership = principal
+        .require(&ctx.db, id, Permission::ManageOrganization)
+        .await?;
 
-    if params.role.eq_ignore_ascii_case("owner") && !actor_membership.is_owner() {
-        return unauthorized("only an organization owner can grant owner role");
+    let existing = MembershipModel::find_for_user(&ctx.db, id, params.user_id).await?;
+    let target_is_owner = existing
+        .as_ref()
+        .map(MembershipModel::is_owner)
+        .unwrap_or(false);
+    let grants_owner = params.role.eq_ignore_ascii_case("owner") && params.is_active.unwrap_or(true);
+
+    if (target_is_owner || grants_owner) && !actor_membership.is_owner() {
+        return unauthorized("only an organization owner can modify owner membership");
+    }
+
+    if target_is_owner && (!grants_owner || !params.is_active.unwrap_or(true)) {
+        let owners = MembershipModel::active_owner_count(&ctx.db, id).await?;
+        if owners <= 1 {
+            return Err(Error::BadRequest(
+                "organization must retain at least one active owner".to_string(),
+            ));
+        }
     }
 
     let membership = MembershipModel::upsert(&ctx.db, id, &params).await?;
@@ -169,6 +187,7 @@ pub async fn list_tokens(
         .await?
         .into_iter()
         .filter(|token| token.organization_id == id)
+        .map(|token| token.to_safe())
         .collect::<Vec<_>>();
     format::json(serde_json::json!({"data": tokens}))
 }
@@ -208,7 +227,7 @@ pub async fn create_token(
     format::json(serde_json::json!({
         "data": {
             "token": created.token,
-            "record": created.record
+            "record": created.record.to_safe()
         },
         "message": "Store this API token now; it will not be shown again"
     }))
@@ -223,10 +242,7 @@ pub async fn revoke_token(
     let principal = Principal::authenticate(&ctx, &headers).await?;
     principal.require(&ctx.db, id, Permission::ManageOrganization).await?;
 
-    let token = ApiTokenModel::revoke(&ctx.db, token_id, principal.user.id).await?;
-    if token.organization_id != id {
-        return unauthorized("API token belongs to another organization");
-    }
+    let token = ApiTokenModel::revoke_for_organization(&ctx.db, token_id, id).await?;
 
     let (actor_kind, actor_id) = principal.audit_actor();
     let _ = AuditEventModel::append(
@@ -245,7 +261,7 @@ pub async fn revoke_token(
     )
     .await;
 
-    format::json(serde_json::json!({"data": token}))
+    format::json(serde_json::json!({"data": token.to_safe()}))
 }
 
 #[debug_handler]
