@@ -5,6 +5,42 @@ All notable changes to **Moonships** will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2026-10-04
+
+### Added
+- **Immutable Deployment Revisions**: Every deployable state receives a deterministic revision identity covering source commit, target, runtime/build configuration, environment fingerprints, domains, and image reference.
+- **Known-Good Revision Tracking**: Applications retain explicit `current_revision_id` and `previous_revision_id` pointers so rollback targets are deterministic.
+- **Safe Cancellation & Retry**: Deployments can be cancelled during non-destructive phases and retried as new immutable attempts with source-deployment provenance.
+- **One-Click Rollback**: Rollback queues the previous known-good revision as a new deployment instead of mutating historical deployment records.
+- **Execution Leases**: Workers claim deployments with an execution token and bounded lease; duplicate queue deliveries become no-ops while stale executions can be reclaimed after interruption.
+- **Deployment Provenance**: Deployment attempts record trigger kind (`manual`, `retry`, `rollback`) and source deployment identity for auditability.
+- **Retention Policy**: Revision artifacts, old deployment logs, and target disk pressure are managed with configurable bounded cleanup while current/previous known-good revisions remain protected.
+- **Dashboard Recovery Controls**: Deployment views expose cancel/retry actions, revision state, and rollback controls.
+
+### Reliability
+- Exact retry/rollback execution uses the immutable revision source commit and runtime snapshot instead of whatever configuration happens to be current later.
+- Dockerfile deployments use revision-specific image references.
+- Failed candidate containers/images are cleaned on startup/healthcheck failure without deleting previously healthy revision artifacts.
+- SQLite migrations remain additive/backward-safe for existing v0.2 databases.
+- CI now cancels superseded `dev` workflow runs so only the newest integration head consumes full gate capacity.
+
+### Security
+- Revision snapshots never persist secret plaintext. Secret material required for exact rollback remains AES-256-GCM ciphertext with an integrity fingerprint.
+- Retry/rollback source commits are validated before target-side detached checkout.
+- Cancellation fails closed once the destructive replacement phase begins.
+- Worker phase transitions are guarded by execution ownership so superseded workers cannot advance a newer lease.
+
+### Changed
+- Deployment lifecycle now supports the terminal `cancelled` state in addition to `success` and `failed`.
+- A deployment retry is always a new Deployment row; historical attempts are never reopened.
+- Rollback is represented as a normal auditable deployment attempt.
+- Application detail responses/UI surface current and previous known-good revision state.
+
+### Known limitations
+- v0.3 still uses **stop-old -> start-new** replacement. Zero-downtime blue/green traffic switching is the v0.4 milestone.
+- The control plane remains SQLite-first/single-node; PostgreSQL multi-worker mode remains planned for v0.8.
+- Execution leases are bounded phase ownership, not distributed heartbeats; the default lease is intentionally much longer than a single remote build phase.
+
 ## [0.2.0] - 2026-10-04
 
 ### Added
