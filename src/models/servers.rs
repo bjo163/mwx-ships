@@ -14,6 +14,8 @@ pub struct CreateServerParams {
     pub authentication_type: Option<String>,
     pub private_key: Option<String>,
     pub known_host_fingerprint: Option<String>,
+    pub tags: Option<Vec<String>>,
+    pub capacity_units: Option<i32>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -25,6 +27,8 @@ pub struct UpdateServerParams {
     pub authentication_type: Option<String>,
     pub private_key: Option<String>,
     pub known_host_fingerprint: Option<String>,
+    pub tags: Option<Vec<String>>,
+    pub capacity_units: Option<i32>,
 }
 
 impl Model {
@@ -55,6 +59,30 @@ impl Model {
             .order_by_asc(servers::Column::Name)
             .all(db)
             .await?)
+    }
+
+    pub fn tags(&self) -> Result<Vec<String>> {
+        serde_json::from_str(&self.tags_json)
+            .map_err(|err| Error::BadRequest(format!("invalid server tags: {err}")))
+    }
+
+    pub fn normalized_tags(tags: &[String]) -> Result<Vec<String>> {
+        let mut values = tags
+            .iter()
+            .map(|tag| tag.trim().to_ascii_lowercase())
+            .filter(|tag| !tag.is_empty())
+            .collect::<Vec<_>>();
+        if values.iter().any(|tag| {
+            tag.len() > 64
+                || !tag
+                    .chars()
+                    .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '.'))
+        }) {
+            return Err(Error::BadRequest("server tag is malformed".to_string()));
+        }
+        values.sort();
+        values.dedup();
+        Ok(values)
     }
 
     pub async fn update_status(db: &DatabaseConnection, id: i64, status: &str) -> Result<Model> {
