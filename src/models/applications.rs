@@ -10,11 +10,23 @@ pub struct CreateApplicationParams {
     pub project_id: i64,
     pub environment_id: i64,
     pub server_id: i64,
+    pub server_pool_id: Option<i64>,
+    pub resource_units: Option<i32>,
     pub name: String,
     pub slug: Option<String>,
     pub git_repository: String,
     pub git_branch: Option<String>,
+    pub server_pool_id: Option<i64>,
+    pub resource_units: Option<i32>,
     pub build_type: Option<String>,
+    pub workload_type: Option<String>,
+    pub compose_file_path: Option<String>,
+    pub compose_project_name: Option<String>,
+    pub registry_credential_id: Option<i64>,
+    pub workload_type: Option<String>,
+    pub compose_file_path: Option<String>,
+    pub compose_project_name: Option<String>,
+    pub registry_credential_id: Option<i64>,
     pub dockerfile_path: Option<String>,
     pub docker_context: Option<String>,
     pub docker_image: Option<String>,
@@ -109,11 +121,43 @@ impl Model {
             .clone()
             .unwrap_or_else(|| format!("moonships-app-{}", slug));
 
+        let resource_units = params.resource_units.unwrap_or(1);
+        if resource_units < 1 {
+            return Err(Error::BadRequest(
+                "resource_units must be at least 1".to_string(),
+            ));
+        }
+
+        let workload_type = params
+            .workload_type
+            .as_deref()
+            .unwrap_or("single")
+            .to_ascii_lowercase();
+        if !matches!(workload_type.as_str(), "single" | "compose") {
+            return Err(Error::BadRequest(
+                "workload_type must be 'single' or 'compose'".to_string(),
+            ));
+        }
+        if workload_type == "compose"
+            && params
+                .compose_file_path
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .is_none()
+        {
+            return Err(Error::BadRequest(
+                "compose_file_path is required for compose workloads".to_string(),
+            ));
+        }
+
         let now = Utc::now();
         let active = ActiveModel {
             project_id: Set(params.project_id),
             environment_id: Set(params.environment_id),
             server_id: Set(params.server_id),
+            server_pool_id: Set(params.server_pool_id),
+            resource_units: Set(resource_units),
             name: Set(params.name.clone()),
             slug: Set(slug),
             git_repository: Set(params.git_repository.clone()),
@@ -125,6 +169,13 @@ impl Model {
                 .build_type
                 .clone()
                 .unwrap_or_else(|| "dockerfile".to_string())),
+            workload_type: Set(workload_type),
+            compose_file_path: Set(params.compose_file_path.clone()),
+            compose_project_name: Set(params
+                .compose_project_name
+                .clone()
+                .or_else(|| Some(format!("moonships-{}", slug)))),
+            registry_credential_id: Set(params.registry_credential_id),
             dockerfile_path: Set(params
                 .dockerfile_path
                 .clone()
