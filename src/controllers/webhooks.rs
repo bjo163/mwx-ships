@@ -8,6 +8,7 @@ use crate::{
     services::{
         deployment::{DeploymentError, DeploymentService},
         git_provider::{CommitStatus, GitProviderError, GitProviderService},
+        preview::{PreviewError, PreviewService},
     },
     workers::deployment::{DeploymentWorker, DeploymentWorkerArgs},
 };
@@ -74,7 +75,7 @@ pub async fn receive(
     )
     .await?;
 
-    if !created.inserted {
+    if !created.inserted && created.delivery.status != "failed" {
         return response(
             StatusCode::ACCEPTED,
             serde_json::json!({
@@ -94,7 +95,7 @@ pub async fn receive(
             handle_push(&ctx, &integration, &created.delivery, &event).await
         }
         "pull_request" => {
-            handle_pull_request(&ctx, &created.delivery, &event).await
+            handle_pull_request(&ctx, &integration, &created.delivery, &event).await
         }
         _ => {
             let delivery = WebhookDeliveryModel::mark_ignored(&ctx.db, created.delivery.id).await?;
@@ -216,6 +217,7 @@ async fn handle_push(
 
 async fn handle_pull_request(
     ctx: &AppContext,
+    integration: &GitIntegrationModel,
     delivery: &WebhookDeliveryModel,
     event: &crate::services::git_provider::GitWebhookEvent,
 ) -> Result<Response> {
@@ -225,25 +227,52 @@ async fn handle_pull_request(
         .ok_or_else(|| Error::BadRequest("pull request webhook has no request id".to_string()))?;
 
     if event.closed {
-        let preview = PreviewModel::close(
+        return match PreviewService::close(
             &ctx.db,
             delivery.application_id,
             &delivery.provider,
             &external_request_id,
         )
-        .await?;
-        let delivery = WebhookDeliveryModel::mark_completed(&ctx.db, delivery.id).await?;
-        return response(
-            StatusCode::ACCEPTED,
-            serde_json::json!({
-                "data":{
-                    "delivery_id":delivery.delivery_id,
-                    "preview":preview,
-                    "status":"closed"
-                },
-                "message":"Preview lifecycle close recorded"
-            }),
-        );
+        .await
+        {
+            Ok(preview) => {
+                let delivery =
+                    WebhookDeliveryModel::mark_completed(&ctx.db, delivery.id).await?;
+                response(
+                    StatusCode::ACCEPTED,
+                    serde_json::json!({
+                        "data":{
+                            "delivery_id":delivery.delivery_id,
+                            "preview":preview,
+                            "status":"closed"
+                        },
+                        "message":"Preview runtime removed"
+                    }),
+                )
+            }
+            Err(error) => {
+                let _ = WebhookDeliveryModel::mark_failed(
+                    &ctx.db,
+                    delivery.id,
+                    error.to_string(),
+                )
+                .await;
+                let status = if matches!(error, PreviewError::Busy) {
+                    StatusCode::CONFLICT
+                } else {
+                    StatusCode::BAD_REQUEST
+                };
+                response(
+                    status,
+                    serde_json::json!({
+                        "error":{
+                            "code":"PREVIEW_CLOSE_FAILED",
+                            "message":error.to_string()
+                        }
+                    }),
+                )
+            }
+        };
     }
 
     let source_ref = event
@@ -255,30 +284,74 @@ async fn handle_pull_request(
         .clone()
         .ok_or_else(|| Error::BadRequest("pull request webhook has no commit SHA".to_string()))?;
 
-    let preview = PreviewModel::upsert(
+    match PreviewService::prepare_and_queue(
         &ctx.db,
-        &UpsertPreviewInput {
-            application_id: delivery.application_id,
-            provider: delivery.provider.clone(),
-            external_request_id,
-            source_ref,
-            commit_sha,
-        },
+        delivery.application_id,
+        &delivery.provider,
+        &external_request_id,
+        &source_ref,
+        &commit_sha,
     )
-    .await?;
-    let delivery = WebhookDeliveryModel::mark_completed(&ctx.db, delivery.id).await?;
+    .await
+    {
+        Ok((preview, preview_app, deployment)) => {
+            let delivery =
+                WebhookDeliveryModel::mark_queued(&ctx.db, delivery.id, deployment.id).await?;
 
-    response(
-        StatusCode::ACCEPTED,
-        serde_json::json!({
-            "data":{
-                "delivery_id":delivery.delivery_id,
-                "preview":preview,
-                "status":"recorded"
-            },
-            "message":"Preview lifecycle updated"
-        }),
-    )
+            let _ = GitProviderService::set_commit_status(
+                integration,
+                &commit_sha,
+                CommitStatus::Pending,
+                "Moonships preview deployment queued",
+                preview
+                    .preview_hostname
+                    .as_deref()
+                    .map(|host| format!("https://{host}"))
+                    .as_deref(),
+            )
+            .await;
+
+            DeploymentWorker::perform_later(
+                ctx,
+                DeploymentWorkerArgs {
+                    deployment_id: deployment.id,
+                },
+            )
+            .await?;
+
+            response(
+                StatusCode::ACCEPTED,
+                serde_json::json!({
+                    "data":{
+                        "delivery_id":delivery.delivery_id,
+                        "deployment_id":deployment.id,
+                        "preview_application_id":preview_app.id,
+                        "preview_hostname":preview.preview_hostname,
+                        "status":"queued"
+                    },
+                    "message":"Preview deployment queued"
+                }),
+            )
+        }
+        Err(error) => {
+            let _ =
+                WebhookDeliveryModel::mark_failed(&ctx.db, delivery.id, error.to_string()).await;
+            let status = if matches!(error, PreviewError::Busy | PreviewError::Deployment(DeploymentError::Conflict)) {
+                StatusCode::CONFLICT
+            } else {
+                StatusCode::BAD_REQUEST
+            };
+            response(
+                status,
+                serde_json::json!({
+                    "error":{
+                        "code":"PREVIEW_DEPLOY_FAILED",
+                        "message":error.to_string()
+                    }
+                }),
+            )
+        }
+    }
 }
 
 fn response(status: StatusCode, body: serde_json::Value) -> Result<Response> {
