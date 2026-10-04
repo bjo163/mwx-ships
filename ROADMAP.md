@@ -13,13 +13,18 @@ Moonships follows a disciplined, SQLite-first progression from zero-infrastructu
 
 ### Phase 1 — SQLite Mini-PaaS (Current MVP Target)
 - Canonical SQLite domain entities (`Server`, `Project`, `Environment`, `Application`, `EnvironmentVariable`, `Domain`, `Deployment`, `DeploymentLog`).
-- Remote infrastructure services (`GitService`, `SshService`, `DockerService`, `ProxyService`, `CryptoService`).
+- Remote infrastructure primitives (`SshService` preflight) plus local-host deployment services (`GitService`, `DockerService`, `ProxyService`, `CryptoService`).
+- v0.1 deployment execution targets the control-plane Docker host; selected remote-server execution is tracked in #46.
 - Asynchronous `DeploymentWorker` running on Loco's SQLite persistent queue.
 - Deployment state machine with non-overlapping locking and sequential log persistence.
 - Server preflight checks and HTTP healthchecks.
 - Modern React operational dashboard.
 
-### Phase 2 — Git Automation & CI Webhooks
+### Phase 2 — Remote Target Execution & Git Automation
+- Execute deployment build/run/healthcheck on the selected remote server (#46).
+- Remove the control-plane Docker socket requirement for remote deployments.
+
+### Phase 2B — Git Automation & CI Webhooks
 - Automated push webhooks for GitHub, GitLab, and Gitea.
 - Branch-based automatic deployments and ephemeral preview environments.
 - Git commit metadata synchronization and build triggers.

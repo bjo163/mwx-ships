@@ -7,16 +7,16 @@ services:
     container_name: moonships-control-plane
     restart: unless-stopped
     ports:
-      - "5150:5150"
+      - "${MOONSHIPS_BIND_IP:-127.0.0.1}:5150:5150"
     environment:
       - LOCO_ENV=production
       - PORT=5150
       - BINDING=0.0.0.0
-      - HOST=http://localhost:5150
+      - HOST=${HOST:-http://localhost:5150}
       - DATABASE_URL=sqlite:///app/data/moonships.sqlite?mode=rwc
       - QUEUE_URL=sqlite:///app/data/moonships.sqlite?mode=rwc
-      - ENCRYPTION_KEY=${ENCRYPTION_KEY:-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef}
-      - JWT_SECRET=${JWT_SECRET:-moonships_secure_jwt_production_secret_key_minimum_32_chars}
+      - ENCRYPTION_KEY=${ENCRYPTION_KEY:?ENCRYPTION_KEY must be set to a secure 64-character hex value}
+      - JWT_SECRET=${JWT_SECRET:?JWT_SECRET must be set to a secure random value}
       - LOG_LEVEL=info
     volumes:
       - moonships-data:/app/data

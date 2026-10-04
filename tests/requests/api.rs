@@ -18,6 +18,11 @@ async fn test_health_endpoint() {
 #[tokio::test]
 #[serial]
 async fn test_full_api_workflow_and_security() {
+    std::env::set_var(
+        "ENCRYPTION_KEY",
+        "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    );
+
     request::<App, _, _>(|request, _ctx| async move {
         // 1. Create a server with private key
         let server_payload = serde_json::json!({

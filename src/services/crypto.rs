@@ -22,11 +22,12 @@ pub enum CryptoError {
 pub struct CryptoService;
 
 impl CryptoService {
-    /// Retrieve the 32-byte AES-256 key from ENCRYPTION_KEY env var or fallback test key
+    /// Retrieve the 32-byte AES-256 key from ENCRYPTION_KEY.
+    ///
+    /// There is intentionally no fallback key: silently using a repository-known
+    /// value would make encrypted production data recoverable by anyone.
     fn get_key() -> Result<[u8; 32], CryptoError> {
-        let key_str = env::var("ENCRYPTION_KEY").unwrap_or_else(|_| {
-            "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef".to_string()
-        });
+        let key_str = env::var("ENCRYPTION_KEY").map_err(|_| CryptoError::InvalidKey)?;
 
         let bytes =
             hex::decode(key_str.trim()).map_err(|e| CryptoError::HexError(e.to_string()))?;
@@ -99,9 +100,19 @@ impl CryptoService {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serial_test::serial;
+
+    fn configure_test_key() {
+        std::env::set_var(
+            "ENCRYPTION_KEY",
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        );
+    }
 
     #[test]
+    #[serial]
     fn test_encryption_decryption_roundtrip() {
+        configure_test_key();
         let secret = "ghp_SuperSecretGitHubToken12345!@#$%^&*()";
         let encrypted = CryptoService::encrypt(secret).expect("encryption succeeds");
         assert_ne!(secret, encrypted);
@@ -112,7 +123,9 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_corrupted_ciphertext_fails() {
+        configure_test_key();
         let secret = "my_private_ssh_key_content";
         let mut encrypted = CryptoService::encrypt(secret).expect("encryption succeeds");
         encrypted.push_str("corrupt");

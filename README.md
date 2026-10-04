@@ -80,7 +80,7 @@ Moonships is a **deployment control plane**, not a container runtime. It provide
 ```
 
 ### Core Architecture Principles
-1. **Control Plane Isolation**: Moonships directs remote Docker hosts; user application crashes never impact the control plane.
+1. **Single-Host MVP Execution**: v0.1 executes Docker workloads through the control-plane host daemon. Remote-server execution is the next infrastructure milestone ([#46](https://github.com/bjo163/mwx-ships/issues/46)).
 2. **Persistent Queue Engine**: Deployments run as durable background tasks using Loco's SQLite-backed `BackgroundQueue`. In-flight jobs survive control plane restarts.
 3. **Structured Non-Shell Execution**: Remote commands are executed via structured argument vectors—arbitrary shell string concatenation is strictly banned.
 
@@ -100,7 +100,7 @@ Traditional PaaS platforms require spinning up PostgreSQL, Redis, and message br
 
 ## Features
 
-- **Multi-Server Management**: Register remote Linux machines over SSH with connection tests and non-destructive preflight checks.
+- **Server Inventory & Preflight**: Register remote Linux machines over SSH with connection tests and non-destructive preflight checks; v0.1 deployment execution remains local to the control-plane Docker host.
 - **Project & Environment Isolation**: Organize services into projects with dedicated environments (`production`, `staging`, `preview`).
 - **Flexible Build Types**: Build directly from Git repositories using `Dockerfile` or deploy prebuilt images from container registries.
 - **Durable Deployment State Machine**: 6-stage lifecycle (`queued` -> `cloning` -> `building` -> `stopping_old` -> `starting_new` -> `healthchecking` -> `success`).
@@ -133,14 +133,15 @@ Traditional PaaS platforms require spinning up PostgreSQL, Redis, and message br
 
 ### Host Control Plane
 - **OS**: Linux, macOS, or Windows
-- **Rust**: 1.80+ (for native compilation)
+- **Rust**: 1.94+ (required by the current Loco/SeaORM dependency set)
 - **Node.js**: 20+ (for building frontend assets)
 - **Docker**: Optional (required if running Moonships in a container)
 
-### Target Deployment Hosts
+### Remote Target Hosts (Preflight in v0.1)
 - **OS**: Ubuntu 22.04/24.04, Debian 11/12, Rocky Linux 9, or RHEL 9
 - **Access**: OpenSSH server (`sshd`)
 - **Runtime**: Docker Engine 24.0+ and `docker-compose-plugin`
+- **Current limitation**: v0.1 validates these hosts, but deployment execution still uses the control-plane Docker daemon; see [#46](https://github.com/bjo163/mwx-ships/issues/46).
 
 ---
 
@@ -155,7 +156,11 @@ cd mwx-ships
 
 # 2. Configure environment
 cp .env.example .env
-# Edit .env and supply a secure 32-byte hex ENCRYPTION_KEY
+# Edit .env and set BOTH required production secrets:
+# ENCRYPTION_KEY: generate with `openssl rand -hex 32` (64 hex chars)
+# JWT_SECRET: generate a separate strong random value
+# docker compose intentionally refuses to start when either value is missing
+# v0.1 also publishes port 5150 to 127.0.0.1 only by default
 
 # 3. Launch control plane
 docker compose up -d
@@ -222,6 +227,7 @@ Settings are configured via `config/*.yaml` and environment variables:
 4. **Trigger Deployment**:
    - Click **Deploy**. The request returns `202 Accepted` and enqueues into SQLite.
    - Open the **Deployments** tab to watch live build logs stream in real time.
+   - In v0.1, build/run occurs on the control-plane Docker host. The selected server record is not yet the execution target.
 
 ---
 
@@ -289,11 +295,21 @@ Comprehensive technical guides are available in the [`docs/`](docs/) directory:
 
 ---
 
+## Network Exposure & v0.1 Security Boundary
+
+The v0.1 management API is not yet protected by JWT on every operational route ([#47](https://github.com/bjo163/mwx-ships/issues/47)). For that reason, Docker Compose publishes Moonships to **127.0.0.1:5150 only** by default.
+
+Do not set `MOONSHIPS_BIND_IP=0.0.0.0` on an untrusted network. If remote access is required before #47 lands, place Moonships behind an authenticated TLS reverse proxy or a private VPN/tunnel.
+
+---
+
 ## Known Limitations
 
 - **Single Active Deployment per Application**: Concurrent deployments to the same application return 409 Conflict.
 - **Single-Node Control Plane**: SQLite is optimized for single-node deployments; multi-writer active-active control planes are deferred to the PostgreSQL scale adapter (Milestone M7).
-- **Authentication**: MVP implements single-operator administration; multi-tenant teams and RBAC are scheduled for Milestone M8.
+- **Management API Authentication**: Authentication endpoints exist, but operational routes do not yet enforce JWT on every request. Compose is loopback-only by default until [#47](https://github.com/bjo163/mwx-ships/issues/47) is completed. Multi-tenant teams and RBAC remain a later milestone.
+- **Remote Execution**: Registered servers support SSH preflight, but v0.1 deploys containers on the control-plane Docker host. Remote target execution is tracked in [#46](https://github.com/bjo163/mwx-ships/issues/46).
+- **Deployment Replacement**: The current state machine stops the previous container before starting the replacement; zero-downtime rollout is not yet implemented.
 
 ---
 
