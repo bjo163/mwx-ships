@@ -51,7 +51,7 @@ Individual Loco authentication routes may retain framework-compatible error stru
 - `/api/servers/*` — remote targets, SSH connection test, preflight.
 - `/api/projects/*` — projects and environments.
 - `/api/applications/*` — application configuration, deploy/rollback/lifecycle, secrets, domains, Git integrations.
-- `POST /api/source-inspection/` — RBAC-scoped passive repository inspection on the selected target server; detects Compose/Dockerfile/static signals without executing repository build scripts.
+- `POST /api/source-inspection` — RBAC-scoped passive repository inspection on the selected target server; detects Compose/Dockerfile/static signals without executing repository build scripts.
 - `/api/deployments/*` — history, logs, cancel, retry.
 - `/api/webhooks/*` — signed GitHub/GitLab/Gitea deployment/preview events.
 - `/api/operations/*` — metrics, operational health/events, target health, backups, polling.
@@ -61,7 +61,7 @@ The exhaustive route and method inventory is intentionally kept in the OpenAPI f
 
 ## Source Inspection
 
-Before an application is created, an authenticated caller with application-management permission can inspect repository metadata through `POST /api/source-inspection/`.
+Before an application is created, an authenticated caller with application-management permission can inspect repository metadata through `POST /api/source-inspection`.
 
 The request supplies `project_id`, `server_id`, `git_repository`, and optional `git_branch` (default `main`). The project and target server must belong to the same organization.
 
