@@ -6,12 +6,8 @@ use crate::{
         auth_rate_limits::Model as AuthRateLimitModel,
         organization_memberships::{Model as MembershipModel, SetMembershipParams},
         organizations::{CreateOrganizationParams, Model as OrganizationModel},
-        registry_credentials::{
-            CreateRegistryCredentialParams, Model as RegistryCredentialModel,
-        },
-        server_pool_members::{
-            Model as ServerPoolMemberModel, SetServerPoolMemberParams,
-        },
+        registry_credentials::{CreateRegistryCredentialParams, Model as RegistryCredentialModel},
+        server_pool_members::{Model as ServerPoolMemberModel, SetServerPoolMemberParams},
         server_pools::{CreateServerPoolParams, Model as ServerPoolModel},
         servers::Model as ServerModel,
     },
@@ -41,7 +37,10 @@ pub fn routes() -> Routes {
             put(upsert_server_pool_member),
         )
         .add("{id}/registry-credentials", get(list_registry_credentials))
-        .add("{id}/registry-credentials", post(create_registry_credential))
+        .add(
+            "{id}/registry-credentials",
+            post(create_registry_credential),
+        )
         .add(
             "{id}/registry-credentials/{credential_id}",
             delete(remove_registry_credential),
@@ -381,7 +380,6 @@ pub async fn claim_legacy(
     }))
 }
 
-
 #[debug_handler]
 pub async fn list_server_pools(
     headers: HeaderMap,
@@ -402,7 +400,9 @@ pub async fn create_server_pool(
     Json(params): Json<CreateServerPoolParams>,
 ) -> Result<Response> {
     let principal = Principal::authenticate(&ctx, &headers).await?;
-    principal.require(&ctx.db, id, Permission::ManageServers).await?;
+    principal
+        .require(&ctx.db, id, Permission::ManageServers)
+        .await?;
     let pool = ServerPoolModel::create(&ctx.db, id, &params).await?;
 
     let (actor_kind, actor_id) = principal.audit_actor();
@@ -435,7 +435,9 @@ pub async fn upsert_server_pool_member(
     Json(params): Json<SetServerPoolMemberParams>,
 ) -> Result<Response> {
     let principal = Principal::authenticate(&ctx, &headers).await?;
-    principal.require(&ctx.db, id, Permission::ManageServers).await?;
+    principal
+        .require(&ctx.db, id, Permission::ManageServers)
+        .await?;
 
     let pool = ServerPoolModel::find_by_id(&ctx.db, pool_id).await?;
     if pool.organization_id != id {

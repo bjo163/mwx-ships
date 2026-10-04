@@ -210,7 +210,9 @@ pub async fn update(
         active.known_host_fingerprint = Set(Some(fingerprint));
     }
     if let Some(tags) = params.tags {
-        active.tags_json = Set(serde_json::to_string(&ServerModel::normalized_tags(&tags)?)?);
+        active.tags_json = Set(serde_json::to_string(&ServerModel::normalized_tags(
+            &tags,
+        )?)?);
     }
     if let Some(capacity_units) = params.capacity_units {
         if capacity_units < 1 {

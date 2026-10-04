@@ -148,12 +148,9 @@ impl DeploymentService {
                         "stopped"
                     };
                     let _ = applications::Model::update_status(db, app.id, restored_status).await;
-                    let _ = applications::Model::release_active_deployment(
-                        db,
-                        app.id,
-                        deployment_id,
-                    )
-                    .await;
+                    let _ =
+                        applications::Model::release_active_deployment(db, app.id, deployment_id)
+                            .await;
                 }
 
                 Ok(cancelled)
@@ -1593,12 +1590,8 @@ impl DeploymentService {
         let _ =
             deployments::Model::record_failure(db, deployment_id, error_code, message, exit_code)
                 .await;
-        let _ = applications::Model::release_active_deployment(
-            db,
-            application_id,
-            deployment_id,
-        )
-        .await;
+        let _ =
+            applications::Model::release_active_deployment(db, application_id, deployment_id).await;
 
         if let Ok(deployment) = deployments::Model::find_by_id(db, deployment_id).await {
             if let Some(revision_id) = deployment.revision_id {

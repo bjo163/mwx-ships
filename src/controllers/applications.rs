@@ -144,14 +144,15 @@ pub async fn create(
     let server_org = if let Some(server_pool_id) = params.server_pool_id {
         let pool = ServerPoolModel::find_by_id(&ctx.db, server_pool_id).await?;
         principal
-            .require(&ctx.db, pool.organization_id, Permission::ManageApplications)
+            .require(
+                &ctx.db,
+                pool.organization_id,
+                Permission::ManageApplications,
+            )
             .await?;
-        let selected = PlacementService::select(
-            &ctx.db,
-            server_pool_id,
-            params.resource_units.unwrap_or(1),
-        )
-        .await?;
+        let selected =
+            PlacementService::select(&ctx.db, server_pool_id, params.resource_units.unwrap_or(1))
+                .await?;
         params.server_id = selected.server.id;
         pool.organization_id
     } else {
@@ -282,7 +283,9 @@ pub async fn update(
         let selected = PlacementService::select(
             &ctx.db,
             server_pool_id,
-            params.resource_units.unwrap_or_else(|| active.resource_units.clone().unwrap_or(1)),
+            params
+                .resource_units
+                .unwrap_or_else(|| active.resource_units.clone().unwrap_or(1)),
         )
         .await?;
         active.server_pool_id = Set(Some(server_pool_id));

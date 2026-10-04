@@ -1,6 +1,8 @@
 use chrono::Utc;
 use loco_rs::prelude::*;
-use sea_orm::{ActiveModelTrait, ActiveValue::Set, ColumnTrait, EntityTrait, QueryFilter, QueryOrder};
+use sea_orm::{
+    ActiveModelTrait, ActiveValue::Set, ColumnTrait, EntityTrait, QueryFilter, QueryOrder,
+};
 use serde::{Deserialize, Serialize};
 
 pub use super::_entities::server_pool_members::{self, ActiveModel, Entity, Model};

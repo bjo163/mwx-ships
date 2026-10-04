@@ -1,6 +1,8 @@
 use chrono::Utc;
 use loco_rs::prelude::*;
-use sea_orm::{ActiveModelTrait, ActiveValue::Set, ColumnTrait, EntityTrait, QueryFilter, QueryOrder};
+use sea_orm::{
+    ActiveModelTrait, ActiveValue::Set, ColumnTrait, EntityTrait, QueryFilter, QueryOrder,
+};
 use serde::{Deserialize, Serialize};
 
 use crate::services::crypto::CryptoService;
@@ -101,7 +103,9 @@ fn validate_registry(value: &str) -> Result<()> {
         || value.contains(['\n', '\r', '\0'])
         || value.starts_with('-')
     {
-        return Err(Error::BadRequest("registry hostname is malformed".to_string()));
+        return Err(Error::BadRequest(
+            "registry hostname is malformed".to_string(),
+        ));
     }
     Ok(())
 }
@@ -109,7 +113,9 @@ fn validate_registry(value: &str) -> Result<()> {
 fn validate_username(value: &str) -> Result<()> {
     let value = value.trim();
     if value.is_empty() || value.contains(['\n', '\r', '\0']) {
-        return Err(Error::BadRequest("registry username is malformed".to_string()));
+        return Err(Error::BadRequest(
+            "registry username is malformed".to_string(),
+        ));
     }
     Ok(())
 }

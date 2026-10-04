@@ -1,6 +1,8 @@
 use chrono::Utc;
 use loco_rs::prelude::*;
-use sea_orm::{ActiveModelTrait, ActiveValue::Set, ColumnTrait, EntityTrait, QueryFilter, QueryOrder};
+use sea_orm::{
+    ActiveModelTrait, ActiveValue::Set, ColumnTrait, EntityTrait, QueryFilter, QueryOrder,
+};
 use serde::{Deserialize, Serialize};
 
 pub use super::_entities::server_pools::{self, ActiveModel, Entity, Model};
@@ -37,7 +39,9 @@ impl Model {
         params: &CreateServerPoolParams,
     ) -> Result<Model> {
         if params.name.trim().is_empty() {
-            return Err(Error::BadRequest("server pool name is required".to_string()));
+            return Err(Error::BadRequest(
+                "server pool name is required".to_string(),
+            ));
         }
         let slug = params.slug.clone().unwrap_or_else(|| slugify(&params.name));
         let required_tags = normalize_tags(&params.required_tags)?;

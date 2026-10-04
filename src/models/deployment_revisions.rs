@@ -6,9 +6,7 @@ use sea_orm::{
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-use super::{
-    applications, domains, environment_variables, registry_credentials, servers,
-};
+use super::{applications, domains, environment_variables, registry_credentials, servers};
 
 pub use super::_entities::deployment_revisions::{self, ActiveModel, Entity, Model};
 
