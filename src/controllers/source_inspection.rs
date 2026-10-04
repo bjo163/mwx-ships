@@ -65,7 +65,7 @@ pub async fn inspect(
             metadata: principal.audit_metadata(Some(serde_json::json!({
                 "server_id": params.server_id,
                 "branch": branch,
-                "commit_sha": inspection.commit_sha,
+                "commit_sha": inspection.commit_sha.clone(),
                 "strategy": inspection.strategy,
                 "confidence": inspection.confidence,
             }))),
