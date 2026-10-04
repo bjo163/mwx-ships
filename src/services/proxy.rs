@@ -204,6 +204,22 @@ mod tests {
     }
 
     #[test]
+    fn managed_ingress_requires_domains_without_host_port() {
+        assert!(ProxyService::uses_managed_ingress(1, None));
+        assert!(ProxyService::uses_managed_ingress(3, None));
+        assert!(!ProxyService::uses_managed_ingress(0, None));
+        assert!(!ProxyService::uses_managed_ingress(1, Some(8080)));
+    }
+
+    #[test]
+    fn managed_runtime_name_is_revision_specific() {
+        assert_eq!(
+            ProxyService::managed_runtime_name("api", "0123456789abcdef"),
+            "moonships-api-0123456789ab"
+        );
+    }
+
+    #[test]
     fn managed_route_uses_atomic_service_target_and_https_redirect() {
         let config = ProxyService::managed_route_config(
             "my-app",
