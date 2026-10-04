@@ -230,6 +230,7 @@ pub async fn update(
 ) -> Result<Response> {
     let (principal, organization_id, app) =
         authorized_application(&ctx, &headers, id, Permission::ManageApplications).await?;
+    let project_id = app.project_id;
     let mut active: ActiveModel = app.into();
 
     if let Some(name) = params.name {
@@ -271,7 +272,7 @@ pub async fn update(
     if let Some(server_pool_id) = params.server_pool_id {
         let pool = ServerPoolModel::find_by_id(&ctx.db, server_pool_id).await?;
         let project_org = principal
-            .project_organization(&ctx.db, active.project_id.clone().unwrap(), Permission::ManageApplications)
+            .project_organization(&ctx.db, project_id, Permission::ManageApplications)
             .await?;
         if pool.organization_id != project_org {
             return Err(Error::BadRequest(
