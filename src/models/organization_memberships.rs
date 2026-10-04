@@ -41,6 +41,18 @@ impl Model {
             .await?)
     }
 
+    pub async fn active_owner_count(
+        db: &DatabaseConnection,
+        organization_id: i64,
+    ) -> Result<u64> {
+        Ok(Entity::find()
+            .filter(organization_memberships::Column::OrganizationId.eq(organization_id))
+            .filter(organization_memberships::Column::Role.eq(OWNER))
+            .filter(organization_memberships::Column::IsActive.eq(true))
+            .count(db)
+            .await?)
+    }
+
     pub async fn list_for_organization(
         db: &DatabaseConnection,
         organization_id: i64,
