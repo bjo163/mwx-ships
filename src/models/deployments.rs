@@ -63,6 +63,25 @@ impl Model {
         Ok(list)
     }
 
+    pub async fn find_reusable_commit_attempt(
+        db: &DatabaseConnection,
+        application_id: i64,
+        commit_hash: &str,
+        trigger_kind: &str,
+    ) -> Result<Option<Model>> {
+        Ok(Entity::find()
+            .filter(deployments::Column::ApplicationId.eq(application_id))
+            .filter(deployments::Column::CommitHash.eq(commit_hash))
+            .filter(deployments::Column::TriggerKind.eq(trigger_kind))
+            .filter(
+                deployments::Column::Status
+                    .is_not_in(["failed".to_string(), "cancelled".to_string()]),
+            )
+            .order_by_desc(deployments::Column::QueuedAt)
+            .one(db)
+            .await?)
+    }
+
     pub async fn latest_success_for_application(
         db: &DatabaseConnection,
         application_id: i64,
