@@ -145,4 +145,23 @@ impl Model {
         let updated = active.update(db).await?;
         Ok(updated)
     }
+
+    pub async fn promote_revision(
+        db: &DatabaseConnection,
+        id: i64,
+        revision_id: i64,
+    ) -> Result<Model> {
+        let app = Self::find_by_id(db, id).await?;
+        let current_revision_id = app.current_revision_id;
+        let mut active: ActiveModel = app.into();
+
+        if current_revision_id != Some(revision_id) {
+            active.previous_revision_id = Set(current_revision_id);
+            active.current_revision_id = Set(Some(revision_id));
+        }
+
+        active.status = Set("running".to_string());
+        active.updated_at = Set(Utc::now().into());
+        Ok(active.update(db).await?)
+    }
 }
