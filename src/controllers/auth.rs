@@ -2,10 +2,14 @@ use crate::{
     mailers::auth::AuthMailer,
     models::{
         _entities::users,
+        api_tokens::Model as ApiTokenModel,
+        auth_rate_limits::Model as AuthRateLimitModel,
         users::{LoginParams, RegisterParams},
     },
+    services::access_control::Principal,
     views::auth::{CurrentResponse, LoginResponse},
 };
+use axum::http::{HeaderMap, StatusCode};
 use loco_rs::prelude::*;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
@@ -135,22 +139,42 @@ async fn reset(State(ctx): State<AppContext>, Json(params): Json<ResetParams>) -
 /// Creates a user login and returns a token
 #[debug_handler]
 async fn login(State(ctx): State<AppContext>, Json(params): Json<LoginParams>) -> Result<Response> {
-    let Ok(user) = users::Model::find_by_email(&ctx.db, &params.email).await else {
-        tracing::debug!(
-            email = params.email,
-            "login attempt with non-existent email"
-        );
-        return unauthorized("Invalid credentials!");
-    };
-
-    let valid = user.verify_password(&params.password);
+    let user = users::Model::find_by_email(&ctx.db, &params.email).await.ok();
+    let valid = user
+        .as_ref()
+        .map(|user| user.verify_password(&params.password))
+        .unwrap_or(false);
 
     if !valid {
-        return unauthorized("unauthorized!");
+        let decision = AuthRateLimitModel::check_and_record(
+            &ctx.db,
+            "login",
+            &params.email.to_ascii_lowercase(),
+            5,
+            900,
+            900,
+        )
+        .await?;
+
+        if !decision.allowed {
+            return Ok((
+                StatusCode::TOO_MANY_REQUESTS,
+                format::json(serde_json::json!({
+                    "error": {
+                        "code": "AUTH_RATE_LIMITED",
+                        "message": "Too many failed login attempts",
+                        "retry_after_seconds": decision.retry_after_seconds,
+                    }
+                }))?,
+            )
+                .into_response());
+        }
+
+        return unauthorized("Invalid credentials!");
     }
 
+    let user = user.expect("valid credentials require a loaded user");
     let jwt_secret = ctx.config.get_jwt_config()?;
-
     let token = user
         .generate_jwt(&jwt_secret.secret, jwt_secret.expiration)
         .or_else(|_| unauthorized("unauthorized!"))?;
@@ -159,9 +183,39 @@ async fn login(State(ctx): State<AppContext>, Json(params): Json<LoginParams>) -
 }
 
 #[debug_handler]
-async fn current(auth: auth::JWT, State(ctx): State<AppContext>) -> Result<Response> {
-    let user = users::Model::find_by_pid(&ctx.db, &auth.claims.pid).await?;
-    format::json(CurrentResponse::new(&user))
+async fn current(
+    headers: HeaderMap,
+    State(ctx): State<AppContext>,
+) -> Result<Response> {
+    let principal = Principal::authenticate(&ctx, &headers).await?;
+    format::json(CurrentResponse::new(&principal.user))
+}
+
+#[debug_handler]
+async fn revoke(
+    headers: HeaderMap,
+    State(ctx): State<AppContext>,
+) -> Result<Response> {
+    let principal = Principal::authenticate(&ctx, &headers).await?;
+
+    if let Some(token) = principal.api_token {
+        let revoked = ApiTokenModel::revoke(&ctx.db, token.id, principal.user.id).await?;
+        return format::json(serde_json::json!({
+            "data": {
+                "token_id": revoked.id,
+                "revoked": true
+            },
+            "message": "API token revoked"
+        }));
+    }
+
+    let user = users::Model::revoke_sessions(&ctx.db, principal.user.id).await?;
+    format::json(serde_json::json!({
+        "data": {
+            "session_version": user.session_version
+        },
+        "message": "All JWT sessions revoked"
+    }))
 }
 
 /// Magic link authentication provides a secure and passwordless way to log in to the application.
@@ -267,6 +321,7 @@ pub fn routes() -> Routes {
         .add("/forgot", post(forgot))
         .add("/reset", post(reset))
         .add("/current", get(current))
+        .add("/revoke", post(revoke))
         .add("/magic-link", post(magic_link))
         .add("/magic-link/{token}", get(magic_link_verify))
         .add("/resend-verification-mail", post(resend_verification_email))
