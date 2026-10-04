@@ -190,19 +190,50 @@ async fn test_full_api_workflow_and_security() {
         let dep_list: serde_json::Value = serde_json::from_str(&res.text()).unwrap();
         assert!(dep_list["data"].is_array());
 
-        let deploy_payload = serde_json::json!({
-            "commit_message": "Automated test deployment"
+        let commit_hash = "0123456789abcdef0123456789abcdef01234567";
+        let plan_payload = serde_json::json!({
+            "application_id": app_id,
+            "commit_hash": commit_hash,
+            "commit_message": "Automated planned deployment"
         });
         let res = authed!(
-            request
-                .post(&format!("/api/applications/{}/deploy", app_id))
-                .json(&deploy_payload),
+            request.post("/api/deployment-plans").json(&plan_payload),
+            &login.token
+        )
+        .await;
+        assert_eq!(res.status_code(), 200);
+        let plan_res: serde_json::Value = serde_json::from_str(&res.text()).unwrap();
+        let revision_id = plan_res["data"]["revision_id"]
+            .as_i64()
+            .expect("planned revision id");
+        let fingerprint = plan_res["data"]["plan_fingerprint"]
+            .as_str()
+            .expect("plan fingerprint");
+        assert_eq!(fingerprint.len(), 64);
+        assert_eq!(plan_res["data"]["source"]["commit_hash"], commit_hash);
+        assert_eq!(
+            plan_res["data"]["environment"][0]["key"],
+            "DATABASE_PASSWORD"
+        );
+        assert!(plan_res["data"]["environment"][0].get("value").is_none());
+        assert!(plan_res["data"]["environment"][0]
+            .get("encrypted_value")
+            .is_none());
+        assert!(
+            !plan_res.to_string().contains("SuperSecretPassword123!"),
+            "deployment plan must never expose plaintext secrets"
+        );
+
+        let res = authed!(
+            request.post(&format!("/api/deployment-plans/{revision_id}/deploy")),
             &login.token
         )
         .await;
         assert_eq!(res.status_code(), 202);
         let deploy_res: serde_json::Value = serde_json::from_str(&res.text()).unwrap();
         assert_eq!(deploy_res["data"]["status"], "queued");
+        assert_eq!(deploy_res["data"]["revision_id"], revision_id);
+        assert_eq!(deploy_res["data"]["plan_fingerprint"], fingerprint);
     })
     .await;
 }
