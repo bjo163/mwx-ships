@@ -2,36 +2,45 @@
 
 ## Supported Versions
 
-| Version | Supported |
+Moonships is pre-GA until v1.0. Security fixes are prioritized for the latest released minor and, when practical, the immediately previous minor.
+
+| Version | Security support |
 | --- | --- |
-| 0.2.x | :white_check_mark: |
-| 0.1.x | :white_check_mark: |
+| 0.8.x | Current |
+| 0.7.x | Best-effort critical fixes |
+| <= 0.6.x | Upgrade required |
+| 1.x | Becomes the stable support line at GA |
+
+See [docs/upgrade-policy.md](docs/upgrade-policy.md) for the tested forward-upgrade matrix.
 
 ## Reporting a Vulnerability
 
-We take the security of Moonships very seriously. If you discover a vulnerability, report it via private coordinated disclosure and do not disclose it in public issues or discussions.
+Do not disclose suspected vulnerabilities in public issues or discussions.
 
-Use GitHub Security Advisories to provide the vulnerability category, reproduction steps, potential impact, and any suggested mitigation.
+Use GitHub Security Advisories for coordinated private disclosure and include:
+- affected Moonships version/image digest;
+- vulnerability category;
+- reproduction steps;
+- impact and trust boundary crossed;
+- any known mitigation.
 
-## v0.2 Security Architecture
+## Security Architecture
 
-- **Authenticated control plane**: operational server, project, application, deployment, environment, domain, and container lifecycle routes require JWT. `GET /api/health` remains public.
-- **Zero plaintext secrets at rest**: SSH private keys and secret environment variables are encrypted with AES-256-GCM using an operator-provided `ENCRYPTION_KEY`.
-- **Remote execution boundary**: application Git/Docker/healthcheck work executes on the selected target server over SSH; the production control plane does not mount `/var/run/docker.sock`.
-- **SSH host verification**: sessions use strict host-key checking with an isolated scanned `known_hosts` file. Operators can pin a trusted SHA256 fingerprint; without pinning, first discovery is trust-on-first-use.
-- **Temporary credentials**: decrypted SSH keys exist only in temporary files with restrictive permissions for the session lifetime.
-- **Bounded remote commands**: SSH operations use connection and command timeouts.
-- **Input validation and quoting**: SSH targets, container/image names, repository paths, environment keys, and other command inputs are validated; values passed to the remote shell are shell-quoted.
-- **Secret-safe runtime injection**: secret environment values are sent over SSH stdin to a temporary remote env file instead of being embedded in logged command strings.
-- **Log redaction**: known decrypted secret values are removed from surfaced runtime errors and container logs.
+The current architecture is documented in [docs/security.md](docs/security.md). The v1 trust-zone analysis, residual risks, severity policy, and release-blocking P0/P1 definitions are in [docs/threat-model-v1.md](docs/threat-model-v1.md).
 
-## Network Exposure
+Core properties include:
+- authenticated operational control plane with organization RBAC and scoped API tokens;
+- AES-256-GCM secret storage using an operator-provided encryption key;
+- remote execution over SSH with strict host verification and bounded commands;
+- no control-plane Docker socket dependency;
+- secret-safe stdin transfer and log redaction;
+- signed/deduplicated Git webhooks;
+- atomic deployment ownership plus execution leases;
+- immutable revisions, health-before-switch, and rollback;
+- tested backup/restore and supported upgrade paths;
+- security/advisory/secret/dependency-policy CI gates;
+- release SBOM and signed build provenance for v0.9+.
 
-Docker Compose binds the management UI/API to `127.0.0.1:5150` by default as defense in depth. If exposing Moonships beyond localhost, terminate TLS at a trusted reverse proxy or use a private VPN, use unique strong `JWT_SECRET` and `ENCRYPTION_KEY` values, and pin remote SSH host fingerprints from a trusted source.
+## Operator Responsibilities
 
-## Known Security Limitations
-
-- v0.2 authenticates users but does not yet implement organization-level RBAC/multi-tenant authorization.
-- Trust-on-first-use SSH discovery is weaker than explicit fingerprint pinning.
-- Docker access on a target host is highly privileged; the configured deploy user should be treated as privileged on that target.
-- AES-GCM nonces provide encryption safety when unique; they are not an application-level replay-prevention mechanism.
+Moonships cannot protect against a fully compromised root account on a target host or a compromised host running the control plane. Operators are responsible for OS/network hardening, trusted TLS termination, PostgreSQL HA/backups in scale mode, and custody/rotation of ENCRYPTION_KEY and JWT_SECRET.
