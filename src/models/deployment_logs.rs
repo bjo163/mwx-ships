@@ -1,4 +1,4 @@
-use chrono::Utc;
+use chrono::{DateTime, FixedOffset, Utc};
 use loco_rs::prelude::*;
 use sea_orm::{ActiveValue::Set, ColumnTrait, EntityTrait, QueryFilter, QueryOrder};
 use serde::{Deserialize, Serialize};
@@ -29,6 +29,17 @@ impl Model {
             .count(db)
             .await?;
         Ok(count as i64 + 1)
+    }
+
+    pub async fn delete_older_than(
+        db: &DatabaseConnection,
+        cutoff: DateTime<FixedOffset>,
+    ) -> Result<u64> {
+        Ok(Entity::delete_many()
+            .filter(deployment_logs::Column::CreatedAt.lt(cutoff))
+            .exec(db)
+            .await?
+            .rows_affected)
     }
 
     pub async fn append(
