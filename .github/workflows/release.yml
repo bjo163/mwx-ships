@@ -14,8 +14,11 @@ on:
       - "CHANGELOG.md"
 
 permissions:
+  actions: read
   contents: write
   packages: write
+  id-token: write
+  attestations: write
 
 jobs:
   release:
@@ -117,12 +120,15 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and publish release image
+        id: build
         if: steps.version.outputs.should_release == 'true'
         uses: docker/build-push-action@v6
         with:
           context: .
           file: ./Dockerfile
           push: true
+          sbom: true
+          provenance: mode=max
           tags: |
             ghcr.io/${{ github.repository }}:${{ steps.version.outputs.version }}
             ghcr.io/${{ github.repository }}:latest
@@ -131,10 +137,37 @@ jobs:
             org.opencontainers.image.version=${{ steps.version.outputs.version }}
             org.opencontainers.image.revision=${{ github.sha }}
 
+      - name: Attest published image provenance
+        if: steps.version.outputs.should_release == 'true'
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-name: ghcr.io/${{ github.repository }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+          push-to-registry: true
+
+      - name: Generate SPDX SBOM
+        if: steps.version.outputs.should_release == 'true'
+        uses: anchore/sbom-action@v0
+        with:
+          image: ghcr.io/${{ github.repository }}@${{ steps.build.outputs.digest }}
+          format: spdx-json
+          artifact-name: moonships-${{ steps.version.outputs.version }}-sbom.spdx.json
+          output-file: moonships-${{ steps.version.outputs.version }}-sbom.spdx.json
+          upload-release-assets: false
+
+      - name: Generate release checksums
+        if: steps.version.outputs.should_release == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          sha256sum "moonships-${{ steps.version.outputs.version }}-sbom.spdx.json" > SHA256SUMS
+
       - name: Smoke test published production image
         if: steps.version.outputs.should_release == 'true'
         env:
-          IMAGE: ghcr.io/${{ github.repository }}:${{ steps.version.outputs.version }}
+          IMAGE: ghcr.io/${{ github.repository }}@${{ steps.build.outputs.digest }}
+          RELEASE_VERSION: ${{ steps.version.outputs.version }}
+          RELEASE_REVISION: ${{ github.sha }}
         shell: bash
         run: |
           set -euo pipefail
@@ -147,6 +180,10 @@ jobs:
           trap cleanup EXIT
 
           docker pull "$IMAGE"
+
+          test "$(docker inspect "$IMAGE" --format '{{ index .Config.Labels "org.opencontainers.image.version" }}')" = "$RELEASE_VERSION"
+          test "$(docker inspect "$IMAGE" --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}')" = "$RELEASE_REVISION"
+
           docker run -d --name moonships-release-smoke \
             -p 127.0.0.1:5150:5150 \
             -e LOCO_ENV=production \
@@ -187,4 +224,6 @@ jobs:
         run: |
           gh release create "${{ steps.version.outputs.tag }}" \
             --title "Moonships ${{ steps.version.outputs.tag }}" \
-            --notes-file release-notes.md
+            --notes-file release-notes.md \
+            "moonships-${{ steps.version.outputs.version }}-sbom.spdx.json#SPDX SBOM" \
+            "SHA256SUMS#Release checksums"
