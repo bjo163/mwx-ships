@@ -22,16 +22,20 @@ export function Dashboard() {
   });
   const [applications, setApplications] = useState<any[]>([]);
   const [health, setHealth] = useState<any>(null);
+  const [ops, setOps] = useState<any>(null);
+  const [events, setEvents] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     async function loadData() {
       try {
-        const [servers, projects, apps, h] = await Promise.all([
+        const [servers, projects, apps, h, operational, recentEvents] = await Promise.all([
           apiRequest<any[]>('/api/servers').catch(() => []),
           apiRequest<any[]>('/api/projects').catch(() => []),
           apiRequest<any[]>('/api/applications').catch(() => []),
           apiRequest<any>('/api/health').catch(() => null),
+          apiRequest<any>('/api/operations/metrics').catch(() => null),
+          apiRequest<any[]>('/api/operations/events?limit=8').catch(() => []),
         ]);
 
         setStats({
@@ -41,6 +45,8 @@ export function Dashboard() {
         });
         setApplications(apps);
         setHealth(h);
+        setOps(operational);
+        setEvents(recentEvents);
       } finally {
         setLoading(false);
       }
@@ -135,13 +141,100 @@ export function Dashboard() {
             </div>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <span className="pulse-dot" style={{ color: 'var(--success)' }} />
-            <span style={{ fontSize: '1.25rem', fontWeight: 600 }}>SQLite Healthy</span>
+            <span
+              className="pulse-dot"
+              style={{
+                color:
+                  ops?.deployments?.stale_leases > 0 ||
+                  ops?.servers?.offline > 0 ||
+                  ops?.servers?.error > 0
+                    ? 'var(--warning)'
+                    : 'var(--success)',
+              }}
+            />
+            <span style={{ fontSize: '1.25rem', fontWeight: 600 }}>
+              {ops ? (ops.deployments.stale_leases > 0 ? 'Needs Attention' : 'Operational') : 'Checking...'}
+            </span>
           </div>
           <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '12px' }}>
-            Queue: Loco BackgroundQueue
+            Queue {ops?.deployments?.queued ?? 0} · Active {ops?.deployments?.active ?? 0} · Stale {ops?.deployments?.stale_leases ?? 0}
           </div>
         </div>
+      </div>
+
+      {/* Operational Signals */}
+      <div className="glass-panel" style={{ padding: '24px', marginBottom: '32px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '18px' }}>
+          <div>
+            <h2 style={{ fontSize: '1.25rem', fontWeight: 600 }}>Operational Signals</h2>
+            <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+              Bounded production health signals from deployments, targets, disk, and backups.
+            </p>
+          </div>
+          <Activity size={20} color="var(--cyan-primary)" />
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '12px', marginBottom: '18px' }}>
+          <div style={{ padding: '14px', border: '1px solid var(--border-color)', borderRadius: '8px' }}>
+            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>TARGETS ONLINE</div>
+            <div style={{ fontSize: '1.35rem', fontWeight: 700, marginTop: '4px' }}>
+              {ops ? `${ops.servers.online}/${ops.servers.total}` : '—'}
+            </div>
+          </div>
+          <div style={{ padding: '14px', border: '1px solid var(--border-color)', borderRadius: '8px' }}>
+            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>DISK FLOOR</div>
+            <div style={{ fontSize: '1.35rem', fontWeight: 700, marginTop: '4px' }}>
+              {ops?.servers?.min_recent_disk_available_gb != null
+                ? `${ops.servers.min_recent_disk_available_gb.toFixed(1)} GB`
+                : 'No sample'}
+            </div>
+          </div>
+          <div style={{ padding: '14px', border: '1px solid var(--border-color)', borderRadius: '8px' }}>
+            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>DEPLOY FAILURES 24H</div>
+            <div style={{ fontSize: '1.35rem', fontWeight: 700, marginTop: '4px' }}>
+              {ops?.deployments?.failed_24h ?? 0}
+            </div>
+          </div>
+          <div style={{ padding: '14px', border: '1px solid var(--border-color)', borderRadius: '8px' }}>
+            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>LATEST BACKUP</div>
+            <div style={{ fontSize: '1.05rem', fontWeight: 700, marginTop: '6px' }}>
+              {ops?.backup?.latest_status
+                ? `${ops.backup.latest_status}${ops.backup.latest_verified ? ' · verified' : ''}`
+                : 'Not run'}
+            </div>
+          </div>
+        </div>
+
+        {events.length > 0 && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            {events.map((event) => (
+              <div
+                key={event.id}
+                style={{
+                  display: 'flex',
+                  gap: '10px',
+                  alignItems: 'flex-start',
+                  padding: '10px 12px',
+                  borderRadius: '8px',
+                  background: 'rgba(255,255,255,0.02)',
+                  border: '1px solid var(--border-color)',
+                }}
+              >
+                {event.severity === 'critical' || event.severity === 'warning' ? (
+                  <AlertTriangle size={16} color="var(--warning)" />
+                ) : (
+                  <CheckCircle2 size={16} color="var(--success)" />
+                )}
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontSize: '0.85rem', fontWeight: 600 }}>{event.message}</div>
+                  <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '2px' }}>
+                    {event.event_kind} · {new Date(event.created_at).toLocaleString()}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Applications Overview Table */}
