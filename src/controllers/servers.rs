@@ -22,8 +22,7 @@ pub fn routes() -> Routes {
 }
 
 #[debug_handler]
-pub async fn list(
-    _auth: auth::JWT,State(ctx): State<AppContext>) -> Result<Response> {
+pub async fn list(_auth: auth::JWT, State(ctx): State<AppContext>) -> Result<Response> {
     let servers = ServerModel::all(&ctx.db).await?;
     // Mask private keys
     let safe_servers: Vec<serde_json::Value> = servers
@@ -96,7 +95,10 @@ pub async fn create(
 
 #[debug_handler]
 pub async fn get_one(
-    _auth: auth::JWT,Path(id): Path<i64>, State(ctx): State<AppContext>) -> Result<Response> {
+    _auth: auth::JWT,
+    Path(id): Path<i64>,
+    State(ctx): State<AppContext>,
+) -> Result<Response> {
     let server = ServerModel::find_by_id(&ctx.db, id).await?;
     format::json(serde_json::json!({
         "data": {
@@ -163,7 +165,10 @@ pub async fn update(
 
 #[debug_handler]
 pub async fn remove(
-    _auth: auth::JWT,Path(id): Path<i64>, State(ctx): State<AppContext>) -> Result<Response> {
+    _auth: auth::JWT,
+    Path(id): Path<i64>,
+    State(ctx): State<AppContext>,
+) -> Result<Response> {
     let server = ServerModel::find_by_id(&ctx.db, id).await?;
     Entity::delete_by_id(server.id).exec(&ctx.db).await?;
 
@@ -175,7 +180,10 @@ pub async fn remove(
 
 #[debug_handler]
 pub async fn test_conn(
-    _auth: auth::JWT,Path(id): Path<i64>, State(ctx): State<AppContext>) -> Result<Response> {
+    _auth: auth::JWT,
+    Path(id): Path<i64>,
+    State(ctx): State<AppContext>,
+) -> Result<Response> {
     let server = ServerModel::find_by_id(&ctx.db, id).await?;
     let is_connected =
         SshService::test_connection(&server.host, server.port, &server.username, None)
@@ -197,7 +205,10 @@ pub async fn test_conn(
 
 #[debug_handler]
 pub async fn preflight(
-    _auth: auth::JWT,Path(id): Path<i64>, State(ctx): State<AppContext>) -> Result<Response> {
+    _auth: auth::JWT,
+    Path(id): Path<i64>,
+    State(ctx): State<AppContext>,
+) -> Result<Response> {
     let server = ServerModel::find_by_id(&ctx.db, id).await?;
     let report =
         SshService::run_preflight(server.id, &server.host, server.port, &server.username, None)

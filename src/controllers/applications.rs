@@ -47,8 +47,7 @@ pub fn routes() -> Routes {
 }
 
 #[debug_handler]
-pub async fn list(
-    _auth: auth::JWT,State(ctx): State<AppContext>) -> Result<Response> {
+pub async fn list(_auth: auth::JWT, State(ctx): State<AppContext>) -> Result<Response> {
     let apps = ApplicationModel::all(&ctx.db).await?;
     format::json(serde_json::json!({
         "data": apps,
@@ -71,7 +70,10 @@ pub async fn create(
 
 #[debug_handler]
 pub async fn get_one(
-    _auth: auth::JWT,Path(id): Path<i64>, State(ctx): State<AppContext>) -> Result<Response> {
+    _auth: auth::JWT,
+    Path(id): Path<i64>,
+    State(ctx): State<AppContext>,
+) -> Result<Response> {
     let app = ApplicationModel::find_by_id(&ctx.db, id).await?;
     let latest_deployment = DeploymentModel::latest_for_application(&ctx.db, id).await?;
     let env_count = EnvVarModel::by_application(&ctx.db, id).await?.len();
@@ -148,7 +150,10 @@ pub async fn update(
 
 #[debug_handler]
 pub async fn remove(
-    _auth: auth::JWT,Path(id): Path<i64>, State(ctx): State<AppContext>) -> Result<Response> {
+    _auth: auth::JWT,
+    Path(id): Path<i64>,
+    State(ctx): State<AppContext>,
+) -> Result<Response> {
     let app = ApplicationModel::find_by_id(&ctx.db, id).await?;
     let _ = DockerService::stop_container(&app.container_name).await;
     let _ = DockerService::remove_container(&app.container_name).await;
@@ -212,7 +217,10 @@ pub async fn deploy(
 
 #[debug_handler]
 pub async fn start(
-    _auth: auth::JWT,Path(id): Path<i64>, State(ctx): State<AppContext>) -> Result<Response> {
+    _auth: auth::JWT,
+    Path(id): Path<i64>,
+    State(ctx): State<AppContext>,
+) -> Result<Response> {
     let app = ApplicationModel::find_by_id(&ctx.db, id).await?;
     DockerService::start_container(&app.container_name)
         .await
@@ -226,7 +234,10 @@ pub async fn start(
 
 #[debug_handler]
 pub async fn stop(
-    _auth: auth::JWT,Path(id): Path<i64>, State(ctx): State<AppContext>) -> Result<Response> {
+    _auth: auth::JWT,
+    Path(id): Path<i64>,
+    State(ctx): State<AppContext>,
+) -> Result<Response> {
     let app = ApplicationModel::find_by_id(&ctx.db, id).await?;
     DockerService::stop_container(&app.container_name)
         .await
@@ -240,7 +251,10 @@ pub async fn stop(
 
 #[debug_handler]
 pub async fn restart(
-    _auth: auth::JWT,Path(id): Path<i64>, State(ctx): State<AppContext>) -> Result<Response> {
+    _auth: auth::JWT,
+    Path(id): Path<i64>,
+    State(ctx): State<AppContext>,
+) -> Result<Response> {
     let app = ApplicationModel::find_by_id(&ctx.db, id).await?;
     DockerService::restart_container(&app.container_name)
         .await
@@ -254,7 +268,10 @@ pub async fn restart(
 
 #[debug_handler]
 pub async fn status(
-    _auth: auth::JWT,Path(id): Path<i64>, State(ctx): State<AppContext>) -> Result<Response> {
+    _auth: auth::JWT,
+    Path(id): Path<i64>,
+    State(ctx): State<AppContext>,
+) -> Result<Response> {
     let app = ApplicationModel::find_by_id(&ctx.db, id).await?;
     let container_status = DockerService::container_status(&app.container_name)
         .await
@@ -271,7 +288,10 @@ pub async fn status(
 
 #[debug_handler]
 pub async fn logs(
-    _auth: auth::JWT,Path(id): Path<i64>, State(ctx): State<AppContext>) -> Result<Response> {
+    _auth: auth::JWT,
+    Path(id): Path<i64>,
+    State(ctx): State<AppContext>,
+) -> Result<Response> {
     let app = ApplicationModel::find_by_id(&ctx.db, id).await?;
     let logs = DockerService::container_logs(&app.container_name, 200)
         .await
@@ -288,7 +308,10 @@ pub async fn logs(
 
 #[debug_handler]
 pub async fn get_env(
-    _auth: auth::JWT,Path(id): Path<i64>, State(ctx): State<AppContext>) -> Result<Response> {
+    _auth: auth::JWT,
+    Path(id): Path<i64>,
+    State(ctx): State<AppContext>,
+) -> Result<Response> {
     let vars = EnvVarModel::by_application(&ctx.db, id).await?;
     let safe: Vec<_> = vars.into_iter().map(|v| v.to_safe()).collect();
     format::json(serde_json::json!({
@@ -372,7 +395,10 @@ pub async fn remove_env(
 
 #[debug_handler]
 pub async fn list_domains(
-    _auth: auth::JWT,Path(id): Path<i64>, State(ctx): State<AppContext>) -> Result<Response> {
+    _auth: auth::JWT,
+    Path(id): Path<i64>,
+    State(ctx): State<AppContext>,
+) -> Result<Response> {
     let domains = DomainModel::by_application(&ctx.db, id).await?;
     format::json(serde_json::json!({
         "data": domains,
