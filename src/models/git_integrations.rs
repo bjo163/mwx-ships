@@ -111,7 +111,7 @@ impl Model {
             None => {
                 let active = ActiveModel {
                     application_id: Set(application_id),
-                    provider: Set(provider),
+                    provider: Set(provider.clone()),
                     repository_ref: Set(repository_ref),
                     api_base_url: Set(params.api_base_url.clone()),
                     git_username: Set(normalize_git_username(&provider, params.git_username.as_deref())?),
