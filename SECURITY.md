@@ -2,38 +2,36 @@
 
 ## Supported Versions
 
-| Version | Supported          |
-| ------- | ------------------ |
-| 0.1.x (MVP) | :white_check_mark: |
+| Version | Supported |
+| --- | --- |
+| 0.2.x | :white_check_mark: |
+| 0.1.x | :white_check_mark: |
 
 ## Reporting a Vulnerability
 
-We take the security of Moonships very seriously. If you discover a vulnerability, please report it via private coordinated disclosure.
+We take the security of Moonships very seriously. If you discover a vulnerability, report it via private coordinated disclosure and do not disclose it in public issues or discussions.
 
-**DO NOT disclose vulnerabilities in public issues or discussions.**
+Use GitHub Security Advisories to provide the vulnerability category, reproduction steps, potential impact, and any suggested mitigation.
 
-### Reporting Process
-1. Navigate to our [Security Advisories Draft page](https://github.com/bjo163/mwx-ships/security/advisories/new).
-2. Detail the exact nature of the vulnerability, including:
-   - Vulnerability category (e.g. Command Injection, SSRF, Secret Exposure, Path Traversal)
-   - Step-by-step reproduction steps
-   - Potential impact
-   - Suggested mitigations or patches if available
-3. The Moonships core team will acknowledge receipt within 48 hours and coordinate release of a security patch.
+## v0.2 Security Architecture
 
-## Security Architecture Highlights
+- **Authenticated control plane**: operational server, project, application, deployment, environment, domain, and container lifecycle routes require JWT. `GET /api/health` remains public.
+- **Zero plaintext secrets at rest**: SSH private keys and secret environment variables are encrypted with AES-256-GCM using an operator-provided `ENCRYPTION_KEY`.
+- **Remote execution boundary**: application Git/Docker/healthcheck work executes on the selected target server over SSH; the production control plane does not mount `/var/run/docker.sock`.
+- **SSH host verification**: sessions use strict host-key checking with an isolated scanned `known_hosts` file. Operators can pin a trusted SHA256 fingerprint; without pinning, first discovery is trust-on-first-use.
+- **Temporary credentials**: decrypted SSH keys exist only in temporary files with restrictive permissions for the session lifetime.
+- **Bounded remote commands**: SSH operations use connection and command timeouts.
+- **Input validation and quoting**: SSH targets, container/image names, repository paths, environment keys, and other command inputs are validated; values passed to the remote shell are shell-quoted.
+- **Secret-safe runtime injection**: secret environment values are sent over SSH stdin to a temporary remote env file instead of being embedded in logged command strings.
+- **Log redaction**: known decrypted secret values are removed from surfaced runtime errors and container logs.
 
-- **Zero Plaintext Secrets**: All SSH private keys and sensitive environment variables are encrypted at rest using AES-256-GCM authenticated encryption.
-- **Strict Parameter Passing**: Docker CLI and SSH remote executions avoid shell interpolation, employing structured arguments and input sanitization.
-- **Path Sanitization**: All repository paths, workspace directories, and Docker contexts are strictly validated against directory traversal attacks.
+## Network Exposure
 
+Docker Compose binds the management UI/API to `127.0.0.1:5150` by default as defense in depth. If exposing Moonships beyond localhost, terminate TLS at a trusted reverse proxy or use a private VPN, use unique strong `JWT_SECRET` and `ENCRYPTION_KEY` values, and pin remote SSH host fingerprints from a trusted source.
 
-## v0.1 Network Exposure
+## Known Security Limitations
 
-Moonships v0.1 should be treated as a local/trusted-host control plane. The management API authentication boundary is tracked in #47. The provided Docker Compose configuration publishes port 5150 to `127.0.0.1` by default.
-
-Until #47 is complete:
-
-- do not expose port 5150 directly to the public Internet or an untrusted LAN;
-- use an authenticated TLS reverse proxy, private VPN, or SSH tunnel for remote access;
-- remember that access to the mounted Docker socket is effectively host-root-equivalent.
+- v0.2 authenticates users but does not yet implement organization-level RBAC/multi-tenant authorization.
+- Trust-on-first-use SSH discovery is weaker than explicit fingerprint pinning.
+- Docker access on a target host is highly privileged; the configured deploy user should be treated as privileged on that target.
+- AES-GCM nonces provide encryption safety when unique; they are not an application-level replay-prevention mechanism.

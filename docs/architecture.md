@@ -52,8 +52,9 @@ Deployments are long-running operations. When a client triggers `POST /api/appli
 The `DeploymentWorker` processes the job sequentially, ensuring that even if Moonships restarts, jobs remain persistent in SQLite and resume automatically.
 
 ### 4. Infrastructure Services
-- **`GitService`**: Validates URLs, clones repositories, checks out branches/commit SHAs, and extracts commit metadata.
-- **`SshService`**: Executes remote commands over SSH safely without arbitrary shell interpolation.
-- **`DockerService`**: Validates container names, builds Dockerfiles, starts/stops containers, and reads runtime logs.
-- **`ProxyService`**: Generates Traefik dynamic labels for automated zero-downtime routing and TLS.
+- **`GitService`**: Provides shared Git URL/branch validation helpers.
+- **`SshService`**: Establishes strict host-key-checked SSH sessions, decrypts configured keys into temporary files, supports optional SHA256 fingerprint pinning, and enforces bounded execution timeouts.
+- **`RemoteRuntime`**: Runs validated/shell-quoted Git synchronization, Docker build/pull/run/lifecycle/log operations, and target-local HTTP healthchecks on the selected server.
+- **`DockerService`**: Supplies container/image validation and configuration types; v0.2 application lifecycle operations do not use the control-plane Docker daemon.
+- **`ProxyService`**: Generates Traefik routing labels for target containers. The current replacement strategy is stop-old -> start-new; zero-downtime rollout is not yet implemented.
 - **`CryptoService`**: Encrypts sensitive secrets and SSH private keys using AES-256-GCM.
