@@ -1,6 +1,10 @@
-use crate::services::{
-    deployment::{DeploymentError, DeploymentService},
-    preview::PreviewService,
+use crate::{
+    models::deployments,
+    services::{
+        deployment::{DeploymentError, DeploymentService},
+        notification::NotificationService,
+        preview::PreviewService,
+    },
 };
 use loco_rs::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -98,6 +102,28 @@ impl BackgroundWorker<DeploymentWorkerArgs> for DeploymentWorker {
                     error = %err,
                     "DeploymentWorker execution encountered error"
                 );
+
+                if let Ok(deployment) =
+                    deployments::Model::find_by_id(&self.ctx.db, args.deployment_id).await
+                {
+                    let _ = NotificationService::notify(
+                        &self.ctx,
+                        "deployment_failed",
+                        "critical",
+                        &format!("Deployment failure for application #{}", deployment.application_id),
+                        &format!(
+                            "Deployment #{} failed with code {}: {}",
+                            deployment.id,
+                            deployment.error_code.as_deref().unwrap_or("UNKNOWN"),
+                            deployment
+                                .error_message
+                                .as_deref()
+                                .unwrap_or_else(|| err.to_string().as_str())
+                        ),
+                    )
+                    .await;
+                }
+
                 // Return Ok so that queue marks the job handled, as failure state is recorded in DB.
                 Ok(())
             }
