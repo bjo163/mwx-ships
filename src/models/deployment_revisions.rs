@@ -1,6 +1,8 @@
 use chrono::Utc;
 use loco_rs::prelude::*;
-use sea_orm::{ActiveModelTrait, ActiveValue::Set, ColumnTrait, EntityTrait, QueryFilter, QueryOrder};
+use sea_orm::{
+    ActiveModelTrait, ActiveValue::Set, ColumnTrait, EntityTrait, QueryFilter, QueryOrder,
+};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
@@ -70,8 +72,9 @@ impl Model {
         source_commit_message: Option<String>,
     ) -> Result<Model> {
         let snapshot = Self::capture_snapshot(db, app, server).await?;
-        let runtime_snapshot = serde_json::to_string(&snapshot)
-            .map_err(|err| Error::BadRequest(format!("revision snapshot serialization failed: {err}")))?;
+        let runtime_snapshot = serde_json::to_string(&snapshot).map_err(|err| {
+            Error::BadRequest(format!("revision snapshot serialization failed: {err}"))
+        })?;
 
         let identity = format!(
             "moonships-revision-v1\n{}\n{}\n{}\n{}",
@@ -93,9 +96,7 @@ impl Model {
                 .clone()
                 .filter(|value| !value.trim().is_empty())
                 .ok_or_else(|| {
-                    Error::BadRequest(
-                        "prebuilt_image revision requires docker_image".to_string(),
-                    )
+                    Error::BadRequest("prebuilt_image revision requires docker_image".to_string())
                 })?
         } else {
             format!(
