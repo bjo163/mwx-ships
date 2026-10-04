@@ -1,35 +1,84 @@
-# MOONSHIPS — Roadmap to v1.0 Production GA
+# MOONSHIPS — Roadmap to v3 Production
 
 > **Deploy. Control. Own your infrastructure.**
 
-Moonships follows a risk-ordered release train. A capability is not marked released until its exact production commit passes CI, security, Docker smoke, published-image smoke, tagging, and GitHub Release creation.
+Moonships v1.0 is the stable production baseline. The post-v1 roadmap stays intentionally focused on one product: a self-hosted Git/Docker PaaS with stronger deployment correctness, desired-state control, and recovery semantics than typical dashboard-first platforms.
+
+Full plan: [docs/grand-plan-v3.md](docs/grand-plan-v3.md)  
+Umbrella: #90
 
 | Version | Theme | Status |
 | --- | --- | --- |
-| **v0.2** | Secure Remote Deployment | **Released** |
-| **v0.3** | Deployment Reliability & Rollback | **Released** |
-| **v0.4** | Managed Ingress, TLS & Zero-Downtime | **Released** |
-| **v0.5** | Git Automation & Preview Deployments | **Released** |
-| **v0.6** | Operations, Backup & Observability | **Released** |
-| **v0.7** | Organizations, RBAC, API Tokens & Audit | **Released** |
-| **v0.8** | PostgreSQL Scale Adapter & Advanced Workloads | **Released** |
-| **v0.9** | GA Hardening / RC | **Released** |
-| **v1.0** | Production GA | **Production GA** |
+| **v1.0** | Production GA baseline | **Released** |
+| **v1.1** | Fast App Creation, Detection & Deployment UX | Planned |
+| **v1.2** | Stateful Services, Volumes & Backup Semantics | Planned |
+| **v1.3** | Workers, Jobs & Complete Workload Lifecycle | Planned |
+| **v2.0** | Declarative Desired State, Plan/Apply & Promotion | Planned |
+| **v2.1** | Multi-Server Scheduling, Placement & Recovery | Planned |
+| **v2.2** | Operational Intelligence, Drift & Auto-Recovery | Planned |
+| **v3.0** | Production Platform GA | Planned |
 
-## v0.8 — Scale Adapter & Advanced Workloads
+## Product spine
 
-Parent #63; work #31, #84–#86.
+```
+Source -> Detect/Build -> Deploy -> Route -> Persist -> Observe -> Recover -> Promote/Reconcile
+```
 
-SQLite remains the first-class simple production mode. PostgreSQL adds shared state/queue operation for multiple control-plane workers. The release gate requires the same application suite on both databases, a verified SQLite→PostgreSQL migration drill, atomic deployment ownership under concurrency, execution lease heartbeat/recovery, private registry safety, Compose lifecycle/log aggregation, deterministic server placement, security audit, and production container smoke.
+Every milestone must strengthen this path.
 
-## v0.9 — GA Hardening / Release Candidate
+## v1.1 — Deployment UX
+Parent #91; work #98–#100.
 
-Parent #64; work #87–#89.
+Deterministic repository inspection, immutable pre-queue deployment plans, and one coherent create/configure/deploy flow.
 
-Freeze supported upgrade paths and v1 API behavior. Add migration fixtures from supported older versions, load/soak/failure injection, restore and target-loss drills, performance/resource budgets, threat-model review, dependency/license gates, SBOM/provenance, and published-artifact verification. v0.9 is a release-candidate phase, not a feature sprint.
+## v1.2 — Stateful Services
+Parent #92; work #101–#103.
 
-## v1.0 — Production GA
+Persistent volumes plus first-class PostgreSQL, MySQL/MariaDB and Redis-compatible service lifecycle with safe backup/restore semantics.
 
-Parent #65; umbrella #57.
+## v1.3 — Complete Workload Lifecycle
+Parent #93; work #104–#105.
 
-v1.0 is a stability contract: documented upgrade/support policy, tested disaster recovery, least-privilege authorization, dual database support boundaries, reproducible release metadata, supply-chain artifacts, zero unresolved P0/P1 correctness/security issues, and a published image verified after registry pull.
+Web, worker and scheduled-job roles sharing immutable build/revision identity and durable job execution history.
+
+## v2.0 — Desired State
+Parent #94; work #106–#108.
+
+Versioned `moonships.yaml`, deterministic plan/apply, environment diff and immutable artifact promotion.
+
+## v2.1 — Multi-Server Recovery
+Parent #95; work #109–#110.
+
+Deterministic server pools/placement, drain mode and explicit target-loss recovery without Kubernetes.
+
+## v2.2 — Drift & Recovery Intelligence
+Parent #96; work #111–#112.
+
+Declared-vs-observed drift, reconcile preview, bounded auto-recovery, SLO counters and redacted diagnostics.
+
+## v3.0 — Production Platform GA
+Parent #97; work #113–#115.
+
+Freeze v3 API/config contracts and prove upgrades, restores, failure recovery, supply-chain evidence and published-image behavior.
+
+## Scope guardrail through v3
+
+Not part of this roadmap:
+- Kubernetes
+- service mesh
+- billing/subscriptions
+- marketplace/plugins
+- enterprise SAML/SCIM
+- serverless
+- global edge scheduling
+- cloud/VPS purchasing or provisioning
+
+Real production VPS deployment is also **not** a milestone acceptance dependency. Release readiness must be reproducible through CI/local Docker, test SSH targets, fixtures, failure injection and registry-image smoke tests.
+
+## Branch model
+
+Only:
+- `dev` — engineering/integration
+- `main` — production
+
+No new canonical feature/release/hotfix branches.
