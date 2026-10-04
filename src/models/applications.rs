@@ -152,6 +152,17 @@ impl Model {
         revision_id: i64,
     ) -> Result<Model> {
         let app = Self::find_by_id(db, id).await?;
+        let runtime_name = app.active_runtime_name.clone();
+        Self::promote_revision_with_runtime(db, id, revision_id, runtime_name).await
+    }
+
+    pub async fn promote_revision_with_runtime(
+        db: &DatabaseConnection,
+        id: i64,
+        revision_id: i64,
+        runtime_name: Option<String>,
+    ) -> Result<Model> {
+        let app = Self::find_by_id(db, id).await?;
         let current_revision_id = app.current_revision_id;
         let mut active: ActiveModel = app.into();
 
@@ -160,8 +171,28 @@ impl Model {
             active.current_revision_id = Set(Some(revision_id));
         }
 
+        active.active_runtime_name = Set(runtime_name);
+        active.candidate_runtime_name = Set(None);
         active.status = Set("running".to_string());
         active.updated_at = Set(Utc::now().into());
         Ok(active.update(db).await?)
+    }
+
+    pub async fn set_candidate_runtime(
+        db: &DatabaseConnection,
+        id: i64,
+        runtime_name: Option<String>,
+    ) -> Result<Model> {
+        let app = Self::find_by_id(db, id).await?;
+        let mut active: ActiveModel = app.into();
+        active.candidate_runtime_name = Set(runtime_name);
+        active.updated_at = Set(Utc::now().into());
+        Ok(active.update(db).await?)
+    }
+
+    pub fn resolved_runtime_name(&self) -> String {
+        self.active_runtime_name
+            .clone()
+            .unwrap_or_else(|| self.container_name.clone())
     }
 }
