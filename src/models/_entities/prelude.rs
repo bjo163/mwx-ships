@@ -22,3 +22,6 @@ pub use super::server_health_checks::Entity as ServerHealthChecks;
 pub use super::servers::Entity as Servers;
 pub use super::users::Entity as Users;
 pub use super::webhook_deliveries::Entity as WebhookDeliveries;
+pub use super::registry_credentials::Entity as RegistryCredentials;
+pub use super::server_pool_members::Entity as ServerPoolMembers;
+pub use super::server_pools::Entity as ServerPools;
