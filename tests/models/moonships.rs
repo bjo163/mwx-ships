@@ -5,6 +5,7 @@ use moonships::{
     models::{
         applications::{CreateApplicationParams, Model as ApplicationModel},
         deployment_logs::Model as DeploymentLogModel,
+        deployment_revisions::Model as DeploymentRevisionModel,
         deployments::Model as DeploymentModel,
         domains::{CreateDomainParams, Model as DomainModel},
         environments::{CreateEnvironmentParams, Model as EnvironmentModel},
@@ -84,7 +85,7 @@ async fn test_models_lifecycle_and_constraints() {
             name: "Core API".to_string(),
             slug: Some("core-api".to_string()),
             git_repository: "https://github.com/bjo163/mwx-ships.git".to_string(),
-            git_branch: Some("master".to_string()),
+            git_branch: Some("main".to_string()),
             build_type: Some("dockerfile".to_string()),
             dockerfile_path: None,
             docker_context: None,
@@ -167,6 +168,66 @@ async fn test_models_lifecycle_and_constraints() {
         "queued deployment must be recognized as active lock"
     );
 
+    // 7. Immutable deployment revision snapshot
+    let revision = DeploymentRevisionModel::create_or_get(
+        db,
+        &app,
+        &server,
+        "c0ffee1",
+        Some("Deploying new feature".to_string()),
+    )
+    .await
+    .expect("create immutable deployment revision");
+
+    assert!(
+        revision
+            .image_reference
+            .starts_with("moonships/core-api:rev-"),
+        "dockerfile revisions must use immutable revision-specific image tags"
+    );
+    assert!(
+        !revision.runtime_snapshot.contains("SUPER_SECRET_123"),
+        "plaintext secret values must never appear in revision snapshots"
+    );
+
+    let snapshot = revision.snapshot().expect("decode revision snapshot");
+    let secret = snapshot
+        .environment
+        .iter()
+        .find(|item| item.key == "APP_KEY")
+        .expect("secret env snapshot");
+    assert!(secret.is_secret);
+    assert!(
+        secret.value.is_none(),
+        "secret revision entries must not persist plaintext values"
+    );
+    assert!(!secret.value_fingerprint.is_empty());
+
+    let duplicate = DeploymentRevisionModel::create_or_get(
+        db,
+        &app,
+        &server,
+        "c0ffee1",
+        Some("Deploying new feature".to_string()),
+    )
+    .await
+    .expect("deduplicate identical revision");
+    assert_eq!(
+        duplicate.id, revision.id,
+        "identical immutable state must resolve to the same revision"
+    );
+
+    let dep = DeploymentModel::attach_revision(
+        db,
+        dep.id,
+        revision.id,
+        "c0ffee1",
+        Some("Deploying new feature".to_string()),
+    )
+    .await
+    .expect("attach revision to deployment");
+    assert_eq!(dep.revision_id, Some(revision.id));
+
     // Deployment logs append
     let log = DeploymentLogModel::append(db, dep.id, "stdout", "Build starting...")
         .await
@@ -177,6 +238,15 @@ async fn test_models_lifecycle_and_constraints() {
         .await
         .expect("get logs");
     assert_eq!(logs.len(), 1);
+
+    DeploymentRevisionModel::mark_healthy(db, revision.id)
+        .await
+        .expect("mark first revision healthy");
+    let promoted = ApplicationModel::promote_revision(db, app.id, revision.id)
+        .await
+        .expect("promote first revision");
+    assert_eq!(promoted.current_revision_id, Some(revision.id));
+    assert_eq!(promoted.previous_revision_id, None);
 
     // Finish deployment -> success
     let finished_dep = DeploymentModel::update_status(db, dep.id, "success")
@@ -191,4 +261,45 @@ async fn test_models_lifecycle_and_constraints() {
             .expect("active deployment check"),
         "once deployment is success, lock must be released"
     );
+
+    // 8. A second healthy revision moves the previous pointer without mutating history.
+    let second_dep = DeploymentModel::create_deployment(
+        db,
+        app.id,
+        server.id,
+        Some("decaf02".to_string()),
+        Some("Second revision".to_string()),
+    )
+    .await
+    .expect("create second deployment");
+
+    let second_revision = DeploymentRevisionModel::create_or_get(
+        db,
+        &app,
+        &server,
+        "decaf02",
+        Some("Second revision".to_string()),
+    )
+    .await
+    .expect("create second revision");
+    assert_ne!(second_revision.id, revision.id);
+
+    DeploymentModel::attach_revision(
+        db,
+        second_dep.id,
+        second_revision.id,
+        "decaf02",
+        Some("Second revision".to_string()),
+    )
+    .await
+    .expect("attach second revision");
+
+    DeploymentRevisionModel::mark_healthy(db, second_revision.id)
+        .await
+        .expect("mark second revision healthy");
+    let promoted = ApplicationModel::promote_revision(db, app.id, second_revision.id)
+        .await
+        .expect("promote second revision");
+    assert_eq!(promoted.current_revision_id, Some(second_revision.id));
+    assert_eq!(promoted.previous_revision_id, Some(revision.id));
 }
