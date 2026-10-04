@@ -2,7 +2,6 @@ use chrono::Utc;
 use loco_rs::testing::prelude::*;
 use moonships::{
     app::App,
-    services::{crypto::CryptoService, deployment::DeploymentService},
     models::{
         applications::{CreateApplicationParams, Model as ApplicationModel},
         deployment_logs::Model as DeploymentLogModel,
@@ -13,6 +12,7 @@ use moonships::{
         projects::{CreateProjectParams, Model as ProjectModel},
         servers::{self, Model as ServerModel},
     },
+    services::{crypto::CryptoService, deployment::DeploymentService},
 };
 use sea_orm::{ActiveModelTrait, ActiveValue::Set};
 use serial_test::serial;
@@ -115,7 +115,7 @@ async fn test_models_lifecycle_and_constraints() {
         application_id: Set(app.id),
         key: Set("APP_KEY".to_string()),
         encrypted_value: Set(
-            CryptoService::encrypt("SUPER_SECRET_123").expect("encrypt test secret"),
+            CryptoService::encrypt("SUPER_SECRET_123").expect("encrypt test secret")
         ),
         is_secret: Set(true),
         created_at: Set(Utc::now().into()),
@@ -351,14 +351,10 @@ async fn test_models_lifecycle_and_constraints() {
         "cancelled deployment must release the application lock"
     );
 
-    let resurrect = DeploymentModel::transition_status_if(
-        db,
-        cancelled.id,
-        &["queued"],
-        "connecting",
-    )
-    .await
-    .expect("attempt transition from cancelled");
+    let resurrect =
+        DeploymentModel::transition_status_if(db, cancelled.id, &["queued"], "connecting")
+            .await
+            .expect("attempt transition from cancelled");
     assert!(
         resurrect.is_none(),
         "cancelled deployment must not be resurrected by worker phase transition"
@@ -417,13 +413,7 @@ async fn test_models_lifecycle_and_constraints() {
             .is_none(),
         "cancel must fail closed after destructive replacement begins"
     );
-    DeploymentModel::record_failure(
-        db,
-        destructive.id,
-        "TEST_CLEANUP",
-        "test cleanup",
-        None,
-    )
-    .await
-    .expect("finish destructive-phase test deployment");
+    DeploymentModel::record_failure(db, destructive.id, "TEST_CLEANUP", "test cleanup", None)
+        .await
+        .expect("finish destructive-phase test deployment");
 }

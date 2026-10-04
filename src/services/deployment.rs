@@ -1,6 +1,4 @@
-use crate::models::{
-    applications, deployment_logs, deployment_revisions, deployments, servers,
-};
+use crate::models::{applications, deployment_logs, deployment_revisions, deployments, servers};
 use crate::services::{
     crypto::CryptoService,
     docker::ContainerConfig,
@@ -103,8 +101,7 @@ impl DeploymentService {
             .map_err(|err| DeploymentError::StepFailed {
                 step: "cancel_deployment".to_string(),
                 message: err.to_string(),
-            })?
-        {
+            })? {
             Some(cancelled) => {
                 let _ = deployment_logs::Model::append(
                     db,
@@ -114,15 +111,15 @@ impl DeploymentService {
                 )
                 .await;
 
-                if let Ok(app) = applications::Model::find_by_id(db, deployment.application_id).await
+                if let Ok(app) =
+                    applications::Model::find_by_id(db, deployment.application_id).await
                 {
                     let restored_status = if app.current_revision_id.is_some() {
                         "running"
                     } else {
                         "stopped"
                     };
-                    let _ =
-                        applications::Model::update_status(db, app.id, restored_status).await;
+                    let _ = applications::Model::update_status(db, app.id, restored_status).await;
                 }
 
                 Ok(cancelled)
@@ -238,16 +235,14 @@ impl DeploymentService {
             });
         }
 
-        let source_deployment_id = deployments::Model::latest_success_for_application(
-            db,
-            application_id,
-        )
-        .await
-        .map_err(|err| DeploymentError::StepFailed {
-            step: "rollback_source_lookup".to_string(),
-            message: err.to_string(),
-        })?
-        .map(|deployment| deployment.id);
+        let source_deployment_id =
+            deployments::Model::latest_success_for_application(db, application_id)
+                .await
+                .map_err(|err| DeploymentError::StepFailed {
+                    step: "rollback_source_lookup".to_string(),
+                    message: err.to_string(),
+                })?
+                .map(|deployment| deployment.id);
 
         let deployment = deployments::Model::create_deployment_attempt(
             db,
@@ -386,10 +381,16 @@ impl DeploymentService {
         .await;
 
         let requested_snapshot = match requested_revision.as_ref() {
-            Some(revision) => Some(revision.snapshot().map_err(|err| DeploymentError::StepFailed {
-                step: "decode_requested_revision".to_string(),
-                message: err.to_string(),
-            })?),
+            Some(revision) => {
+                Some(
+                    revision
+                        .snapshot()
+                        .map_err(|err| DeploymentError::StepFailed {
+                            step: "decode_requested_revision".to_string(),
+                            message: err.to_string(),
+                        })?,
+                )
+            }
             None => None,
         };
 
@@ -594,15 +595,16 @@ impl DeploymentService {
 
         for env in &revision_snapshot.environment {
             let value = if env.is_secret {
-                let encrypted = env.encrypted_value.as_deref().ok_or_else(|| {
-                    DeploymentError::StepFailed {
-                        step: "revision_secret_resolve".to_string(),
-                        message: format!(
-                            "revision secret '{}' has no encrypted value",
-                            env.key
-                        ),
-                    }
-                })?;
+                let encrypted =
+                    env.encrypted_value
+                        .as_deref()
+                        .ok_or_else(|| DeploymentError::StepFailed {
+                            step: "revision_secret_resolve".to_string(),
+                            message: format!(
+                                "revision secret '{}' has no encrypted value",
+                                env.key
+                            ),
+                        })?;
 
                 if deployment_revisions::sha256_hex(encrypted) != env.value_fingerprint {
                     return Err(Self::record_failure(
@@ -611,7 +613,10 @@ impl DeploymentService {
                         app.id,
                         "REVISION_SECRET_INTEGRITY_FAILED",
                         "starting_new",
-                        &format!("encrypted revision secret '{}' failed integrity check", env.key),
+                        &format!(
+                            "encrypted revision secret '{}' failed integrity check",
+                            env.key
+                        ),
                         None,
                     )
                     .await);
@@ -636,10 +641,13 @@ impl DeploymentService {
                     }
                 }
             } else {
-                let value = env.value.clone().ok_or_else(|| DeploymentError::StepFailed {
-                    step: "revision_env_resolve".to_string(),
-                    message: format!("revision environment '{}' has no value", env.key),
-                })?;
+                let value = env
+                    .value
+                    .clone()
+                    .ok_or_else(|| DeploymentError::StepFailed {
+                        step: "revision_env_resolve".to_string(),
+                        message: format!("revision environment '{}' has no value", env.key),
+                    })?;
                 if deployment_revisions::sha256_hex(&value) != env.value_fingerprint {
                     return Err(Self::record_failure(
                         db,
@@ -830,17 +838,12 @@ impl DeploymentService {
         allowed_from: &[&str],
         next_status: &str,
     ) -> Result<deployments::Model, DeploymentError> {
-        match deployments::Model::transition_status_if(
-            db,
-            deployment_id,
-            allowed_from,
-            next_status,
-        )
-        .await
-        .map_err(|err| DeploymentError::StepFailed {
-            step: "transition_status".to_string(),
-            message: err.to_string(),
-        })? {
+        match deployments::Model::transition_status_if(db, deployment_id, allowed_from, next_status)
+            .await
+            .map_err(|err| DeploymentError::StepFailed {
+                step: "transition_status".to_string(),
+                message: err.to_string(),
+            })? {
             Some(deployment) => Ok(deployment),
             None => {
                 let current = deployments::Model::find_by_id(db, deployment_id)

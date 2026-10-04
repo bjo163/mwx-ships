@@ -1,7 +1,5 @@
 use crate::{
-    models::{
-        deployment_logs::Model as DeploymentLogModel, deployments::Model as DeploymentModel,
-    },
+    models::{deployment_logs::Model as DeploymentLogModel, deployments::Model as DeploymentModel},
     services::deployment::{DeploymentError, DeploymentService},
     workers::deployment::{DeploymentWorker, DeploymentWorkerArgs},
 };
@@ -52,7 +50,6 @@ pub async fn get_logs(
         "message": "ok"
     }))
 }
-
 
 #[debug_handler]
 pub async fn cancel(

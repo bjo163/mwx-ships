@@ -106,7 +106,10 @@ impl RemoteRuntime {
             validate_git_commit(commit)?;
             self.exec_checked(
                 "git_checkout_commit",
-                &format!("git -C {workspace} checkout --detach {}", shell_quote(commit)),
+                &format!(
+                    "git -C {workspace} checkout --detach {}",
+                    shell_quote(commit)
+                ),
                 Duration::from_secs(60),
             )
             .await?;
@@ -146,13 +149,8 @@ impl RemoteRuntime {
         app: &applications::Model,
         image_tag: &str,
     ) -> Result<String, RemoteError> {
-        self.build_image_config(
-            app.id,
-            &app.docker_context,
-            &app.dockerfile_path,
-            image_tag,
-        )
-        .await
+        self.build_image_config(app.id, &app.docker_context, &app.dockerfile_path, image_tag)
+            .await
     }
 
     pub async fn build_image_config(
