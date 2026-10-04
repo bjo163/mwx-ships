@@ -12,6 +12,8 @@ import {
   AlertCircle,
   Server,
   Layers,
+  Ban,
+  RotateCcw,
 } from 'lucide-react';
 
 export function Deployments() {
@@ -36,6 +38,16 @@ export function Deployments() {
     return () => clearInterval(interval);
   }, []);
 
+  async function runAction(id: number, action: 'cancel' | 'retry') {
+    try {
+      await apiRequest(`/api/deployments/${id}/${action}`, { method: 'POST' });
+      await loadDeployments();
+    } catch (error) {
+      console.error(`Failed to ${action} deployment #${id}:`, error);
+      window.alert(error instanceof Error ? error.message : `Failed to ${action} deployment`);
+    }
+  }
+
   const filteredDeployments =
     filter === 'all'
       ? deployments
@@ -59,7 +71,7 @@ export function Deployments() {
 
       {/* Filter Tabs */}
       <div style={{ display: 'flex', gap: '8px', marginBottom: '24px' }}>
-        {['all', 'success', 'failed', 'building', 'queued'].map((f) => (
+        {['all', 'success', 'failed', 'cancelled', 'building', 'queued'].map((f) => (
           <button
             key={f}
             onClick={() => setFilter(f)}
@@ -85,7 +97,10 @@ export function Deployments() {
         {filteredDeployments.map((d) => {
           const isSuccess = d.status === 'success';
           const isFailed = d.status === 'failed';
-          const isOngoing = !isSuccess && !isFailed;
+          const isCancelled = d.status === 'cancelled';
+          const isOngoing = !isSuccess && !isFailed && !isCancelled;
+          const canCancel = ['queued', 'connecting', 'cloning', 'building'].includes(d.status);
+          const canRetry = ['failed', 'cancelled'].includes(d.status);
 
           return (
             <div
@@ -106,7 +121,7 @@ export function Deployments() {
                     borderRadius: '8px',
                     background: isSuccess
                       ? 'rgba(16, 185, 129, 0.1)'
-                      : isFailed
+                      : isFailed || isCancelled
                       ? 'rgba(239, 68, 68, 0.1)'
                       : 'rgba(99, 102, 241, 0.1)',
                     display: 'flex',
@@ -116,7 +131,7 @@ export function Deployments() {
                 >
                   {isSuccess ? (
                     <CheckCircle size={20} color="var(--success)" />
-                  ) : isFailed ? (
+                  ) : isFailed || isCancelled ? (
                     <XCircle size={20} color="var(--danger)" />
                   ) : (
                     <Rocket size={20} color="var(--indigo-primary)" className={isOngoing ? 'spin' : ''} />
@@ -155,14 +170,36 @@ export function Deployments() {
                   {d.finished_at && <div>Finished: {new Date(d.finished_at).toLocaleTimeString()}</div>}
                 </div>
 
-                <Link
-                  to={`/applications/${d.application_id}`}
-                  className="btn btn-secondary"
-                  style={{ padding: '8px 12px' }}
-                >
-                  <span>View Details</span>
-                  <ArrowRight size={14} />
-                </Link>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  {canCancel && (
+                    <button
+                      className="btn btn-secondary"
+                      style={{ padding: '8px 12px' }}
+                      onClick={() => runAction(d.id, 'cancel')}
+                    >
+                      <Ban size={14} />
+                      Cancel
+                    </button>
+                  )}
+                  {canRetry && (
+                    <button
+                      className="btn btn-secondary"
+                      style={{ padding: '8px 12px' }}
+                      onClick={() => runAction(d.id, 'retry')}
+                    >
+                      <RotateCcw size={14} />
+                      Retry
+                    </button>
+                  )}
+                  <Link
+                    to={`/applications/${d.application_id}`}
+                    className="btn btn-secondary"
+                    style={{ padding: '8px 12px' }}
+                  >
+                    <span>View Details</span>
+                    <ArrowRight size={14} />
+                  </Link>
+                </div>
               </div>
             </div>
           );
