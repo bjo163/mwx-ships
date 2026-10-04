@@ -1,6 +1,6 @@
 # Target Server Requirements
 
-Moonships v0.2 controls remote Linux servers over OpenSSH. Any reachable Linux host that can run Docker and the required command-line utilities can be a deployment target.
+Moonships controls remote Linux servers over OpenSSH. Any reachable Linux host that can run Docker and the required command-line utilities can be a deployment target.
 
 ## Minimum Hardware Requirements
 
@@ -33,5 +33,14 @@ For production, obtain the target's SHA256 SSH host fingerprint through a truste
 ## Network Ports
 
 - SSH port (22/tcp by default) must be reachable from the control plane.
-- Application ingress ports depend on the target-side routing design, for example 80/443 when using Traefik.
+- For Moonships-managed ingress, TCP 80 and 443 must be available on the target for the managed Traefik container.
 - Published application ports used for healthchecks must be reachable from the target host itself.
+
+
+## Managed ingress target requirements
+
+For v0.4 managed ingress:
+- the deploy user must be able to create Docker networks and containers;
+- ports 80/tcp and 443/tcp must not already be owned by an unrelated service;
+- public HTTPS domains must resolve to the target and permit Let's Encrypt HTTP-01 traffic;
+- application healthchecks are required before Moonships can switch managed traffic.
