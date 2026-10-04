@@ -155,7 +155,10 @@ cd mwx-ships
 
 # 2. Configure environment
 cp .env.example .env
-# Edit .env and supply a secure 32-byte hex ENCRYPTION_KEY
+# Edit .env and set BOTH required production secrets:
+# ENCRYPTION_KEY: generate with `openssl rand -hex 32` (64 hex chars)
+# JWT_SECRET: generate a separate strong random value
+# docker compose intentionally refuses to start when either value is missing
 
 # 3. Launch control plane
 docker compose up -d
