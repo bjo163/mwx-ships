@@ -1,4 +1,4 @@
-use crate::services::deployment::DeploymentService;
+use crate::services::deployment::{DeploymentError, DeploymentService};
 use loco_rs::prelude::*;
 use serde::{Deserialize, Serialize};
 
@@ -31,13 +31,20 @@ impl BackgroundWorker<DeploymentWorkerArgs> for DeploymentWorker {
                 );
                 Ok(())
             }
+            Err(DeploymentError::Cancelled) => {
+                tracing::info!(
+                    deployment_id = args.deployment_id,
+                    "DeploymentWorker observed a user-cancelled deployment"
+                );
+                Ok(())
+            }
             Err(err) => {
                 tracing::error!(
                     deployment_id = args.deployment_id,
                     error = %err,
                     "DeploymentWorker execution encountered error"
                 );
-                // Return Ok so that queue marks the job handled, as failure state is recorded in DB
+                // Return Ok so that queue marks the job handled, as failure state is recorded in DB.
                 Ok(())
             }
         }
