@@ -2,6 +2,7 @@ pub mod crypto;
 pub mod deployment;
 pub mod docker;
 pub mod git;
+pub mod git_provider;
 pub mod proxy;
 pub mod remote;
 pub mod retention;
