@@ -8,6 +8,7 @@ use crate::{
             CreateApplicationParams, Model as ApplicationModel, UpdateApplicationParams,
         },
         audit_events::{AuditEventInput, Model as AuditEventModel},
+        deployment_revisions::Model as DeploymentRevisionModel,
         deployments::{Model as DeploymentModel, TriggerDeployParams},
         domains::{CreateDomainParams, Model as DomainModel},
         environment_variables::{Model as EnvVarModel, SetEnvVarParams},
@@ -521,10 +522,17 @@ pub async fn start(
         authorized_application(&ctx, &headers, id, Permission::Deploy).await?;
     let (_, runtime) = remote_runtime(&ctx.db, &app).await?;
     let runtime_name = app.resolved_runtime_name();
-    runtime
-        .start_container(&runtime_name)
-        .await
-        .map_err(|err| Error::BadRequest(err.to_string()))?;
+    if app.workload_type == "compose" {
+        runtime
+            .compose_project_action(&runtime_name, "start")
+            .await
+            .map_err(|err| Error::BadRequest(err.to_string()))?;
+    } else {
+        runtime
+            .start_container(&runtime_name)
+            .await
+            .map_err(|err| Error::BadRequest(err.to_string()))?;
+    }
     let updated = ApplicationModel::update_status(&ctx.db, app.id, "running").await?;
     audit_application(
         &ctx,
@@ -550,10 +558,17 @@ pub async fn stop(
         authorized_application(&ctx, &headers, id, Permission::Deploy).await?;
     let (_, runtime) = remote_runtime(&ctx.db, &app).await?;
     let runtime_name = app.resolved_runtime_name();
-    runtime
-        .stop_container(&runtime_name)
-        .await
-        .map_err(|err| Error::BadRequest(err.to_string()))?;
+    if app.workload_type == "compose" {
+        runtime
+            .compose_project_action(&runtime_name, "stop")
+            .await
+            .map_err(|err| Error::BadRequest(err.to_string()))?;
+    } else {
+        runtime
+            .stop_container(&runtime_name)
+            .await
+            .map_err(|err| Error::BadRequest(err.to_string()))?;
+    }
     let updated = ApplicationModel::update_status(&ctx.db, app.id, "stopped").await?;
     audit_application(
         &ctx,
@@ -579,10 +594,17 @@ pub async fn restart(
         authorized_application(&ctx, &headers, id, Permission::Deploy).await?;
     let (_, runtime) = remote_runtime(&ctx.db, &app).await?;
     let runtime_name = app.resolved_runtime_name();
-    runtime
-        .restart_container(&runtime_name)
-        .await
-        .map_err(|err| Error::BadRequest(err.to_string()))?;
+    if app.workload_type == "compose" {
+        runtime
+            .compose_project_action(&runtime_name, "restart")
+            .await
+            .map_err(|err| Error::BadRequest(err.to_string()))?;
+    } else {
+        runtime
+            .restart_container(&runtime_name)
+            .await
+            .map_err(|err| Error::BadRequest(err.to_string()))?;
+    }
     let updated = ApplicationModel::update_status(&ctx.db, app.id, "running").await?;
     audit_application(
         &ctx,
@@ -607,15 +629,23 @@ pub async fn status(
     let (_, _, app) = authorized_application(&ctx, &headers, id, Permission::View).await?;
     let (server, runtime) = remote_runtime(&ctx.db, &app).await?;
     let runtime_name = app.resolved_runtime_name();
-    let container_status = runtime
-        .container_status(&runtime_name)
-        .await
-        .unwrap_or_else(|_| "unknown".to_string());
+    let runtime_status = if app.workload_type == "compose" {
+        runtime
+            .compose_project_status(&runtime_name)
+            .await
+            .unwrap_or_else(|_| "unknown".to_string())
+    } else {
+        runtime
+            .container_status(&runtime_name)
+            .await
+            .unwrap_or_else(|_| "unknown".to_string())
+    };
     format::json(serde_json::json!({
         "data": {
             "application_id": app.id,
             "status": app.status,
-            "container_status": container_status,
+            "workload_type": app.workload_type,
+            "runtime_status": runtime_status,
             "target_server_id": server.id,
             "target_server": server.name,
         },
@@ -631,10 +661,17 @@ pub async fn logs(
     let (_, _, app) = authorized_application(&ctx, &headers, id, Permission::View).await?;
     let (server, runtime) = remote_runtime(&ctx.db, &app).await?;
     let runtime_name = app.resolved_runtime_name();
-    let logs = runtime
-        .container_logs(&runtime_name, 200)
-        .await
-        .unwrap_or_default();
+    let logs = if app.workload_type == "compose" {
+        runtime
+            .compose_project_logs(&runtime_name, 200)
+            .await
+            .unwrap_or_default()
+    } else {
+        runtime
+            .container_logs(&runtime_name, 200)
+            .await
+            .unwrap_or_default()
+    };
 
     let vars = EnvVarModel::by_application(&ctx.db, app.id)
         .await
@@ -649,7 +686,8 @@ pub async fn logs(
     format::json(serde_json::json!({
         "data": {
             "application_id": app.id,
-            "container_name": runtime_name,
+            "runtime_name": runtime_name,
+            "workload_type": app.workload_type,
             "target_server_id": server.id,
             "target_server": server.name,
             "logs": safe_logs,
