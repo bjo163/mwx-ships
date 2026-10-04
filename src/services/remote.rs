@@ -726,6 +726,93 @@ MOONSHIPS_ASKPASS\n\
             .await
     }
 
+    pub async fn compose_project_action(
+        &self,
+        project_name: &str,
+        action: &str,
+    ) -> Result<(), RemoteError> {
+        validate_compose_project_name(project_name)?;
+        if !matches!(action, "start" | "stop" | "restart") {
+            return Err(RemoteError::Validation(
+                "unsupported Compose project action".to_string(),
+            ));
+        }
+        let filter = shell_quote(&format!("label=com.docker.compose.project={project_name}"));
+        let command = format!(
+            "set -eu; ids=$(docker ps -aq --filter {filter}); \
+             [ -n \"$ids\" ] || {{ echo 'Compose project has no containers' >&2; exit 4; }}; \
+             docker {action} $ids >/dev/null"
+        );
+        self.exec_checked(
+            &format!("compose_project_{action}"),
+            &command,
+            Duration::from_secs(120),
+        )
+        .await?;
+        Ok(())
+    }
+
+    pub async fn compose_project_status(
+        &self,
+        project_name: &str,
+    ) -> Result<String, RemoteError> {
+        validate_compose_project_name(project_name)?;
+        let filter = shell_quote(&format!("label=com.docker.compose.project={project_name}"));
+        self.exec_checked(
+            "compose_project_status",
+            &format!(
+                "docker ps -a --filter {filter} --format '{{{{.Names}}}}\\t{{{{.State}}}}\\t{{{{.Status}}}}'"
+            ),
+            Duration::from_secs(60),
+        )
+        .await
+    }
+
+    pub async fn compose_project_healthy(
+        &self,
+        project_name: &str,
+    ) -> Result<(), RemoteError> {
+        validate_compose_project_name(project_name)?;
+        let filter = shell_quote(&format!("label=com.docker.compose.project={project_name}"));
+        let command = format!(
+            "set -eu; \
+             total=$(docker ps -aq --filter {filter} | wc -l | tr -d ' '); \
+             running=$(docker ps -q --filter {filter} --filter status=running | wc -l | tr -d ' '); \
+             [ \"$total\" -gt 0 ] && [ \"$running\" -eq \"$total\" ]"
+        );
+        self.exec_checked(
+            "compose_project_health",
+            &command,
+            Duration::from_secs(60),
+        )
+        .await?;
+        Ok(())
+    }
+
+    pub async fn compose_project_logs(
+        &self,
+        project_name: &str,
+        tail: u32,
+    ) -> Result<String, RemoteError> {
+        validate_compose_project_name(project_name)?;
+        let filter = shell_quote(&format!("label=com.docker.compose.project={project_name}"));
+        let tail = tail.min(5000);
+        let command = format!(
+            "set -eu; found=0; \
+             for name in $(docker ps -a --filter {filter} --format '{{{{.Names}}}}'); do \
+               found=1; printf '\\n===== %s =====\\n' \"$name\"; \
+               docker logs --tail {tail} \"$name\" 2>&1 || true; \
+             done; [ \"$found\" -eq 1 ]"
+        );
+        self.exec_checked(
+            "compose_project_logs",
+            &command,
+            Duration::from_secs(120),
+        )
+        .await
+    }
+
+
     pub async fn stop_and_remove_container(&self, name: &str) -> Result<(), RemoteError> {
         DockerService::validate_container_name(name)
             .map_err(|e| RemoteError::Validation(e.to_string()))?;
