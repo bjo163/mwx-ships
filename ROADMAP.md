@@ -8,7 +8,7 @@ The roadmap is risk-ordered. Each version removes a production failure class bef
 | --- | --- | --- |
 | **v0.2** | Secure Remote Deployment | Can Moonships deploy to the selected server securely? **Released.** |
 | **v0.3** | Deployment Reliability & Rollback | Can a bad/interrupted deployment be recovered safely? |
-| **v0.4** | Managed Ingress, TLS & Zero-Downtime | Can traffic move to a healthy candidate without intentional outage? |
+| **v0.4** | Managed Ingress, TLS & Zero-Downtime | Can traffic move to a healthy candidate without intentional outage? **Release candidate.** |
 | **v0.5** | Git Automation & Previews | Can source-control events trigger authenticated, idempotent deployments? |
 | **v0.6** | Operations & Observability | Can operators detect, diagnose, back up, and restore production? |
 | **v0.7** | Teams, RBAC & Audit | Can multiple people operate Moonships with least privilege and accountability? |
