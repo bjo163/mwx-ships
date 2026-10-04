@@ -5,6 +5,7 @@ use serde_json::{Map, Value};
 use crate::models::{
     api_tokens, applications, deployments,
     organization_memberships::{self, Model as MembershipModel},
+    organizations::Model as OrganizationModel,
     projects, servers, users,
 };
 
@@ -153,6 +154,31 @@ impl Principal {
             .filter(|membership| membership.can_view())
             .map(|membership| membership.organization_id)
             .collect())
+    }
+
+    pub async fn require_platform_owner(&self, db: &DatabaseConnection) -> Result<()> {
+        if self.api_token.is_some() {
+            return Err(Error::Unauthorized(
+                "platform operations require an interactive owner session".to_string(),
+            ));
+        }
+
+        let organizations = OrganizationModel::all(db).await?;
+        if organizations.is_empty() {
+            return Ok(());
+        }
+
+        for organization in organizations {
+            let membership = self.membership(db, organization.id).await?;
+            if !membership.is_owner() {
+                return Err(Error::Unauthorized(
+                    "platform operations require owner access to every organization"
+                        .to_string(),
+                ));
+            }
+        }
+
+        Ok(())
     }
 
     pub async fn resolve_organization(
