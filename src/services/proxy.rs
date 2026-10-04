@@ -7,6 +7,67 @@ pub enum ProxyError {
 pub struct ProxyService;
 
 impl ProxyService {
+    pub const MANAGED_NETWORK: &'static str = "moonships-ingress";
+    pub const MANAGED_PROXY_CONTAINER: &'static str = "moonships-traefik";
+
+    pub fn managed_runtime_name(app_slug: &str, revision_hash: &str) -> String {
+        let suffix = &revision_hash[..12.min(revision_hash.len())];
+        format!("moonships-{app_slug}-{suffix}")
+    }
+
+    pub fn uses_managed_ingress(domain_count: usize, published_port: Option<i32>) -> bool {
+        domain_count > 0 && published_port.is_none()
+    }
+
+    pub fn managed_route_config(
+        app_slug: &str,
+        runtime_name: &str,
+        container_port: i32,
+        https_domains: &[String],
+        http_domains: &[String],
+    ) -> serde_json::Value {
+        let service_name = format!("moonships-{app_slug}");
+        let mut routers = serde_json::Map::new();
+
+        if !https_domains.is_empty() {
+            routers.insert(
+                format!("{service_name}-https"),
+                serde_json::json!({
+                    "rule": host_rule(https_domains),
+                    "entryPoints": ["websecure"],
+                    "service": service_name,
+                    "tls": { "certResolver": "letsencrypt" }
+                }),
+            );
+        }
+
+        if !http_domains.is_empty() {
+            routers.insert(
+                format!("{service_name}-http"),
+                serde_json::json!({
+                    "rule": host_rule(http_domains),
+                    "entryPoints": ["web"],
+                    "service": service_name
+                }),
+            );
+        }
+
+        serde_json::json!({
+            "http": {
+                "routers": routers,
+                "services": {
+                    service_name: {
+                        "loadBalancer": {
+                            "servers": [{
+                                "url": format!("http://{runtime_name}:{container_port}")
+                            }]
+                        }
+                    }
+                }
+            }
+        })
+    }
+
     /// Validate RFC 1123 compliant hostname
     pub fn validate_hostname(hostname: &str) -> Result<(), ProxyError> {
         let trimmed = hostname.trim();
@@ -136,4 +197,14 @@ mod tests {
             .iter()
             .any(|(k, v)| k == "traefik.http.routers.moonships-my-app.tls" && v == "true"));
     }
+}
+
+
+fn host_rule(domains: &[String]) -> String {
+    let tick = char::from(96);
+    domains
+        .iter()
+        .map(|domain| format!("Host({tick}{}{tick})", domain.trim().to_lowercase()))
+        .collect::<Vec<_>>()
+        .join(" || ")
 }
