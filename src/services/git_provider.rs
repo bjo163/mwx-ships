@@ -1,3 +1,4 @@
+use std::time::Duration;
 use axum::http::HeaderMap;
 use hmac::{Hmac, Mac};
 use serde::{Deserialize, Serialize};
@@ -121,7 +122,10 @@ impl GitProviderService {
             .token()
             .map_err(|err| GitProviderError::Http(err.to_string()))?
             .ok_or(GitProviderError::MissingToken)?;
-        let client = reqwest::Client::new();
+        let client = reqwest::Client::builder()
+            .timeout(Duration::from_secs(10))
+            .build()
+            .map_err(|err| GitProviderError::Http(err.to_string()))?;
 
         let response = match integration.provider.as_str() {
             "github" => {
