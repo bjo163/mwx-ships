@@ -1,16 +1,18 @@
 use crate::models::{
-    applications, deployment_logs, deployment_revisions, deployments, domains, servers,
+    applications, deployment_logs, deployment_revisions, deployments, domains, git_integrations,
+    servers, webhook_deliveries,
 };
 use crate::services::{
     crypto::CryptoService,
     docker::ContainerConfig,
+    git_provider::{CommitStatus, GitProviderService},
     proxy::ProxyService,
     remote::{redact_secrets, RemoteRuntime},
     retention::RetentionService,
 };
 use loco_rs::prelude::*;
 use std::time::Duration;
-use tokio::time::sleep;
+use tokio::time::{sleep, timeout};
 
 #[derive(Debug, thiserror::Error)]
 pub enum DeploymentError {
@@ -1316,6 +1318,8 @@ impl DeploymentService {
         )
         .await;
 
+        Self::sync_webhook_delivery(db, dep.id, true, None).await;
+
         match RetentionService::cleanup_after_success(db, app.id).await {
             Ok(report) => {
                 let _ = deployment_logs::Model::append(
@@ -1425,6 +1429,66 @@ impl DeploymentService {
     }
 
     #[allow(clippy::too_many_arguments)]
+    async fn sync_webhook_delivery(
+        db: &DatabaseConnection,
+        deployment_id: i64,
+        success: bool,
+        error_message: Option<&str>,
+    ) {
+        let Ok(Some(delivery)) =
+            webhook_deliveries::Model::by_deployment(db, deployment_id).await
+        else {
+            return;
+        };
+
+        let integration = git_integrations::Model::find_for_application_provider(
+            db,
+            delivery.application_id,
+            &delivery.provider,
+        )
+        .await;
+
+        if success {
+            let _ = webhook_deliveries::Model::mark_completed(db, delivery.id).await;
+        } else {
+            let _ = webhook_deliveries::Model::mark_failed(
+                db,
+                delivery.id,
+                error_message.unwrap_or("deployment failed"),
+            )
+            .await;
+        }
+
+        let (Ok(integration), Some(commit_sha)) = (integration, delivery.commit_sha.as_deref())
+        else {
+            return;
+        };
+
+        if integration.encrypted_token.is_none() {
+            return;
+        }
+
+        let status = if success {
+            CommitStatus::Success
+        } else {
+            CommitStatus::Failure
+        };
+        let description = if success {
+            "Moonships deployment succeeded"
+        } else {
+            "Moonships deployment failed"
+        };
+
+        let callback = GitProviderService::set_commit_status(
+            &integration,
+            commit_sha,
+            status,
+            description,
+            None,
+        );
+        let _ = timeout(Duration::from_secs(5), callback).await;
+    }
+
     async fn record_failure(
         db: &DatabaseConnection,
         execution_token: &str,
@@ -1454,6 +1518,8 @@ impl DeploymentService {
                 let _ = deployment_revisions::Model::mark_failed(db, revision_id).await;
             }
         }
+
+        Self::sync_webhook_delivery(db, deployment_id, false, Some(message)).await;
 
         if let Ok(app) = applications::Model::find_by_id(db, application_id).await {
             let fallback_status = if app.current_revision_id.is_some() {
