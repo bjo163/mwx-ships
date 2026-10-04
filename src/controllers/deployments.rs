@@ -12,7 +12,8 @@ pub fn routes() -> Routes {
 }
 
 #[debug_handler]
-pub async fn list(State(ctx): State<AppContext>) -> Result<Response> {
+pub async fn list(
+    _auth: auth::JWT,State(ctx): State<AppContext>) -> Result<Response> {
     let deps = DeploymentModel::all(&ctx.db).await?;
     format::json(serde_json::json!({
         "data": deps,
@@ -21,7 +22,8 @@ pub async fn list(State(ctx): State<AppContext>) -> Result<Response> {
 }
 
 #[debug_handler]
-pub async fn get_one(Path(id): Path<i64>, State(ctx): State<AppContext>) -> Result<Response> {
+pub async fn get_one(
+    _auth: auth::JWT,Path(id): Path<i64>, State(ctx): State<AppContext>) -> Result<Response> {
     let dep = DeploymentModel::find_by_id(&ctx.db, id).await?;
     format::json(serde_json::json!({
         "data": dep,
@@ -30,7 +32,8 @@ pub async fn get_one(Path(id): Path<i64>, State(ctx): State<AppContext>) -> Resu
 }
 
 #[debug_handler]
-pub async fn get_logs(Path(id): Path<i64>, State(ctx): State<AppContext>) -> Result<Response> {
+pub async fn get_logs(
+    _auth: auth::JWT,Path(id): Path<i64>, State(ctx): State<AppContext>) -> Result<Response> {
     let logs = DeploymentLogModel::by_deployment(&ctx.db, id).await?;
     format::json(serde_json::json!({
         "data": logs,
