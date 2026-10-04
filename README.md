@@ -2,7 +2,7 @@
 
 > **Deploy. Control. Own your infrastructure.**
 
-Moonships is an independent, self-hosted **Mini-PaaS and deployment control plane** built in Rust with Loco.rs, SeaORM, Docker, and Traefik. SQLite is the first-class single-node default; PostgreSQL is the optional v0.8 scale adapter for multi-worker control planes. Conceptually inspired by modern self-hosted tools like Coolify, Moonships is an original, production-grade control plane that gives you full ownership over your servers and workloads.
+Moonships is an independent, self-hosted **Mini-PaaS and deployment control plane** built in Rust with Loco.rs, SeaORM, Docker, and Traefik. SQLite is the first-class single-node default; PostgreSQL is the optional scale adapter for multi-worker control planes. Conceptually inspired by modern self-hosted tools like Coolify, Moonships is an original, production-grade control plane that gives you full ownership over your servers and workloads.
 
 > **Important Architecture Principle:**  
 > **Moonships MVP is strictly SQLite-first.**  
@@ -132,8 +132,8 @@ Traditional PaaS platforms require spinning up PostgreSQL, Redis, and message br
 | **M10 Production Operations** | Backup/restore, observability, notifications | Complete (v0.6) |
 | **M11 Teams & RBAC** | Organizations, roles, API tokens, audit | Complete (v0.7) |
 | **M12 Scale Adapter** | PostgreSQL multi-worker, Compose, registries, placement | Complete (v0.8) |
-| **M13 GA Hardening** | Upgrade matrix, resilience drills, frozen API, SBOM/provenance | Release candidate (v0.9) |
-| **M14 Production GA** | Stable v1 support/upgrade/security contract | Planned (v1.0) |
+| **M13 GA Hardening** | Upgrade matrix, resilience drills, frozen API, SBOM/provenance | Complete (v0.9) |
+| **M14 Production GA** | Stable v1 support/upgrade/security contract | **Production GA (v1.0)** |
 
 ---
 
@@ -327,6 +327,14 @@ Comprehensive technical guides are available in the [`docs/`](docs/) directory:
 The management API requires authenticated, authorized access on operational routes and keeps `GET /api/health` public. Docker Compose still publishes Moonships to **127.0.0.1:5150 only** by default as defense in depth.
 
 If you intentionally expose Moonships beyond localhost, use TLS and a trusted network boundary, rotate `JWT_SECRET` and `ENCRYPTION_KEY`, and pin remote-server SSH fingerprints where possible.
+
+---
+
+## v1.0 Production GA
+
+Moonships v1.0 is the stable production baseline. The v1 compatibility contract is defined by [docs/openapi-v1.json](docs/openapi-v1.json), the supported upgrade path by [docs/upgrade-policy.md](docs/upgrade-policy.md), and the trust/security boundary by [docs/threat-model-v1.md](docs/threat-model-v1.md).
+
+For upgrades from v0.2.x through v0.9.x, follow [docs/v1-upgrade.md](docs/v1-upgrade.md) and create a verified control-plane backup before migration.
 
 ---
 
