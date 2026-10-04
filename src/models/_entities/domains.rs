@@ -12,6 +12,10 @@ pub struct Model {
     pub hostname: String,
     pub port: i32,
     pub https_enabled: bool,
+    pub verification_status: String,
+    pub verified_at: Option<DateTimeWithTimeZone>,
+    pub tls_status: String,
+    pub last_error: Option<String>,
     pub created_at: DateTimeWithTimeZone,
     pub updated_at: DateTimeWithTimeZone,
 }
