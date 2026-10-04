@@ -1,5 +1,5 @@
 use migration::{Migrator, MigratorTrait};
-use sea_orm::{ConnectionTrait, Database, DatabaseBackend, Statement, TryGetable};
+use sea_orm::{ConnectionTrait, Database, DatabaseBackend, Statement};
 use serial_test::serial;
 
 const VERSION_PREFIXES: &[(&str, u32)] = &[
@@ -120,7 +120,7 @@ async fn seed_legacy_core(db: &sea_orm::DatabaseConnection, version: &str) {
             '2026-10-05T00:00:00+00:00','2026-10-05T00:00:00+00:00'
          )",
     ] {
-        db.execute(Statement::from_string(DatabaseBackend::Sqlite, sql))
+        db.execute(&Statement::from_string(DatabaseBackend::Sqlite, sql))
             .await
             .unwrap_or_else(|err| panic!("seed v{version} fixture failed: {err}\nSQL: {sql}"));
     }
@@ -128,7 +128,7 @@ async fn seed_legacy_core(db: &sea_orm::DatabaseConnection, version: &str) {
 
 async fn scalar_text(db: &sea_orm::DatabaseConnection, sql: &str) -> String {
     let row = db
-        .query_one(Statement::from_string(DatabaseBackend::Sqlite, sql))
+        .query_one(&Statement::from_string(DatabaseBackend::Sqlite, sql))
         .await
         .expect("query scalar text")
         .expect("scalar text row");
@@ -137,7 +137,7 @@ async fn scalar_text(db: &sea_orm::DatabaseConnection, sql: &str) -> String {
 
 async fn scalar_i64(db: &sea_orm::DatabaseConnection, sql: &str) -> i64 {
     let row = db
-        .query_one(Statement::from_string(DatabaseBackend::Sqlite, sql))
+        .query_one(&Statement::from_string(DatabaseBackend::Sqlite, sql))
         .await
         .expect("query scalar integer")
         .expect("scalar integer row");
