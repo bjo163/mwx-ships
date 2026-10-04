@@ -3,6 +3,7 @@ use crate::{
     models::{
         _entities::users,
         api_tokens::Model as ApiTokenModel,
+        audit_events::{AuditEventInput, Model as AuditEventModel},
         auth_rate_limits::Model as AuthRateLimitModel,
         users::{LoginParams, RegisterParams},
     },
@@ -138,7 +139,11 @@ async fn reset(State(ctx): State<AppContext>, Json(params): Json<ResetParams>) -
 
 /// Creates a user login and returns a token
 #[debug_handler]
-async fn login(State(ctx): State<AppContext>, Json(params): Json<LoginParams>) -> Result<Response> {
+async fn login(
+    headers: HeaderMap,
+    State(ctx): State<AppContext>,
+    Json(params): Json<LoginParams>,
+) -> Result<Response> {
     let user = users::Model::find_by_email(&ctx.db, &params.email).await.ok();
     let valid = user
         .as_ref()
@@ -155,6 +160,28 @@ async fn login(State(ctx): State<AppContext>, Json(params): Json<LoginParams>) -
             900,
         )
         .await?;
+
+        let request_id = request_id_from_headers(&headers);
+        let _ = AuditEventModel::append(
+            &ctx.db,
+            AuditEventInput {
+                organization_id: None,
+                actor_kind: "auth".to_string(),
+                actor_id: user
+                    .as_ref()
+                    .map(|user| user.pid.to_string())
+                    .unwrap_or_else(|| "anonymous".to_string()),
+                action: "login.failure".to_string(),
+                resource_type: Some("session".to_string()),
+                resource_id: None,
+                outcome: "failure".to_string(),
+                request_id: Some(request_id.clone()),
+                metadata: Some(serde_json::json!({
+                    "rate_limited": !decision.allowed,
+                })),
+            },
+        )
+        .await;
 
         if !decision.allowed {
             return Ok((
@@ -179,6 +206,22 @@ async fn login(State(ctx): State<AppContext>, Json(params): Json<LoginParams>) -
         .generate_jwt(&jwt_secret.secret, jwt_secret.expiration)
         .or_else(|_| unauthorized("unauthorized!"))?;
 
+    let _ = AuditEventModel::append(
+        &ctx.db,
+        AuditEventInput {
+            organization_id: None,
+            actor_kind: "jwt".to_string(),
+            actor_id: user.pid.to_string(),
+            action: "login.success".to_string(),
+            resource_type: Some("session".to_string()),
+            resource_id: None,
+            outcome: "success".to_string(),
+            request_id: Some(request_id_from_headers(&headers)),
+            metadata: None,
+        },
+    )
+    .await;
+
     format::json(LoginResponse::new(&user, &token))
 }
 
@@ -198,8 +241,24 @@ async fn revoke(
 ) -> Result<Response> {
     let principal = Principal::authenticate(&ctx, &headers).await?;
 
-    if let Some(token) = principal.api_token {
+    if let Some(token) = principal.api_token.clone() {
         let revoked = ApiTokenModel::revoke(&ctx.db, token.id, principal.user.id).await?;
+        let (actor_kind, actor_id) = principal.audit_actor();
+        let _ = AuditEventModel::append(
+            &ctx.db,
+            AuditEventInput {
+                organization_id: Some(token.organization_id),
+                actor_kind: actor_kind.to_string(),
+                actor_id,
+                action: "api_token.self_revoke".to_string(),
+                resource_type: Some("api_token".to_string()),
+                resource_id: Some(token.id.to_string()),
+                outcome: "success".to_string(),
+                request_id: Some(principal.request_id.clone()),
+                metadata: principal.audit_metadata(None),
+            },
+        )
+        .await;
         return format::json(serde_json::json!({
             "data": {
                 "token_id": revoked.id,
@@ -210,6 +269,22 @@ async fn revoke(
     }
 
     let user = users::Model::revoke_sessions(&ctx.db, principal.user.id).await?;
+    let (actor_kind, actor_id) = principal.audit_actor();
+    let _ = AuditEventModel::append(
+        &ctx.db,
+        AuditEventInput {
+            organization_id: None,
+            actor_kind: actor_kind.to_string(),
+            actor_id,
+            action: "auth.session.revoke".to_string(),
+            resource_type: Some("user".to_string()),
+            resource_id: Some(principal.user.id.to_string()),
+            outcome: "success".to_string(),
+            request_id: Some(principal.request_id.clone()),
+            metadata: principal.audit_metadata(None),
+        },
+    )
+    .await;
     format::json(serde_json::json!({
         "data": {
             "session_version": user.session_version
@@ -236,6 +311,29 @@ async fn magic_link(
     State(ctx): State<AppContext>,
     Json(params): Json<MagicLinkParams>,
 ) -> Result<Response> {
+    let decision = AuthRateLimitModel::check_and_record(
+        &ctx.db,
+        "magic_link",
+        &params.email.to_ascii_lowercase(),
+        5,
+        900,
+        900,
+    )
+    .await?;
+    if !decision.allowed {
+        return Ok((
+            StatusCode::TOO_MANY_REQUESTS,
+            format::json(serde_json::json!({
+                "error": {
+                    "code": "AUTH_RATE_LIMITED",
+                    "message": "Too many magic-link requests",
+                    "retry_after_seconds": decision.retry_after_seconds,
+                }
+            }))?,
+        )
+            .into_response());
+    }
+
     let email_regex = get_allow_email_domain_re();
     if !email_regex.is_match(&params.email) {
         tracing::debug!(
@@ -325,4 +423,15 @@ pub fn routes() -> Routes {
         .add("/magic-link", post(magic_link))
         .add("/magic-link/{token}", get(magic_link_verify))
         .add("/resend-verification-mail", post(resend_verification_email))
+}
+
+
+fn request_id_from_headers(headers: &HeaderMap) -> String {
+    headers
+        .get("x-request-id")
+        .and_then(|value| value.to_str().ok())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| value.chars().take(128).collect())
+        .unwrap_or_else(|| uuid::Uuid::new_v4().to_string())
 }
