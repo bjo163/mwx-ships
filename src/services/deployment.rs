@@ -364,12 +364,7 @@ impl DeploymentService {
             None => None,
         };
 
-        Self::spawn_execution_heartbeat(
-            db,
-            dep.id,
-            execution_token.clone(),
-            lease_seconds,
-        );
+        Self::spawn_execution_heartbeat(db, dep.id, execution_token.clone(), lease_seconds);
 
         let _ = applications::Model::update_status(db, app.id, "connecting").await;
         let _ = deployment_logs::Model::append(
