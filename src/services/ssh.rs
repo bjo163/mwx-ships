@@ -1,9 +1,5 @@
 use crate::{models::servers, services::crypto::CryptoService};
-use std::{
-    path::PathBuf,
-    process::Stdio,
-    time::Duration,
-};
+use std::{path::PathBuf, process::Stdio, time::Duration};
 use tokio::{io::AsyncWriteExt, process::Command, time::timeout};
 use uuid::Uuid;
 
