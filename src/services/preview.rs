@@ -188,6 +188,64 @@ impl PreviewService {
             return Ok(None);
         };
 
+        if preview.status == "closed" {
+            return Ok(Some(preview));
+        }
+
+        let preview = PreviewModel::mark_closing(db, preview.id)
+            .await
+            .map_err(|err| PreviewError::Cleanup(err.to_string()))?;
+
+        if let Some(preview_application_id) = preview.preview_application_id {
+            if DeploymentModel::has_active_deployment(db, preview_application_id)
+                .await
+                .map_err(|err| PreviewError::Cleanup(err.to_string()))?
+            {
+                if let Some(active) =
+                    DeploymentModel::latest_for_application(db, preview_application_id)
+                        .await
+                        .map_err(|err| PreviewError::Cleanup(err.to_string()))?
+                {
+                    match DeploymentService::cancel_deployment(db, active.id).await {
+                        Ok(_) | Err(DeploymentError::CancelNotAllowed { .. }) => {}
+                        Err(DeploymentError::ExecutionClaimUnavailable { .. })
+                        | Err(DeploymentError::ExecutionClaimLost) => {}
+                        Err(error) => {
+                            return Err(PreviewError::Cleanup(error.to_string()));
+                        }
+                    }
+                }
+
+                return Ok(Some(preview));
+            }
+        }
+
+        Self::cleanup_preview(db, preview).await.map(Some)
+    }
+
+    pub async fn finalize_pending_close_for_deployment(
+        db: &DatabaseConnection,
+        deployment_id: i64,
+    ) -> Result<(), PreviewError> {
+        let Some(preview) = PreviewModel::find_by_deployment(db, deployment_id)
+            .await
+            .map_err(|err| PreviewError::Cleanup(err.to_string()))?
+        else {
+            return Ok(());
+        };
+
+        if preview.status != "closing" {
+            return Ok(());
+        }
+
+        Self::cleanup_preview(db, preview).await?;
+        Ok(())
+    }
+
+    async fn cleanup_preview(
+        db: &DatabaseConnection,
+        preview: PreviewModel,
+    ) -> Result<PreviewModel, PreviewError> {
         if let Some(preview_application_id) = preview.preview_application_id {
             let app = ApplicationModel::find_by_id(db, preview_application_id)
                 .await
@@ -208,10 +266,7 @@ impl PreviewService {
                 .map_err(|err| PreviewError::Cleanup(err.to_string()))?;
 
             let active_runtime = app.resolved_runtime_name();
-            runtime
-                .stop_and_remove_container(&active_runtime)
-                .await
-                .map_err(|err| PreviewError::Cleanup(err.to_string()))?;
+            let _ = runtime.stop_and_remove_container(&active_runtime).await;
 
             if let Some(candidate) = app.candidate_runtime_name.as_deref() {
                 if candidate != active_runtime {
@@ -237,9 +292,15 @@ impl PreviewService {
                 .map_err(|err| PreviewError::Cleanup(err.to_string()))?;
         }
 
-        PreviewModel::close(db, base_application_id, provider, external_request_id)
-            .await
-            .map_err(|err| PreviewError::Cleanup(err.to_string()))
+        PreviewModel::close(
+            db,
+            preview.application_id,
+            &preview.provider,
+            &preview.external_request_id,
+        )
+        .await
+        .map_err(|err| PreviewError::Cleanup(err.to_string()))?
+        .ok_or_else(|| PreviewError::Cleanup("preview record disappeared during cleanup".to_string()))
     }
 
     async fn sync_preview_application(
