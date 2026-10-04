@@ -35,3 +35,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Runtime image includes the Docker CLI required by the v0.1 local-host deployment engine.
 - Docker CI validates Compose and smoke-tests the production image health endpoint.
 - Documentation now states the v0.1 single-host execution boundary and tracks remote target execution in #46.
+- Docker Compose publishes the control plane to loopback only by default while management API JWT enforcement is tracked in #47.
