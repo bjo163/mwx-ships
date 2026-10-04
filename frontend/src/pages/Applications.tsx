@@ -1,29 +1,15 @@
 import React, { useEffect, useState } from 'react';
-import { Link } from 'react-router';
+import { Link, useNavigate } from 'react-router';
 import { apiRequest } from '../api/client';
 import { Box, Plus, GitBranch, Server, ArrowRight } from 'lucide-react';
+import { ApplicationOnboardingModal } from '../components/ApplicationOnboardingModal';
 
 export function Applications() {
+  const navigate = useNavigate();
   const [apps, setApps] = useState<any[]>([]);
   const [servers, setServers] = useState<any[]>([]);
   const [projects, setProjects] = useState<any[]>([]);
   const [showAddModal, setShowAddModal] = useState(false);
-
-  const [form, setForm] = useState({
-    name: '',
-    slug: '',
-    project_id: 1,
-    environment_id: 1,
-    server_id: 1,
-    git_repository: '',
-    git_branch: 'main',
-    build_type: 'dockerfile',
-    dockerfile_path: 'Dockerfile',
-    docker_context: '.',
-    container_port: 80,
-    published_port: 8080,
-    healthcheck_path: '/health',
-  });
 
   async function loadData() {
     try {
@@ -36,8 +22,6 @@ export function Applications() {
       setServers(serverList);
       setProjects(projectList);
 
-      if (serverList.length > 0) setForm((f) => ({ ...f, server_id: serverList[0].id }));
-      if (projectList.length > 0) setForm((f) => ({ ...f, project_id: projectList[0].id }));
     } catch (e) {
       console.error(e);
     }
@@ -46,27 +30,6 @@ export function Applications() {
   useEffect(() => {
     loadData();
   }, []);
-
-  async function handleCreate(e: React.FormEvent) {
-    e.preventDefault();
-    try {
-      await apiRequest('/api/applications', {
-        method: 'POST',
-        body: JSON.stringify({
-          ...form,
-          project_id: Number(form.project_id),
-          environment_id: Number(form.environment_id),
-          server_id: Number(form.server_id),
-          container_port: Number(form.container_port),
-          published_port: form.published_port ? Number(form.published_port) : undefined,
-        }),
-      });
-      setShowAddModal(false);
-      await loadData();
-    } catch (err: any) {
-      alert(`Error creating application: ${err.message}`);
-    }
-  }
 
   return (
     <div style={{ maxWidth: '1200px', margin: '0 auto' }}>
@@ -151,144 +114,20 @@ export function Applications() {
         </div>
       )}
 
-      {/* Add Application Modal */}
       {showAddModal && (
-        <div
-          style={{
-            position: 'fixed',
-            inset: 0,
-            background: 'rgba(0, 0, 0, 0.75)',
-            backdropFilter: 'blur(8px)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            zIndex: 50,
-            padding: '20px',
+        <ApplicationOnboardingModal
+          projects={projects}
+          servers={servers}
+          onCancel={() => {
+            setShowAddModal(false);
+            void loadData();
           }}
-        >
-          <div className="glass-panel" style={{ width: '100%', maxWidth: '580px', padding: '32px', maxHeight: '90vh', overflowY: 'auto' }}>
-            <h2 style={{ fontSize: '1.35rem', fontWeight: 700, marginBottom: '20px' }}>Deploy New Application</h2>
-            <form onSubmit={handleCreate} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-              <div>
-                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, marginBottom: '6px' }}>Application Name</label>
-                <input
-                  required
-                  type="text"
-                  placeholder="e.g. API Gateway"
-                  value={form.name}
-                  onChange={(e) => setForm({ ...form, name: e.target.value })}
-                  style={{ width: '100%', padding: '10px 14px', borderRadius: '8px', background: 'rgba(0, 0, 0, 0.3)', border: '1px solid var(--border-color)', color: '#fff' }}
-                />
-              </div>
-
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-                <div>
-                  <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, marginBottom: '6px' }}>Project</label>
-                  <select
-                    value={form.project_id}
-                    onChange={(e) => setForm({ ...form, project_id: Number(e.target.value) })}
-                    style={{ width: '100%', padding: '10px 14px', borderRadius: '8px', background: '#111827', border: '1px solid var(--border-color)', color: '#fff' }}
-                  >
-                    {projects.map((p) => (
-                      <option key={p.id} value={p.id}>{p.name}</option>
-                    ))}
-                  </select>
-                </div>
-
-                <div>
-                  <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, marginBottom: '6px' }}>Target Server</label>
-                  <select
-                    value={form.server_id}
-                    onChange={(e) => setForm({ ...form, server_id: Number(e.target.value) })}
-                    style={{ width: '100%', padding: '10px 14px', borderRadius: '8px', background: '#111827', border: '1px solid var(--border-color)', color: '#fff' }}
-                  >
-                    {servers.map((s) => (
-                      <option key={s.id} value={s.id}>{s.name} ({s.host})</option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-
-              <div>
-                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, marginBottom: '6px' }}>Git Repository URL</label>
-                <input
-                  required
-                  type="text"
-                  placeholder="https://github.com/org/repo.git"
-                  value={form.git_repository}
-                  onChange={(e) => setForm({ ...form, git_repository: e.target.value })}
-                  style={{ width: '100%', padding: '10px 14px', borderRadius: '8px', background: 'rgba(0, 0, 0, 0.3)', border: '1px solid var(--border-color)', color: '#fff', fontFamily: 'var(--font-mono)' }}
-                />
-              </div>
-
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-                <div>
-                  <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, marginBottom: '6px' }}>Git Branch</label>
-                  <input
-                    type="text"
-                    value={form.git_branch}
-                    onChange={(e) => setForm({ ...form, git_branch: e.target.value })}
-                    style={{ width: '100%', padding: '10px 14px', borderRadius: '8px', background: 'rgba(0, 0, 0, 0.3)', border: '1px solid var(--border-color)', color: '#fff' }}
-                  />
-                </div>
-
-                <div>
-                  <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, marginBottom: '6px' }}>Build Type</label>
-                  <select
-                    value={form.build_type}
-                    onChange={(e) => setForm({ ...form, build_type: e.target.value })}
-                    style={{ width: '100%', padding: '10px 14px', borderRadius: '8px', background: '#111827', border: '1px solid var(--border-color)', color: '#fff' }}
-                  >
-                    <option value="dockerfile">Dockerfile</option>
-                    <option value="prebuilt_image">Prebuilt Image</option>
-                  </select>
-                </div>
-              </div>
-
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-                <div>
-                  <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, marginBottom: '6px' }}>Container Port</label>
-                  <input
-                    type="number"
-                    value={form.container_port}
-                    onChange={(e) => setForm({ ...form, container_port: Number(e.target.value) })}
-                    style={{ width: '100%', padding: '10px 14px', borderRadius: '8px', background: 'rgba(0, 0, 0, 0.3)', border: '1px solid var(--border-color)', color: '#fff' }}
-                  />
-                </div>
-
-                <div>
-                  <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, marginBottom: '6px' }}>Published Host Port (Optional)</label>
-                  <input
-                    type="number"
-                    value={form.published_port}
-                    onChange={(e) => setForm({ ...form, published_port: Number(e.target.value) })}
-                    style={{ width: '100%', padding: '10px 14px', borderRadius: '8px', background: 'rgba(0, 0, 0, 0.3)', border: '1px solid var(--border-color)', color: '#fff' }}
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, marginBottom: '6px' }}>Healthcheck Path</label>
-                <input
-                  type="text"
-                  placeholder="/health"
-                  value={form.healthcheck_path}
-                  onChange={(e) => setForm({ ...form, healthcheck_path: e.target.value })}
-                  style={{ width: '100%', padding: '10px 14px', borderRadius: '8px', background: 'rgba(0, 0, 0, 0.3)', border: '1px solid var(--border-color)', color: '#fff' }}
-                />
-              </div>
-
-              <div style={{ display: 'flex', gap: '12px', marginTop: '12px' }}>
-                <button type="button" onClick={() => setShowAddModal(false)} className="btn btn-secondary" style={{ flex: 1 }}>
-                  Cancel
-                </button>
-                <button type="submit" className="btn btn-primary" style={{ flex: 1 }}>
-                  Create Application
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
+          onComplete={(applicationId) => {
+            setShowAddModal(false);
+            void loadData();
+            navigate(`/applications/${applicationId}`);
+          }}
+        />
       )}
     </div>
   );
