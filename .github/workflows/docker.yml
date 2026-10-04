@@ -13,6 +13,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Validate Docker Compose
+        run: |
+          export ENCRYPTION_KEY="$(openssl rand -hex 32)"
+          export JWT_SECRET="$(openssl rand -hex 32)"
+          docker compose config --quiet
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
