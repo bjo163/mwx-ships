@@ -117,7 +117,7 @@ pub async fn list_members(
     State(ctx): State<AppContext>,
 ) -> Result<Response> {
     let principal = Principal::authenticate(&ctx, &headers).await?;
-    principal.require(&ctx.db, id, Permission::Admin).await?;
+    principal.require(&ctx.db, id, Permission::ManageOrganization).await?;
     let memberships = MembershipModel::list_for_organization(&ctx.db, id).await?;
     format::json(serde_json::json!({"data": memberships}))
 }
@@ -130,7 +130,7 @@ pub async fn upsert_member(
     Json(params): Json<SetMembershipParams>,
 ) -> Result<Response> {
     let principal = Principal::authenticate(&ctx, &headers).await?;
-    let actor_membership = principal.require(&ctx.db, id, Permission::Admin).await?;
+    let actor_membership = principal.require(&ctx.db, id, Permission::ManageOrganization).await?;
 
     if params.role.eq_ignore_ascii_case("owner") && !actor_membership.is_owner() {
         return unauthorized("only an organization owner can grant owner role");
@@ -181,7 +181,7 @@ pub async fn create_token(
     Json(mut params): Json<CreateApiTokenParams>,
 ) -> Result<Response> {
     let principal = Principal::authenticate(&ctx, &headers).await?;
-    principal.require(&ctx.db, id, Permission::Admin).await?;
+    principal.require(&ctx.db, id, Permission::ManageOrganization).await?;
     params.organization_id = id;
 
     let created = ApiTokenModel::create_token(&ctx.db, principal.user.id, &params).await?;
@@ -221,7 +221,7 @@ pub async fn revoke_token(
     State(ctx): State<AppContext>,
 ) -> Result<Response> {
     let principal = Principal::authenticate(&ctx, &headers).await?;
-    principal.require(&ctx.db, id, Permission::Admin).await?;
+    principal.require(&ctx.db, id, Permission::ManageOrganization).await?;
 
     let token = ApiTokenModel::revoke(&ctx.db, token_id, principal.user.id).await?;
     if token.organization_id != id {
@@ -256,7 +256,7 @@ pub async fn list_audit(
     State(ctx): State<AppContext>,
 ) -> Result<Response> {
     let principal = Principal::authenticate(&ctx, &headers).await?;
-    principal.require(&ctx.db, id, Permission::Admin).await?;
+    principal.require(&ctx.db, id, Permission::ManageOrganization).await?;
     let events = AuditEventModel::list_for_organization(&ctx.db, id, query.limit.unwrap_or(100)).await?;
     format::json(serde_json::json!({"data": events}))
 }
