@@ -5,6 +5,37 @@ All notable changes to **Moonships** will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.0] - 2026-10-05
+
+### Production GA
+- **Stable v1 Contract**: Moonships v1.0 graduates the v0.9 release candidate without adding post-RC feature scope. The runtime architecture, frozen API route/method contract, upgrade policy, and operational boundaries are now the supported v1 baseline.
+- **Production Upgrade Path**: supported direct forward schema upgrades from every released milestone v0.2 through v0.9 are covered by the GA upgrade policy and automated migration fixtures.
+- **Production Reliability Contract**: immutable revisions, rollback, health-before-traffic blue/green managed ingress, execution leases/heartbeats, verified backup/restore, PostgreSQL multi-worker locking, and failure-injection/soak tests form the v1 recovery baseline.
+- **Production Security Contract**: organization RBAC, scoped API tokens, session revocation, immutable audit events, encrypted secrets/credentials, signed Git webhooks, SSH host verification, secret-safe transport, advisory/secret/dependency-policy gates, and the v1 threat model are release-blocking controls.
+- **Supply-Chain Artifacts**: every v1 release image is published by immutable OCI digest with SBOM, provenance attestation, release checksum, version/revision labels, and published-image smoke verification.
+
+### Compatibility
+- SQLite remains the first-class supported single-control-plane production mode.
+- PostgreSQL remains the supported scale mode for shared-state multi-worker control planes.
+- The v1 route/method contract in `docs/openapi-v1.json` is stable for v1.x; additive endpoints and fields remain allowed.
+- Database migrations are forward-only. Control-plane downgrade after schema changes requires restoring the verified pre-upgrade database backup.
+- v1 supports documented forward upgrades from v0.2.x and later released schema milestones.
+
+### Operations
+- Operators should back up and verify control-plane state before upgrades.
+- Multi-worker PostgreSQL operators should run migrations as a separate release step and drain old workers before switching the fleet unless release notes explicitly permit mixed-version operation.
+- Production images should be pinned by digest where practical; `:latest` remains a convenience tag, not an immutable deployment identifier.
+
+### Security Support
+- v1.x becomes the stable security-support line.
+- v0.9.x receives best-effort critical fixes during the initial GA transition.
+- v0.8.x and earlier should upgrade to v1.
+
+### Known v1 Boundaries
+- PostgreSQL HA/backups remain the database operator/provider responsibility.
+- DNS provider automation, Kubernetes/service-mesh orchestration, enterprise SSO/federation, host OS patching, and application data-volume/database backups remain outside the v1 core scope.
+- Explicit host-port deployments retain compatibility replacement semantics; health-before-traffic zero-downtime applies to Moonships-managed ingress workloads.
+
 ## [0.9.0] - 2026-10-05
 
 ### Added
