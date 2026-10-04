@@ -2,78 +2,34 @@
 
 > **Deploy. Control. Own your infrastructure.**
 
-The roadmap is risk-ordered. Each version removes a production failure class before the next layer is added.
+Moonships follows a risk-ordered release train. A capability is not marked released until its exact production commit passes CI, security, Docker smoke, published-image smoke, tagging, and GitHub Release creation.
 
-| Version | Theme | Production question it answers |
+| Version | Theme | Status |
 | --- | --- | --- |
-| **v0.2** | Secure Remote Deployment | Can Moonships deploy to the selected server securely? **Released.** |
-| **v0.3** | Deployment Reliability & Rollback | Can a bad/interrupted deployment be recovered safely? |
-| **v0.4** | Managed Ingress, TLS & Zero-Downtime | Can traffic move to a healthy candidate without intentional outage? **Released.** |
-| **v0.5** | Git Automation & Previews | Can source-control events trigger authenticated, idempotent deployments? **Released.** |
-| **v0.6** | Operations & Observability | Can operators detect, diagnose, back up, and restore production? **Released.** |
-| **v0.7** | Teams, RBAC & Audit | Can multiple people operate Moonships with least privilege and accountability? **Release-ready.** |
-| **v0.8** | Scale & Advanced Workloads | Can the control plane scale and support multi-container workloads without abandoning SQLite-first? |
-| **v0.9** | GA Hardening / RC | Can upgrades, failures, restores, load, and security review survive release-candidate testing? |
-| **v1.0** | Production GA | Is the behavior/API/upgrade contract stable enough to support as production software? |
-
-## v0.3 — Deployment Reliability & Rollback
-
-Parent: #58. Atomic work: #66–#70.
-
-Deliver immutable revisions, current/previous known-good pointers, cancellation, retry, rollback, idempotent worker execution, restart recovery, and bounded cleanup/retention.
-
-**Gate:** duplicate/restarted jobs cannot produce duplicate runtime state; previous healthy revision can be restored and healthchecked.
-
-## v0.4 — Managed Ingress, TLS & Zero-Downtime
-
-Parent: #59.
-
-Manage target-side Traefik, blue/green slots, health-before-switch, atomic routing changes, automatic failed-candidate rollback, domain verification, and ACME lifecycle.
-
-**Gate:** a failed candidate never replaces healthy traffic; a healthy candidate switches without intentional stop-old downtime.
-
-## v0.5 — Git Provider Automation & Preview Deployments
-
-Parent: #60.
-
-Provider abstraction for GitHub/GitLab/Gitea, signed webhook verification, delivery deduplication, auto-deploy rules, provider status reporting, and preview lifecycle.
-
-**Gate:** replayed/forged webhooks are rejected and duplicate deliveries remain idempotent.
-
-## v0.6 — Production Operations, Backup & Observability
-
-Parent: #61.
-
-Metrics, queue/target health, operational timeline, scheduled SQLite backups, restore drills, retention, disk-pressure warnings, notifications, and disaster runbooks.
-
-**Gate:** automated backup restores successfully into a clean instance and retention prevents unbounded growth.
-
-## v0.7 — Organizations, RBAC, API Tokens & Audit
-
-Parent: #62.
-
-Organizations/workspaces, Owner/Admin/Deployer/Viewer roles, authorization boundaries, immutable audit events, scoped API tokens, revocation, and abuse controls.
-
-**Gate:** every operational route has authorization-matrix tests and cross-organization access fails closed.
+| **v0.2** | Secure Remote Deployment | **Released** |
+| **v0.3** | Deployment Reliability & Rollback | **Released** |
+| **v0.4** | Managed Ingress, TLS & Zero-Downtime | **Released** |
+| **v0.5** | Git Automation & Preview Deployments | **Released** |
+| **v0.6** | Operations, Backup & Observability | **Released** |
+| **v0.7** | Organizations, RBAC, API Tokens & Audit | **Released** |
+| **v0.8** | PostgreSQL Scale Adapter & Advanced Workloads | **Release candidate** |
+| **v0.9** | GA Hardening / RC | Planned |
+| **v1.0** | Production GA | Planned |
 
 ## v0.8 — Scale Adapter & Advanced Workloads
 
-Parent: #63; PostgreSQL adapter: #31.
+Parent #63; work #31, #84–#86.
 
-Keep SQLite as the supported single-node mode while adding PostgreSQL multi-worker mode, DB migration tooling, Compose/multi-container applications, private registries, and server placement.
-
-**Gate:** the same domain/API suite passes on SQLite and PostgreSQL; multi-worker races are tested.
+SQLite remains the first-class simple production mode. PostgreSQL adds shared state/queue operation for multiple control-plane workers. The release gate requires the same application suite on both databases, a verified SQLite→PostgreSQL migration drill, atomic deployment ownership under concurrency, execution lease heartbeat/recovery, private registry safety, Compose lifecycle/log aggregation, deterministic server placement, security audit, and production container smoke.
 
 ## v0.9 — GA Hardening / Release Candidate
 
-Parent: #64.
+Parent #64; work #87–#89.
 
-Upgrade matrix, migration safety, load/soak/failure injection, restore drills, threat-model review, API contract freeze, SBOM/provenance, dependency/license audit, support matrix, and RC bug burn-down.
-
-**Gate:** zero open P0/P1 correctness/security issues and the RC survives upgrade/restore/soak tests.
+Freeze supported upgrade paths and v1 API behavior. Add migration fixtures from supported older versions, load/soak/failure injection, restore and target-loss drills, performance/resource budgets, threat-model review, dependency/license gates, SBOM/provenance, and published-artifact verification. v0.9 is a release-candidate phase, not a feature sprint.
 
 ## v1.0 — Production GA
 
-Parent: #65; umbrella: #57.
+Parent #65; umbrella #57.
 
-v1.0 is a stability contract rather than a feature dump. Publish only after all previous exit gates are satisfied, release artifacts are verified, published image smoke tests pass, and upgrade notes from v0.2.x are complete.
+v1.0 is a stability contract: documented upgrade/support policy, tested disaster recovery, least-privilege authorization, dual database support boundaries, reproducible release metadata, supply-chain artifacts, zero unresolved P0/P1 correctness/security issues, and a published image verified after registry pull.
