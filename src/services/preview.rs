@@ -300,7 +300,9 @@ impl PreviewService {
         )
         .await
         .map_err(|err| PreviewError::Cleanup(err.to_string()))?
-        .ok_or_else(|| PreviewError::Cleanup("preview record disappeared during cleanup".to_string()))
+        .ok_or_else(|| {
+            PreviewError::Cleanup("preview record disappeared during cleanup".to_string())
+        })
     }
 
     async fn sync_preview_application(

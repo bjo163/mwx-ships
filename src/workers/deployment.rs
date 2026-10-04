@@ -28,12 +28,11 @@ impl BackgroundWorker<DeploymentWorkerArgs> for DeploymentWorker {
 
         match DeploymentService::execute_deployment(&self.ctx.db, args.deployment_id).await {
             Ok(()) => {
-                if let Err(error) =
-                    PreviewService::finalize_pending_close_for_deployment(
-                        &self.ctx.db,
-                        args.deployment_id,
-                    )
-                    .await
+                if let Err(error) = PreviewService::finalize_pending_close_for_deployment(
+                    &self.ctx.db,
+                    args.deployment_id,
+                )
+                .await
                 {
                     tracing::warn!(
                         deployment_id = args.deployment_id,
@@ -48,12 +47,11 @@ impl BackgroundWorker<DeploymentWorkerArgs> for DeploymentWorker {
                 Ok(())
             }
             Err(DeploymentError::Cancelled) => {
-                if let Err(error) =
-                    PreviewService::finalize_pending_close_for_deployment(
-                        &self.ctx.db,
-                        args.deployment_id,
-                    )
-                    .await
+                if let Err(error) = PreviewService::finalize_pending_close_for_deployment(
+                    &self.ctx.db,
+                    args.deployment_id,
+                )
+                .await
                 {
                     tracing::warn!(
                         deployment_id = args.deployment_id,
@@ -83,12 +81,11 @@ impl BackgroundWorker<DeploymentWorkerArgs> for DeploymentWorker {
                 Ok(())
             }
             Err(err) => {
-                if let Err(cleanup_error) =
-                    PreviewService::finalize_pending_close_for_deployment(
-                        &self.ctx.db,
-                        args.deployment_id,
-                    )
-                    .await
+                if let Err(cleanup_error) = PreviewService::finalize_pending_close_for_deployment(
+                    &self.ctx.db,
+                    args.deployment_id,
+                )
+                .await
                 {
                     tracing::warn!(
                         deployment_id = args.deployment_id,
