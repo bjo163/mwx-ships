@@ -9,9 +9,7 @@ use moonships::{
         deployments::Model as DeploymentModel,
         domains::{CreateDomainParams, Model as DomainModel},
         environments::{CreateEnvironmentParams, Model as EnvironmentModel},
-        git_integrations::{
-            Model as GitIntegrationModel, UpsertGitIntegrationParams,
-        },
+        git_integrations::{Model as GitIntegrationModel, UpsertGitIntegrationParams},
         preview_deployments::{Model as PreviewModel, UpsertPreviewInput},
         projects::{CreateProjectParams, Model as ProjectModel},
         servers::{self, Model as ServerModel},
@@ -546,10 +544,13 @@ async fn test_models_lifecycle_and_constraints() {
         Some("github-token-super-secret")
     );
     assert_eq!(
-        integration.webhook_secret().expect("decrypt webhook secret"),
+        integration
+            .webhook_secret()
+            .expect("decrypt webhook secret"),
         "webhook-secret-1234567890"
     );
-    let safe_json = serde_json::to_string(&integration.to_safe()).expect("serialize safe integration");
+    let safe_json =
+        serde_json::to_string(&integration.to_safe()).expect("serialize safe integration");
     assert!(!safe_json.contains("github-token-super-secret"));
     assert!(!safe_json.contains("webhook-secret-1234567890"));
 
@@ -573,8 +574,7 @@ async fn test_models_lifecycle_and_constraints() {
         .expect("dedupe webhook delivery");
     assert!(!duplicate_delivery.inserted);
     assert_eq!(
-        duplicate_delivery.delivery.id,
-        first_delivery.delivery.id,
+        duplicate_delivery.delivery.id, first_delivery.delivery.id,
         "same provider delivery must map to one ledger row"
     );
 
