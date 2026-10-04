@@ -7,13 +7,17 @@ use crate::{
         applications::{
             CreateApplicationParams, Model as ApplicationModel, UpdateApplicationParams,
         },
+        audit_events::{AuditEventInput, Model as AuditEventModel},
         deployments::{Model as DeploymentModel, TriggerDeployParams},
         domains::{CreateDomainParams, Model as DomainModel},
         environment_variables::{Model as EnvVarModel, SetEnvVarParams},
+        environments::Model as EnvironmentModel,
         git_integrations::{Model as GitIntegrationModel, UpsertGitIntegrationParams},
+        projects::Model as ProjectModel,
         servers::Model as ServerModel,
     },
     services::{
+        access_control::{Permission, Principal},
         crypto::CryptoService,
         deployment::{DeploymentError, DeploymentService},
         proxy::ProxyService,
@@ -21,7 +25,7 @@ use crate::{
     },
     workers::deployment::{DeploymentWorker, DeploymentWorkerArgs},
 };
-use axum::http::StatusCode;
+use axum::http::{HeaderMap, StatusCode};
 use chrono::Utc;
 use loco_rs::prelude::*;
 use sea_orm::{ActiveValue::Set, ColumnTrait, EntityTrait, QueryFilter};
@@ -54,6 +58,46 @@ pub fn routes() -> Routes {
             "{id}/git-integrations/{provider}",
             delete(remove_git_integration),
         )
+}
+
+async fn authorized_application(
+    ctx: &AppContext,
+    headers: &HeaderMap,
+    application_id: i64,
+    permission: Permission,
+) -> Result<(Principal, i64, ApplicationModel)> {
+    let principal = Principal::authenticate(ctx, headers).await?;
+    let organization_id = principal
+        .application_organization(&ctx.db, application_id, permission)
+        .await?;
+    let application = ApplicationModel::find_by_id(&ctx.db, application_id).await?;
+    Ok((principal, organization_id, application))
+}
+
+async fn audit_application(
+    ctx: &AppContext,
+    principal: &Principal,
+    organization_id: i64,
+    action: &str,
+    application_id: i64,
+    metadata: Option<serde_json::Value>,
+) {
+    let (actor_kind, actor_id) = principal.audit_actor();
+    let _ = AuditEventModel::append(
+        &ctx.db,
+        AuditEventInput {
+            organization_id: Some(organization_id),
+            actor_kind: actor_kind.to_string(),
+            actor_id,
+            action: action.to_string(),
+            resource_type: Some("application".to_string()),
+            resource_id: Some(application_id.to_string()),
+            outcome: "success".to_string(),
+            request_id: None,
+            metadata,
+        },
+    )
+    .await;
 }
 
 async fn remote_runtime(
