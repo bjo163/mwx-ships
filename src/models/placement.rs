@@ -123,7 +123,7 @@ mod tests {
             }
         }
 
-        let mut values = vec![
+        let mut values = [
             candidate(3, 5, 10, 100),
             candidate(2, 2, 10, 50),
             candidate(1, 2, 10, 100),
