@@ -1,4 +1,6 @@
-use crate::models::{applications, deployment_logs, deployment_revisions, deployments, servers};
+use crate::models::{
+    applications, deployment_logs, deployment_revisions, deployments, domains, servers,
+};
 use crate::services::{
     crypto::CryptoService,
     docker::ContainerConfig,
@@ -614,44 +616,6 @@ impl DeploymentService {
         )
         .await;
 
-        Self::transition_phase(db, dep.id, &execution_token, &["building"], "stopping_old").await?;
-        let _ = deployment_logs::Model::append(
-            db,
-            dep.id,
-            "system",
-            &format!(
-                "Replacing existing container '{}' on target server",
-                app.container_name
-            ),
-        )
-        .await;
-
-        if let Err(err) = runtime.stop_and_remove_container(&app.container_name).await {
-            let exit_code = err.exit_code();
-            let message = err.to_string();
-            return Err(Self::record_failure(
-                db,
-                &execution_token,
-                dep.id,
-                app.id,
-                "REMOTE_DOCKER_REPLACE_FAILED",
-                "stopping_old",
-                &message,
-                exit_code,
-            )
-            .await);
-        }
-
-        Self::transition_phase(
-            db,
-            dep.id,
-            &execution_token,
-            &["stopping_old"],
-            "starting_new",
-        )
-        .await?;
-        let _ = applications::Model::update_status(db, app.id, "starting").await;
-
         let mut decrypted_envs = Vec::new();
         let mut secret_values = Vec::new();
 
@@ -675,7 +639,7 @@ impl DeploymentService {
                         dep.id,
                         app.id,
                         "REVISION_SECRET_INTEGRITY_FAILED",
-                        "starting_new",
+                        "starting_runtime",
                         &format!(
                             "encrypted revision secret '{}' failed integrity check",
                             env.key
@@ -697,7 +661,7 @@ impl DeploymentService {
                             dep.id,
                             app.id,
                             "SECRET_DECRYPT_FAILED",
-                            "starting_new",
+                            "starting_runtime",
                             &err.to_string(),
                             None,
                         )
@@ -719,7 +683,7 @@ impl DeploymentService {
                         dep.id,
                         app.id,
                         "REVISION_ENV_INTEGRITY_FAILED",
-                        "starting_new",
+                        "starting_runtime",
                         &format!("revision environment '{}' failed integrity check", env.key),
                         None,
                     )
@@ -730,101 +694,225 @@ impl DeploymentService {
             decrypted_envs.push((env.key.clone(), value));
         }
 
-        let domain_names: Vec<String> = revision_snapshot
-            .domains
-            .iter()
-            .map(|domain| domain.hostname.clone())
-            .collect();
-        let has_https = revision_snapshot
-            .domains
-            .iter()
-            .any(|domain| domain.https_enabled);
-        let labels = ProxyService::generate_traefik_labels(
-            &app.slug,
-            &domain_names,
-            revision_snapshot.container_port,
-            has_https,
+        let managed_ingress = ProxyService::uses_managed_ingress(
+            revision_snapshot.domains.len(),
+            revision_snapshot.published_port,
         );
 
-        let container_config = ContainerConfig {
-            name: revision_snapshot.container_name.clone(),
-            image: revision.image_reference.clone(),
-            container_port: revision_snapshot.container_port,
-            published_port: revision_snapshot.published_port,
-            env_vars: decrypted_envs,
-            labels,
-            restart_policy: "unless-stopped".to_string(),
-            network: None,
-        };
-
-        match runtime.run_container(app.id, &container_config).await {
-            Ok(container_id) => {
-                let _ = deployment_logs::Model::append(
-                    db,
-                    dep.id,
-                    "stdout",
-                    &format!(
-                        "Remote container started with ID {} on {}",
-                        &container_id[..12.min(container_id.len())],
-                        runtime.target()
-                    ),
-                )
-                .await;
-            }
-            Err(err) => {
-                let exit_code = err.exit_code();
-                let message = redact_secrets(&err.to_string(), &secret_values);
-                if revision.status != "healthy"
-                    && revision.image_reference.starts_with("moonships/")
-                {
-                    let _ = runtime.remove_image(&revision.image_reference).await;
+        if managed_ingress {
+            let healthcheck_path = match revision_snapshot.healthcheck_path.as_deref() {
+                Some(path) if !path.trim().is_empty() => path,
+                _ => {
+                    return Err(Self::record_failure(
+                        db,
+                        &execution_token,
+                        dep.id,
+                        app.id,
+                        "MANAGED_INGRESS_HEALTHCHECK_REQUIRED",
+                        "building",
+                        "managed ingress requires an application healthcheck path before traffic can switch",
+                        None,
+                    )
+                    .await);
                 }
+            };
+
+            let https_domains = revision_snapshot
+                .domains
+                .iter()
+                .filter(|domain| domain.https_enabled)
+                .map(|domain| domain.hostname.clone())
+                .collect::<Vec<_>>();
+            let http_domains = revision_snapshot
+                .domains
+                .iter()
+                .filter(|domain| !domain.https_enabled)
+                .map(|domain| domain.hostname.clone())
+                .collect::<Vec<_>>();
+
+            let acme_email = std::env::var("MOONSHIPS_ACME_EMAIL")
+                .ok()
+                .filter(|value| !value.trim().is_empty());
+            if !https_domains.is_empty() && acme_email.is_none() {
                 return Err(Self::record_failure(
                     db,
                     &execution_token,
                     dep.id,
                     app.id,
-                    "REMOTE_DOCKER_RUN_FAILED",
-                    "starting_new",
-                    &message,
-                    exit_code,
+                    "MANAGED_TLS_EMAIL_REQUIRED",
+                    "building",
+                    "HTTPS domains require MOONSHIPS_ACME_EMAIL for Let's Encrypt",
+                    None,
                 )
                 .await);
             }
-        }
 
-        if let Some(path) = &revision_snapshot.healthcheck_path {
+            for domain_snapshot in &revision_snapshot.domains {
+                let verified = match runtime
+                    .verify_domain_target(&domain_snapshot.hostname, &server.host)
+                    .await
+                {
+                    Ok(verified) => verified,
+                    Err(err) => {
+                        return Err(Self::record_failure(
+                            db,
+                            &execution_token,
+                            dep.id,
+                            app.id,
+                            "DOMAIN_VERIFICATION_FAILED",
+                            "building",
+                            &err.to_string(),
+                            err.exit_code(),
+                        )
+                        .await);
+                    }
+                };
+
+                if let Ok(Some(current_domain)) = domains::Model::find_by_application_hostname(
+                    db,
+                    app.id,
+                    &domain_snapshot.hostname,
+                )
+                .await
+                {
+                    let _ = domains::Model::update_verification(
+                        db,
+                        current_domain.id,
+                        verified,
+                        (!verified).then(|| {
+                            format!(
+                                "DNS for '{}' does not resolve to target '{}'",
+                                domain_snapshot.hostname, server.host
+                            )
+                        }),
+                    )
+                    .await;
+                }
+
+                if !verified {
+                    return Err(Self::record_failure(
+                        db,
+                        &execution_token,
+                        dep.id,
+                        app.id,
+                        "DOMAIN_VERIFICATION_FAILED",
+                        "building",
+                        &format!(
+                            "DNS for '{}' does not resolve to target '{}'",
+                            domain_snapshot.hostname, server.host
+                        ),
+                        None,
+                    )
+                    .await);
+                }
+            }
+
+            let traefik_image = std::env::var("MOONSHIPS_TRAEFIK_IMAGE")
+                .unwrap_or_else(|_| "traefik:v3.1".to_string());
+            if let Err(err) = runtime
+                .ensure_managed_ingress(
+                    ProxyService::MANAGED_NETWORK,
+                    ProxyService::MANAGED_PROXY_CONTAINER,
+                    &traefik_image,
+                    acme_email.as_deref(),
+                )
+                .await
+            {
+                return Err(Self::record_failure(
+                    db,
+                    &execution_token,
+                    dep.id,
+                    app.id,
+                    "MANAGED_INGRESS_UNAVAILABLE",
+                    "building",
+                    &err.to_string(),
+                    err.exit_code(),
+                )
+                .await);
+            }
+
+            let candidate_name =
+                ProxyService::managed_runtime_name(&app.slug, &revision.revision_hash);
+            let old_runtime_name = app.resolved_runtime_name();
+            let _ = applications::Model::set_candidate_runtime(
+                db,
+                app.id,
+                Some(candidate_name.clone()),
+            )
+            .await;
+
             Self::transition_phase(
                 db,
                 dep.id,
                 &execution_token,
-                &["starting_new"],
+                &["building"],
+                "starting_candidate",
+            )
+            .await?;
+            let _ = applications::Model::update_status(db, app.id, "starting_candidate").await;
+
+            let container_config = ContainerConfig {
+                name: candidate_name.clone(),
+                image: revision.image_reference.clone(),
+                container_port: revision_snapshot.container_port,
+                published_port: None,
+                env_vars: decrypted_envs.clone(),
+                labels: Vec::new(),
+                restart_policy: "unless-stopped".to_string(),
+                network: Some(ProxyService::MANAGED_NETWORK.to_string()),
+            };
+
+            match runtime.run_container(app.id, &container_config).await {
+                Ok(container_id) => {
+                    let _ = deployment_logs::Model::append(
+                        db,
+                        dep.id,
+                        "stdout",
+                        &format!(
+                            "Candidate runtime '{}' started with container ID {}",
+                            candidate_name,
+                            &container_id[..12.min(container_id.len())]
+                        ),
+                    )
+                    .await;
+                }
+                Err(err) => {
+                    let _ = applications::Model::set_candidate_runtime(db, app.id, None).await;
+                    let message = redact_secrets(&err.to_string(), &secret_values);
+                    return Err(Self::record_failure(
+                        db,
+                        &execution_token,
+                        dep.id,
+                        app.id,
+                        "REMOTE_DOCKER_CANDIDATE_FAILED",
+                        "starting_candidate",
+                        &message,
+                        err.exit_code(),
+                    )
+                    .await);
+                }
+            }
+
+            Self::transition_phase(
+                db,
+                dep.id,
+                &execution_token,
+                &["starting_candidate"],
                 "healthchecking",
             )
             .await?;
             let _ = applications::Model::update_status(db, app.id, "healthchecking").await;
-            let _ = deployment_logs::Model::append(
-                db,
-                dep.id,
-                "system",
-                &format!("Running healthcheck on target server at path '{path}'"),
-            )
-            .await;
 
             let retries = 5;
             let mut last_error = None;
-            let host_port = revision_snapshot
-                .healthcheck_port
-                .or(revision_snapshot.published_port);
-
             for attempt in 1..=retries {
                 sleep(Duration::from_secs(2)).await;
                 match runtime
                     .healthcheck_once(
-                        &revision_snapshot.container_name,
-                        host_port,
+                        &candidate_name,
+                        None,
                         revision_snapshot.container_port,
-                        path,
+                        healthcheck_path,
                     )
                     .await
                 {
@@ -833,24 +921,22 @@ impl DeploymentService {
                             db,
                             dep.id,
                             "stdout",
-                            &format!("Healthcheck passed on attempt {attempt}/{retries}"),
+                            &format!(
+                                "Candidate healthcheck passed on attempt {attempt}/{retries}"
+                            ),
                         )
                         .await;
                         last_error = None;
                         break;
                     }
-                    Err(err) => {
-                        last_error = Some(err);
-                    }
+                    Err(err) => last_error = Some(err),
                 }
             }
 
             if let Some(err) = last_error {
-                let exit_code = err.exit_code();
                 let message = redact_secrets(&err.to_string(), &secret_values);
-                let _ = runtime
-                    .stop_and_remove_container(&revision_snapshot.container_name)
-                    .await;
+                let _ = runtime.stop_and_remove_container(&candidate_name).await;
+                let _ = applications::Model::set_candidate_runtime(db, app.id, None).await;
                 if revision.status != "healthy"
                     && revision.image_reference.starts_with("moonships/")
                 {
@@ -864,47 +950,333 @@ impl DeploymentService {
                     "REMOTE_HEALTHCHECK_FAILED",
                     "healthchecking",
                     &message,
-                    exit_code,
+                    err.exit_code(),
                 )
                 .await;
                 return Err(DeploymentError::HealthcheckFailed(message));
             }
-        }
 
-        if let Err(err) = deployment_revisions::Model::mark_healthy(db, revision.id).await {
-            return Err(Self::record_failure(
+            Self::transition_phase(
                 db,
-                &execution_token,
                 dep.id,
-                app.id,
-                "REVISION_FINALIZE_FAILED",
-                "healthchecking",
-                &err.to_string(),
-                None,
+                &execution_token,
+                &["healthchecking"],
+                "switching_traffic",
             )
-            .await);
-        }
+            .await?;
+            let route = ProxyService::managed_route_config(
+                &app.slug,
+                &candidate_name,
+                revision_snapshot.container_port,
+                &https_domains,
+                &http_domains,
+            );
+            let route_json = serde_json::to_string_pretty(&route).map_err(|err| {
+                DeploymentError::StepFailed {
+                    step: "managed_route_serialize".to_string(),
+                    message: err.to_string(),
+                }
+            })?;
 
-        if let Err(err) = applications::Model::promote_revision(db, app.id, revision.id).await {
-            return Err(Self::record_failure(
+            if let Err(err) = runtime.write_managed_route(app.id, &route_json).await {
+                let _ = runtime.stop_and_remove_container(&candidate_name).await;
+                let _ = applications::Model::set_candidate_runtime(db, app.id, None).await;
+                return Err(Self::record_failure(
+                    db,
+                    &execution_token,
+                    dep.id,
+                    app.id,
+                    "MANAGED_ROUTE_SWITCH_FAILED",
+                    "switching_traffic",
+                    &err.to_string(),
+                    err.exit_code(),
+                )
+                .await);
+            }
+
+            sleep(Duration::from_secs(2)).await;
+
+            if let Err(err) = deployment_revisions::Model::mark_healthy(db, revision.id).await {
+                return Err(Self::record_failure(
+                    db,
+                    &execution_token,
+                    dep.id,
+                    app.id,
+                    "REVISION_FINALIZE_FAILED",
+                    "switching_traffic",
+                    &err.to_string(),
+                    None,
+                )
+                .await);
+            }
+
+            if let Err(err) = applications::Model::promote_revision_with_runtime(
                 db,
-                &execution_token,
-                dep.id,
                 app.id,
-                "REVISION_PROMOTE_FAILED",
-                "healthchecking",
-                &err.to_string(),
-                None,
+                revision.id,
+                Some(candidate_name.clone()),
             )
-            .await);
-        }
+            .await
+            {
+                return Err(Self::record_failure(
+                    db,
+                    &execution_token,
+                    dep.id,
+                    app.id,
+                    "REVISION_PROMOTE_FAILED",
+                    "switching_traffic",
+                    &err.to_string(),
+                    None,
+                )
+                .await);
+            }
 
-        let success_from = if revision_snapshot.healthcheck_path.is_some() {
-            &["healthchecking"][..]
+            Self::transition_phase(
+                db,
+                dep.id,
+                &execution_token,
+                &["switching_traffic"],
+                "draining_old",
+            )
+            .await?;
+
+            if old_runtime_name != candidate_name {
+                if let Err(err) = runtime.stop_and_remove_container(&old_runtime_name).await {
+                    let _ = deployment_logs::Model::append(
+                        db,
+                        dep.id,
+                        "stderr",
+                        &format!(
+                            "Traffic switched successfully but old runtime '{}' cleanup failed: {}",
+                            old_runtime_name, err
+                        ),
+                    )
+                    .await;
+                }
+            }
+
+            for hostname in &https_domains {
+                if let Ok(Some(current_domain)) =
+                    domains::Model::find_by_application_hostname(db, app.id, hostname).await
+                {
+                    let tls_ready = runtime.verify_tls(hostname).await.unwrap_or(false);
+                    let _ = domains::Model::update_tls_status(
+                        db,
+                        current_domain.id,
+                        if tls_ready { "active" } else { "pending" },
+                        None,
+                    )
+                    .await;
+                }
+            }
+
+            Self::transition_phase(
+                db,
+                dep.id,
+                &execution_token,
+                &["draining_old"],
+                "success",
+            )
+            .await?;
+
+            let _ = deployment_logs::Model::append(
+                db,
+                dep.id,
+                "system",
+                &format!(
+                    "Deployment #{} switched managed traffic to revision {} on runtime '{}'",
+                    dep.id,
+                    &revision.revision_hash[..12.min(revision.revision_hash.len())],
+                    candidate_name
+                ),
+            )
+            .await;
         } else {
-            &["starting_new"][..]
-        };
-        Self::transition_phase(db, dep.id, &execution_token, success_from, "success").await?;
+            Self::transition_phase(
+                db,
+                dep.id,
+                &execution_token,
+                &["building"],
+                "stopping_old",
+            )
+            .await?;
+
+            let old_runtime_name = app.resolved_runtime_name();
+            if let Err(err) = runtime.stop_and_remove_container(&old_runtime_name).await {
+                return Err(Self::record_failure(
+                    db,
+                    &execution_token,
+                    dep.id,
+                    app.id,
+                    "REMOTE_DOCKER_REPLACE_FAILED",
+                    "stopping_old",
+                    &err.to_string(),
+                    err.exit_code(),
+                )
+                .await);
+            }
+
+            Self::transition_phase(
+                db,
+                dep.id,
+                &execution_token,
+                &["stopping_old"],
+                "starting_new",
+            )
+            .await?;
+            let _ = applications::Model::update_status(db, app.id, "starting").await;
+
+            let domain_names = revision_snapshot
+                .domains
+                .iter()
+                .map(|domain| domain.hostname.clone())
+                .collect::<Vec<_>>();
+            let has_https = revision_snapshot
+                .domains
+                .iter()
+                .any(|domain| domain.https_enabled);
+            let labels = ProxyService::generate_traefik_labels(
+                &app.slug,
+                &domain_names,
+                revision_snapshot.container_port,
+                has_https,
+            );
+            let container_config = ContainerConfig {
+                name: revision_snapshot.container_name.clone(),
+                image: revision.image_reference.clone(),
+                container_port: revision_snapshot.container_port,
+                published_port: revision_snapshot.published_port,
+                env_vars: decrypted_envs,
+                labels,
+                restart_policy: "unless-stopped".to_string(),
+                network: None,
+            };
+
+            if let Err(err) = runtime.run_container(app.id, &container_config).await {
+                let message = redact_secrets(&err.to_string(), &secret_values);
+                return Err(Self::record_failure(
+                    db,
+                    &execution_token,
+                    dep.id,
+                    app.id,
+                    "REMOTE_DOCKER_RUN_FAILED",
+                    "starting_new",
+                    &message,
+                    err.exit_code(),
+                )
+                .await);
+            }
+
+            if let Some(path) = &revision_snapshot.healthcheck_path {
+                Self::transition_phase(
+                    db,
+                    dep.id,
+                    &execution_token,
+                    &["starting_new"],
+                    "healthchecking",
+                )
+                .await?;
+                let retries = 5;
+                let mut last_error = None;
+                let host_port = revision_snapshot
+                    .healthcheck_port
+                    .or(revision_snapshot.published_port);
+
+                for attempt in 1..=retries {
+                    sleep(Duration::from_secs(2)).await;
+                    match runtime
+                        .healthcheck_once(
+                            &revision_snapshot.container_name,
+                            host_port,
+                            revision_snapshot.container_port,
+                            path,
+                        )
+                        .await
+                    {
+                        Ok(()) => {
+                            let _ = deployment_logs::Model::append(
+                                db,
+                                dep.id,
+                                "stdout",
+                                &format!("Healthcheck passed on attempt {attempt}/{retries}"),
+                            )
+                            .await;
+                            last_error = None;
+                            break;
+                        }
+                        Err(err) => last_error = Some(err),
+                    }
+                }
+
+                if let Some(err) = last_error {
+                    let message = redact_secrets(&err.to_string(), &secret_values);
+                    let _ = runtime
+                        .stop_and_remove_container(&revision_snapshot.container_name)
+                        .await;
+                    return Err(Self::record_failure(
+                        db,
+                        &execution_token,
+                        dep.id,
+                        app.id,
+                        "REMOTE_HEALTHCHECK_FAILED",
+                        "healthchecking",
+                        &message,
+                        err.exit_code(),
+                    )
+                    .await);
+                }
+            }
+
+            if let Err(err) = deployment_revisions::Model::mark_healthy(db, revision.id).await {
+                return Err(Self::record_failure(
+                    db,
+                    &execution_token,
+                    dep.id,
+                    app.id,
+                    "REVISION_FINALIZE_FAILED",
+                    "healthchecking",
+                    &err.to_string(),
+                    None,
+                )
+                .await);
+            }
+
+            if let Err(err) = applications::Model::promote_revision_with_runtime(
+                db,
+                app.id,
+                revision.id,
+                Some(revision_snapshot.container_name.clone()),
+            )
+            .await
+            {
+                return Err(Self::record_failure(
+                    db,
+                    &execution_token,
+                    dep.id,
+                    app.id,
+                    "REVISION_PROMOTE_FAILED",
+                    "healthchecking",
+                    &err.to_string(),
+                    None,
+                )
+                .await);
+            }
+
+            let success_from = if revision_snapshot.healthcheck_path.is_some() {
+                &["healthchecking"][..]
+            } else {
+                &["starting_new"][..]
+            };
+            Self::transition_phase(
+                db,
+                dep.id,
+                &execution_token,
+                success_from,
+                "success",
+            )
+            .await?;
+        }
+
         let _ = deployment_logs::Model::append(
             db,
             dep.id,
@@ -1057,7 +1429,17 @@ impl DeploymentService {
             }
         }
 
-        let _ = applications::Model::update_status(db, application_id, "failed").await;
+        if let Ok(app) = applications::Model::find_by_id(db, application_id).await {
+            let fallback_status = if app.current_revision_id.is_some() {
+                "running"
+            } else {
+                "failed"
+            };
+            let _ = applications::Model::update_status(db, application_id, fallback_status).await;
+            if fallback_status == "running" {
+                let _ = applications::Model::set_candidate_runtime(db, application_id, None).await;
+            }
+        }
 
         DeploymentError::StepFailed {
             step: step.to_string(),
