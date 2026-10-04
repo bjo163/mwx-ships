@@ -13,6 +13,7 @@ pub struct Model {
     pub commit_sha: String,
     pub preview_slug: String,
     pub preview_application_id: Option<i64>,
+    pub preview_environment_id: Option<i64>,
     pub deployment_id: Option<i64>,
     pub preview_hostname: Option<String>,
     pub status: String,
