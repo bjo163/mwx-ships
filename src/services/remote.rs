@@ -1542,6 +1542,39 @@ fn validate_env_key(key: &str) -> Result<(), RemoteError> {
     Ok(())
 }
 
+fn validate_positive_id(value: i64, field: &str) -> Result<(), RemoteError> {
+    if value <= 0 {
+        return Err(RemoteError::Validation(format!(
+            "{field} must be a positive integer"
+        )));
+    }
+    Ok(())
+}
+
+fn parse_volume_snapshot_metadata(
+    artifact_path: &str,
+    output: &str,
+) -> Result<RemoteVolumeSnapshot, RemoteError> {
+    let mut lines = output.lines();
+    let size_bytes = lines
+        .next()
+        .unwrap_or_default()
+        .trim()
+        .parse::<i64>()
+        .map_err(|_| RemoteError::Validation("unable to parse snapshot size".to_string()))?;
+    let sha256 = lines.next().unwrap_or_default().trim().to_ascii_lowercase();
+    if sha256.len() != 64 || !sha256.chars().all(|ch| ch.is_ascii_hexdigit()) {
+        return Err(RemoteError::Validation(
+            "unable to parse snapshot sha256".to_string(),
+        ));
+    }
+    Ok(RemoteVolumeSnapshot {
+        artifact_path: artifact_path.to_string(),
+        size_bytes,
+        sha256,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1603,37 +1636,4 @@ mod tests {
         );
         assert_eq!(output, "token=[REDACTED] and short=[REDACTED]");
     }
-}
-
-fn validate_positive_id(value: i64, field: &str) -> Result<(), RemoteError> {
-    if value <= 0 {
-        return Err(RemoteError::Validation(format!(
-            "{field} must be a positive integer"
-        )));
-    }
-    Ok(())
-}
-
-fn parse_volume_snapshot_metadata(
-    artifact_path: &str,
-    output: &str,
-) -> Result<RemoteVolumeSnapshot, RemoteError> {
-    let mut lines = output.lines();
-    let size_bytes = lines
-        .next()
-        .unwrap_or_default()
-        .trim()
-        .parse::<i64>()
-        .map_err(|_| RemoteError::Validation("unable to parse snapshot size".to_string()))?;
-    let sha256 = lines.next().unwrap_or_default().trim().to_ascii_lowercase();
-    if sha256.len() != 64 || !sha256.chars().all(|ch| ch.is_ascii_hexdigit()) {
-        return Err(RemoteError::Validation(
-            "unable to parse snapshot sha256".to_string(),
-        ));
-    }
-    Ok(RemoteVolumeSnapshot {
-        artifact_path: artifact_path.to_string(),
-        size_bytes,
-        sha256,
-    })
 }
