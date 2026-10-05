@@ -34,6 +34,8 @@ pub struct ContainerConfig {
     pub network: Option<String>,
     #[serde(default)]
     pub volume_mounts: Vec<VolumeMount>,
+    #[serde(default)]
+    pub command: Vec<String>,
 }
 
 pub struct DockerService;
@@ -353,6 +355,9 @@ impl DockerService {
         }
 
         cmd.arg(&config.image);
+        for arg in &config.command {
+            cmd.arg(arg);
+        }
 
         let output = cmd.output().await.map_err(|e| DockerError::CommandFailed {
             operation: "run".to_string(),
