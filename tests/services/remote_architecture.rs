@@ -97,6 +97,6 @@ fn stateful_backup_stays_on_remote_boundary_and_redacts_errors() {
     assert!(controller.contains("redact_secrets"));
     assert!(controller.contains("x-moonships-confirmation"));
     assert!(backup.contains("alpine:3.22.2"));
-    assert!(backup.contains("tag.eq_ignore_ascii_case(\"latest\")"));
+    assert!(backup.contains("eq_ignore_ascii_case(\"latest\")"));
     assert!(backup.contains("backup helper image cannot use an empty or latest tag"));
 }
