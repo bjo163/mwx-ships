@@ -34,11 +34,16 @@ async fn v1_openapi_protected_routes_exist_and_reject_unauthenticated_requests()
 
     request::<App, _, _>(|request, _ctx| async move {
         for (method, path) in protected {
+            let request_path = if method == "delete" && path == "/api/volumes/1" {
+                format!("{path}?confirm=TEST_VOLUME")
+            } else {
+                path.clone()
+            };
             let response = match method.as_str() {
-                "get" => request.get(&path).await,
-                "post" => request.post(&path).json(&serde_json::json!({})).await,
-                "put" => request.put(&path).json(&serde_json::json!({})).await,
-                "delete" => request.delete(&path).await,
+                "get" => request.get(&request_path).await,
+                "post" => request.post(&request_path).json(&serde_json::json!({})).await,
+                "put" => request.put(&request_path).json(&serde_json::json!({})).await,
+                "delete" => request.delete(&request_path).await,
                 other => panic!("unsupported contract method {other}"),
             };
             let status = response.status_code();
