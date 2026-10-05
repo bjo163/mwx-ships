@@ -80,3 +80,24 @@ The response includes a stable `plan_fingerprint` and `revision_id`. Environment
 `POST /api/deployment-plans/{revision_id}/deploy` queues the exact persisted plan. Execution checks out the plan's exact commit and verifies it matches before build/start. If application settings change after planning, the queued planned deployment still uses the immutable revision snapshot that was reviewed.
 
 Initial pre-queue validation covers Git source syntax, workload/build strategy, safe relative build paths, container/published/health ports, healthcheck path, hostname validity, duplicate hostname ownership, published-port conflicts on the same server, required prebuilt-image input, and the current Compose/managed-ingress compatibility boundary.
+
+## Managed Services
+
+Moonships v1.2 treats PostgreSQL, MySQL, MariaDB, and Redis as first-class **managed service templates** without turning the control plane into a database operator.
+
+`GET /api/services/templates` returns the supported pinned templates. `POST /api/services` declares a service on an authorized target server and creates a dedicated deletion-protected persistent volume. Generated credentials are encrypted through `CryptoService`; API views expose connection metadata and a secret reference, never plaintext or stored ciphertext.
+
+Service lifecycle is explicit:
+
+- `POST /api/services/{id}/start` ensures Docker, the private Moonships network, and the protected volume on the selected SSH target, pulls the pinned image, starts the container, and waits for a bounded service-specific readiness check.
+- `POST /api/services/{id}/stop` and `POST /api/services/{id}/restart` control only the service container; persistent data is not removed.
+- `GET /api/services/{id}/status` reports observed container state plus readiness.
+- `GET /api/services/{id}/logs` returns logs with known generated credentials redacted.
+
+`POST /api/services/{id}/bindings` links a service to a single-container application on the same organization and target server. Moonships writes host, internal port, optional database/user, and an encrypted password into the application's environment namespace using a configurable prefix. The application is then redeployed so the binding becomes part of its immutable revision snapshot.
+
+Managed services and ordinary single-container applications share the internal `moonships-ingress` Docker network, so service hostnames remain private and no database port needs to be published. Compose application bindings remain intentionally unsupported in this focused v1.2 scope.
+
+Persistent-volume APIs are exposed under `/api/volumes`. Volume declarations have stable identity, deletion protection, explicit attach/detach semantics, and cannot be implicitly destroyed by application/service redeploys.
+
+All release acceptance remains reproducible through CI/local Docker and does not require a real VPS.
