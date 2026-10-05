@@ -143,3 +143,143 @@ jobs:
           fi
 
           docker inspect "$name" --format '{{.State.Status}}' | grep -qx running
+
+  managed-service-backup-restore-smoke:
+    name: Backup/Restore Managed Service — ${{ matrix.kind }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - kind: postgresql
+            image: postgres:17.11-alpine
+          - kind: mysql
+            image: mysql:8.4.11
+          - kind: mariadb
+            image: mariadb:11.4.13
+          - kind: redis
+            image: redis:8.10.2-alpine
+    steps:
+      - name: Seed, snapshot, destroy, restore and verify data
+        env:
+          KIND: ${{ matrix.kind }}
+          IMAGE: ${{ matrix.image }}
+          HELPER_IMAGE: alpine:3.22.2
+        run: |
+          set -euo pipefail
+          name="moonships-backup-smoke-${KIND}"
+          volume="moonships-backup-smoke-${KIND}"
+          archive="$PWD/stateful-${KIND}.tar.gz"
+
+          cleanup() {
+            docker rm -f "$name" >/dev/null 2>&1 || true
+            docker volume rm "$volume" >/dev/null 2>&1 || true
+            rm -f "$archive"
+          }
+          trap cleanup EXIT
+
+          docker volume create "$volume" >/dev/null
+
+          case "$KIND" in
+            postgresql)
+              mount_path=/var/lib/postgresql/data
+              run_service() {
+                docker run -d --name "$name" \
+                  --mount "type=volume,source=${volume},target=${mount_path}" \
+                  -e POSTGRES_DB=app \
+                  -e POSTGRES_USER=moonships \
+                  -e POSTGRES_PASSWORD=test-secret \
+                  "$IMAGE"
+              }
+              ready_cmd='pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB"'
+              seed_cmd='psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -v ON_ERROR_STOP=1 -c "CREATE TABLE IF NOT EXISTS moonships_restore_probe(value text); DELETE FROM moonships_restore_probe; INSERT INTO moonships_restore_probe(value) VALUES ('"'"'survives-restore'"'"');"'
+              verify_cmd='test "$(psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -At -c "SELECT value FROM moonships_restore_probe LIMIT 1")" = "survives-restore"'
+              ;;
+            mysql)
+              mount_path=/var/lib/mysql
+              run_service() {
+                docker run -d --name "$name" \
+                  --mount "type=volume,source=${volume},target=${mount_path}" \
+                  -e MYSQL_DATABASE=app \
+                  -e MYSQL_USER=moonships \
+                  -e MYSQL_PASSWORD=test-secret \
+                  -e MYSQL_ROOT_PASSWORD=test-root-secret \
+                  "$IMAGE"
+              }
+              ready_cmd='mysqladmin ping -h 127.0.0.1 -u"$MYSQL_USER" -p"$MYSQL_PASSWORD" --silent'
+              seed_cmd='mysql -u"$MYSQL_USER" -p"$MYSQL_PASSWORD" "$MYSQL_DATABASE" -e "CREATE TABLE IF NOT EXISTS moonships_restore_probe(value VARCHAR(64)); DELETE FROM moonships_restore_probe; INSERT INTO moonships_restore_probe(value) VALUES ('"'"'survives-restore'"'"');"'
+              verify_cmd='test "$(mysql -Nse "SELECT value FROM moonships_restore_probe LIMIT 1" -u"$MYSQL_USER" -p"$MYSQL_PASSWORD" "$MYSQL_DATABASE")" = "survives-restore"'
+              ;;
+            mariadb)
+              mount_path=/var/lib/mysql
+              run_service() {
+                docker run -d --name "$name" \
+                  --mount "type=volume,source=${volume},target=${mount_path}" \
+                  -e MARIADB_DATABASE=app \
+                  -e MARIADB_USER=moonships \
+                  -e MARIADB_PASSWORD=test-secret \
+                  -e MARIADB_ROOT_PASSWORD=test-root-secret \
+                  "$IMAGE"
+              }
+              ready_cmd='mariadb-admin ping -h 127.0.0.1 -u"$MARIADB_USER" -p"$MARIADB_PASSWORD" --silent'
+              seed_cmd='mariadb -u"$MARIADB_USER" -p"$MARIADB_PASSWORD" "$MARIADB_DATABASE" -e "CREATE TABLE IF NOT EXISTS moonships_restore_probe(value VARCHAR(64)); DELETE FROM moonships_restore_probe; INSERT INTO moonships_restore_probe(value) VALUES ('"'"'survives-restore'"'"');"'
+              verify_cmd='test "$(mariadb -Nse "SELECT value FROM moonships_restore_probe LIMIT 1" -u"$MARIADB_USER" -p"$MARIADB_PASSWORD" "$MARIADB_DATABASE")" = "survives-restore"'
+              ;;
+            redis)
+              mount_path=/data
+              run_service() {
+                docker run -d --name "$name" \
+                  --mount "type=volume,source=${volume},target=${mount_path}" \
+                  -e REDIS_PASSWORD=test-secret \
+                  "$IMAGE" sh -c 'exec redis-server --appendonly yes --requirepass "$REDIS_PASSWORD"'
+              }
+              ready_cmd='redis-cli --no-auth-warning -a "$REDIS_PASSWORD" ping 2>/dev/null | grep -qx PONG'
+              seed_cmd='redis-cli --no-auth-warning -a "$REDIS_PASSWORD" SET moonships_restore_probe survives-restore >/dev/null && redis-cli --no-auth-warning -a "$REDIS_PASSWORD" SAVE >/dev/null'
+              verify_cmd='test "$(redis-cli --no-auth-warning -a "$REDIS_PASSWORD" GET moonships_restore_probe 2>/dev/null)" = "survives-restore"'
+              ;;
+            *)
+              echo "Unsupported smoke kind: $KIND" >&2
+              exit 1
+              ;;
+          esac
+
+          wait_ready() {
+            for attempt in $(seq 1 90); do
+              if docker exec "$name" sh -c "$ready_cmd"; then
+                return 0
+              fi
+              sleep 2
+            done
+            docker logs "$name"
+            return 1
+          }
+
+          run_service >/dev/null
+          wait_ready
+          docker exec "$name" sh -c "$seed_cmd"
+
+          # Product contract: offline consistent snapshot. Stop before reading the volume.
+          docker stop "$name" >/dev/null
+          docker rm "$name" >/dev/null
+
+          docker run --rm \
+            --mount "type=volume,source=${volume},target=/source,readonly" \
+            --mount "type=bind,source=$PWD,target=/backup" \
+            "$HELPER_IMAGE" sh -c 'cd /source && tar -czf /backup/'"$(basename "$archive")"' .'
+
+          test -s "$archive"
+          sha256sum "$archive"
+
+          # Acceptance requires losing both runtime and volume before restore.
+          docker volume rm "$volume" >/dev/null
+          docker volume create "$volume" >/dev/null
+
+          docker run --rm \
+            --mount "type=volume,source=${volume},target=/target" \
+            --mount "type=bind,source=$PWD,target=/backup,readonly" \
+            "$HELPER_IMAGE" sh -c 'tar -xzf /backup/'"$(basename "$archive")"' -C /target'
+
+          run_service >/dev/null
+          wait_ready
+          docker exec "$name" sh -c "$verify_cmd"
