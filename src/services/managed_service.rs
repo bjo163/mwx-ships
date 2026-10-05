@@ -228,10 +228,7 @@ impl ManagedServiceTemplateService {
                     "MARIADB_USER".to_string(),
                     required(service.username.as_deref(), "username")?.to_string(),
                 ));
-                env_vars.push((
-                    "MARIADB_PASSWORD".to_string(),
-                    credentials.password.clone(),
-                ));
+                env_vars.push(("MARIADB_PASSWORD".to_string(), credentials.password.clone()));
                 env_vars.push((
                     "MARIADB_ROOT_PASSWORD".to_string(),
                     required(credentials.root_password.as_deref(), "root_password")?.to_string(),
@@ -371,7 +368,8 @@ fn normalize_identifier(value: &str, field: &str) -> Result<String> {
 }
 
 fn validate_pinned_image(image: &str) -> Result<()> {
-    DockerService::validate_image_name(image).map_err(|error| Error::BadRequest(error.to_string()))?;
+    DockerService::validate_image_name(image)
+        .map_err(|error| Error::BadRequest(error.to_string()))?;
     if image.contains("@sha256:") {
         return Ok(());
     }
@@ -422,7 +420,9 @@ mod tests {
             "postgresql"
         );
         assert_eq!(
-            ManagedServiceTemplateService::template("maria").unwrap().kind,
+            ManagedServiceTemplateService::template("maria")
+                .unwrap()
+                .kind,
             "mariadb"
         );
         assert!(ManagedServiceTemplateService::template("mongodb").is_err());
@@ -435,10 +435,13 @@ mod tests {
                 .unwrap(),
             "PRIMARY_DB"
         );
-        assert!(ManagedServiceTemplateService::normalize_env_prefix(Some("1DB"), "POSTGRES")
-            .is_err());
-        assert!(ManagedServiceTemplateService::normalize_env_prefix(Some("DB-PROD"), "POSTGRES")
-            .is_err());
+        assert!(
+            ManagedServiceTemplateService::normalize_env_prefix(Some("1DB"), "POSTGRES").is_err()
+        );
+        assert!(
+            ManagedServiceTemplateService::normalize_env_prefix(Some("DB-PROD"), "POSTGRES")
+                .is_err()
+        );
     }
 
     #[test]
