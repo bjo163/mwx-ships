@@ -185,6 +185,22 @@ impl ManagedServiceTemplateService {
         volume_name: &str,
         credentials: &ManagedServiceCredentials,
     ) -> Result<ContainerConfig> {
+        Self::runtime_config_with_name(
+            service,
+            volume_name,
+            credentials,
+            &service.container_name,
+        )
+    }
+
+    pub fn runtime_config_with_name(
+        service: &ManagedServiceModel,
+        volume_name: &str,
+        credentials: &ManagedServiceCredentials,
+        container_name: &str,
+    ) -> Result<ContainerConfig> {
+        DockerService::validate_container_name(container_name)
+            .map_err(|error| Error::BadRequest(error.to_string()))?;
         let template = Self::template(&service.kind)?;
         let mut env_vars = Vec::new();
         let mut command = Vec::new();
@@ -247,7 +263,7 @@ impl ManagedServiceTemplateService {
         }
 
         Ok(ContainerConfig {
-            name: service.container_name.clone(),
+            name: container_name.to_string(),
             image: service.image.clone(),
             container_port: service.internal_port,
             published_port: None,
