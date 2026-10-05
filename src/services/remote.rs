@@ -941,6 +941,24 @@ MOONSHIPS_ASKPASS\n\
         application_id: i64,
         config: &ContainerConfig,
     ) -> Result<String, RemoteError> {
+        self.run_container_scoped(&format!("app-{application_id}"), config)
+            .await
+    }
+
+    pub async fn run_managed_service_container(
+        &self,
+        service_id: i64,
+        config: &ContainerConfig,
+    ) -> Result<String, RemoteError> {
+        self.run_container_scoped(&format!("service-{service_id}"), config)
+            .await
+    }
+
+    async fn run_container_scoped(
+        &self,
+        runtime_env_name: &str,
+        config: &ContainerConfig,
+    ) -> Result<String, RemoteError> {
         DockerService::validate_container_name(&config.name)
             .map_err(|e| RemoteError::Validation(e.to_string()))?;
         DockerService::validate_image_name(&config.image)
@@ -1003,7 +1021,7 @@ MOONSHIPS_ASKPASS\n\
             args.push(shell_quote(arg));
         }
 
-        let env_path = format!("\"$HOME/.moonships/runtime/app-{application_id}.env\"");
+        let env_path = format!("\"$HOME/.moonships/runtime/{runtime_env_name}.env\"");
         let command = format!(
             "umask 077; mkdir -p \"$HOME/.moonships/runtime\"; \
              ENV_FILE={env_path}; cat > \"$ENV_FILE\"; \
