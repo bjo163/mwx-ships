@@ -1161,6 +1161,7 @@ impl DeploymentService {
                 restart_policy: "unless-stopped".to_string(),
                 network: Some(ProxyService::MANAGED_NETWORK.to_string()),
                 volume_mounts: volume_mounts.clone(),
+                command: Vec::new(),
             };
 
             let existing_candidate_status = runtime
@@ -1618,6 +1619,7 @@ impl DeploymentService {
                 restart_policy: "unless-stopped".to_string(),
                 network: None,
                 volume_mounts: volume_mounts.clone(),
+                command: Vec::new(),
             };
 
             if let Err(err) = runtime.run_container(app.id, &container_config).await {
