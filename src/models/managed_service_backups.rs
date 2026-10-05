@@ -134,6 +134,16 @@ impl Model {
         Ok(active.update(db).await?)
     }
 
+    pub async fn delete_record(self, db: &DatabaseConnection) -> Result<()> {
+        if self.deletion_protected {
+            return Err(Error::BadRequest(
+                "backup deletion protection is enabled".to_string(),
+            ));
+        }
+        self.delete(db).await?;
+        Ok(())
+    }
+
     pub fn to_safe(&self) -> SafeManagedServiceBackup {
         SafeManagedServiceBackup {
             id: self.id,
