@@ -74,8 +74,7 @@ impl Model {
         }
         Ok(Entity::find()
             .filter(
-                managed_services::Column::OrganizationId
-                    .is_in(organization_ids.iter().copied()),
+                managed_services::Column::OrganizationId.is_in(organization_ids.iter().copied()),
             )
             .order_by_asc(managed_services::Column::Name)
             .all(db)
