@@ -195,10 +195,10 @@ pub async fn create(
         &service,
         "managed_service.create",
         Some(serde_json::json!({
-            "kind": service.kind,
+            "kind": service.kind.clone(),
             "server_id": service.server_id,
             "volume_id": service.volume_id,
-            "image": service.image,
+            "image": service.image.clone(),
         })),
     )
     .await;
@@ -278,7 +278,7 @@ pub async fn start(
         &principal,
         &service,
         "managed_service.start",
-        Some(serde_json::json!({"image": service.image})),
+        Some(serde_json::json!({"image": service.image.clone()})),
     )
     .await;
 
