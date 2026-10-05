@@ -69,6 +69,7 @@ async fn supported_schema_versions_upgrade_to_latest_without_data_loss() {
             "volume_attachments",
             "managed_services",
             "managed_service_bindings",
+            "managed_service_backups",
         ] {
             let count = scalar_i64(
                 &db,
