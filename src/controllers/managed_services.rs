@@ -23,9 +23,7 @@ use crate::{
 use axum::http::HeaderMap;
 use chrono::Utc;
 use loco_rs::prelude::*;
-use sea_orm::{
-    ActiveModelTrait, ActiveValue::Set, ColumnTrait, EntityTrait, QueryFilter,
-};
+use sea_orm::{ActiveModelTrait, ActiveValue::Set, ColumnTrait, EntityTrait, QueryFilter};
 use tokio::time::{sleep, Duration};
 
 pub fn routes() -> Routes {
@@ -101,10 +99,7 @@ async fn runtime_for(
     Ok((server, runtime))
 }
 
-async fn wait_ready(
-    runtime: &RemoteRuntime,
-    service: &ManagedServiceModel,
-) -> Result<()> {
+async fn wait_ready(runtime: &RemoteRuntime, service: &ManagedServiceModel) -> Result<()> {
     for _ in 0..30 {
         if runtime
             .managed_service_ready(&service.container_name, &service.kind)
@@ -121,10 +116,7 @@ async fn wait_ready(
 }
 
 #[debug_handler]
-pub async fn templates(
-    headers: HeaderMap,
-    State(ctx): State<AppContext>,
-) -> Result<Response> {
+pub async fn templates(headers: HeaderMap, State(ctx): State<AppContext>) -> Result<Response> {
     let _ = Principal::authenticate(&ctx, &headers).await?;
     format::json(serde_json::json!({
         "data": ManagedServiceTemplateService::list(),
@@ -136,8 +128,7 @@ pub async fn templates(
 pub async fn list(headers: HeaderMap, State(ctx): State<AppContext>) -> Result<Response> {
     let principal = Principal::authenticate(&ctx, &headers).await?;
     let organization_ids = principal.organization_ids(&ctx.db).await?;
-    let services =
-        ManagedServiceModel::all_for_organizations(&ctx.db, &organization_ids).await?;
+    let services = ManagedServiceModel::all_for_organizations(&ctx.db, &organization_ids).await?;
     let safe = services
         .into_iter()
         .map(|service| service.to_safe())
@@ -258,16 +249,23 @@ pub async fn start(
         .await
         .map_err(|error| Error::BadRequest(error.to_string()))?;
 
-    let config =
-        ManagedServiceTemplateService::runtime_config(&service, &volume.docker_volume_name, &credentials)?;
-    let _ = runtime.stop_and_remove_container(&service.container_name).await;
+    let config = ManagedServiceTemplateService::runtime_config(
+        &service,
+        &volume.docker_volume_name,
+        &credentials,
+    )?;
+    let _ = runtime
+        .stop_and_remove_container(&service.container_name)
+        .await;
     runtime
         .run_managed_service_container(service.id, &config)
         .await
-        .map_err(|error| Error::BadRequest(redact_secrets(
-            &error.to_string(),
-            &credential_secret_values(&credentials),
-        )))?;
+        .map_err(|error| {
+            Error::BadRequest(redact_secrets(
+                &error.to_string(),
+                &credential_secret_values(&credentials),
+            ))
+        })?;
 
     if let Err(error) = wait_ready(&runtime, &service).await {
         let _ = ManagedServiceModel::update_status(&ctx.db, service.id, "unhealthy").await;
@@ -404,14 +402,9 @@ pub async fn bind(
 ) -> Result<Response> {
     let (principal, service) =
         authorized_service(&ctx, &headers, id, Permission::ManageApplications).await?;
-    let application =
-        ApplicationModel::find_by_id(&ctx.db, params.application_id).await?;
+    let application = ApplicationModel::find_by_id(&ctx.db, params.application_id).await?;
     let application_org = principal
-        .application_organization(
-            &ctx.db,
-            application.id,
-            Permission::ManageApplications,
-        )
+        .application_organization(&ctx.db, application.id, Permission::ManageApplications)
         .await?;
 
     if application_org != service.organization_id {
@@ -490,14 +483,9 @@ pub async fn bind(
         }
     }
 
-    let binding = ManagedServiceBindingModel::create(
-        &ctx.db,
-        service.id,
-        application.id,
-        prefix,
-        env_keys,
-    )
-    .await?;
+    let binding =
+        ManagedServiceBindingModel::create(&ctx.db, service.id, application.id, prefix, env_keys)
+            .await?;
 
     audit_service(
         &ctx,
