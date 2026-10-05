@@ -98,6 +98,7 @@ fn concrete_path(template: &str) -> String {
         .replace("{pool_id}", "1")
         .replace("{credential_id}", "1")
         .replace("{attachment_id}", "1")
+        .replace("{backup_id}", "1")
         .replace("{key}", "TEST_KEY")
         .replace("{provider}", "github")
         .replace("{application_id}", "1")
