@@ -77,3 +77,25 @@ fn managed_services_stay_on_remote_runtime_boundary() {
         "managed service API responses must not serialize stored credential ciphertext"
     );
 }
+
+#[test]
+fn stateful_backup_stays_on_remote_boundary_and_redacts_errors() {
+    let controller = include_str!("../../src/controllers/managed_services.rs");
+    let backup = include_str!("../../src/services/managed_service_backup.rs");
+    let remote = include_str!("../../src/services/remote.rs");
+
+    assert!(
+        !controller.contains("tokio::process::Command")
+            && !controller.contains("std::process::Command")
+            && !backup.contains("tokio::process::Command")
+            && !backup.contains("std::process::Command"),
+        "stateful backup orchestration must not execute snapshot tooling on the control-plane host"
+    );
+    assert!(remote.contains("snapshot_volume"));
+    assert!(remote.contains("restore_volume_snapshot"));
+    assert!(remote.contains("volume_snapshot_metadata"));
+    assert!(controller.contains("redact_secrets"));
+    assert!(controller.contains("x-moonships-confirmation"));
+    assert!(backup.contains("alpine:3.22.2"));
+    assert!(!backup.contains(":latest"));
+}
