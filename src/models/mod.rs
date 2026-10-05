@@ -11,6 +11,8 @@ pub mod domains;
 pub mod environment_variables;
 pub mod environments;
 pub mod git_integrations;
+pub mod managed_service_bindings;
+pub mod managed_services;
 pub mod notification_events;
 pub mod operational_events;
 pub mod organization_memberships;
