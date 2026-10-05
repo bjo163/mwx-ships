@@ -34,7 +34,11 @@ impl ManagedServiceBackupService {
         Ok(image)
     }
 
-    pub fn plan(service_id: i64, backup_id: i64, helper_image: String) -> Result<ManagedServiceBackupPlan> {
+    pub fn plan(
+        service_id: i64,
+        backup_id: i64,
+        helper_image: String,
+    ) -> Result<ManagedServiceBackupPlan> {
         if service_id <= 0 || backup_id <= 0 {
             return Err(Error::BadRequest(
                 "service and backup identifiers must be positive".to_string(),
@@ -70,12 +74,13 @@ impl ManagedServiceBackupService {
         backup: &ManagedServiceBackupModel,
         observed: &RemoteVolumeSnapshot,
     ) -> Result<()> {
-        let expected_size = backup.size_bytes.ok_or_else(|| {
-            Error::BadRequest("backup has no recorded size".to_string())
-        })?;
-        let expected_sha = backup.sha256.as_deref().ok_or_else(|| {
-            Error::BadRequest("backup has no recorded checksum".to_string())
-        })?;
+        let expected_size = backup
+            .size_bytes
+            .ok_or_else(|| Error::BadRequest("backup has no recorded size".to_string()))?;
+        let expected_sha = backup
+            .sha256
+            .as_deref()
+            .ok_or_else(|| Error::BadRequest("backup has no recorded checksum".to_string()))?;
 
         if observed.artifact_path != backup.artifact_path {
             return Err(Error::BadRequest(
