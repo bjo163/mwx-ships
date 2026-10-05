@@ -5,6 +5,7 @@ pub mod deployment;
 pub mod deployment_plan;
 pub mod docker;
 pub mod git;
+pub mod managed_service;
 pub mod git_provider;
 pub mod notification;
 pub mod operations;
