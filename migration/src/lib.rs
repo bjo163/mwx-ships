@@ -18,6 +18,7 @@ mod m20261004_000014_active_deployment_lock;
 mod m20261004_000015_scale_workloads;
 mod m20261005_000016_persistent_volumes;
 mod m20261005_000017_managed_services;
+mod m20261005_000018_managed_service_backups;
 
 pub struct Migrator;
 
@@ -42,6 +43,7 @@ impl MigratorTrait for Migrator {
             Box::new(m20261004_000015_scale_workloads::Migration),
             Box::new(m20261005_000016_persistent_volumes::Migration),
             Box::new(m20261005_000017_managed_services::Migration),
+            Box::new(m20261005_000018_managed_service_backups::Migration),
             // inject-above (do not remove this comment)
         ]
     }
