@@ -980,6 +980,22 @@ impl DeploymentService {
         )
         .await;
 
+        if !is_compose {
+            if let Err(err) = runtime.ensure_network(ProxyService::MANAGED_NETWORK).await {
+                return Err(Self::record_failure(
+                    db,
+                    &execution_token,
+                    dep.id,
+                    app.id,
+                    "MANAGED_NETWORK_UNAVAILABLE",
+                    "building",
+                    &err.to_string(),
+                    err.exit_code(),
+                )
+                .await);
+            }
+        }
+
         let managed_ingress = ProxyService::uses_managed_ingress(
             revision_snapshot.domains.len(),
             revision_snapshot.published_port,
@@ -1617,7 +1633,7 @@ impl DeploymentService {
                 env_vars: decrypted_envs,
                 labels,
                 restart_policy: "unless-stopped".to_string(),
-                network: None,
+                network: Some(ProxyService::MANAGED_NETWORK.to_string()),
                 volume_mounts: volume_mounts.clone(),
                 command: Vec::new(),
             };
