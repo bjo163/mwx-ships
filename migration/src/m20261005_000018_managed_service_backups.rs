@@ -74,14 +74,8 @@ impl MigrationTrait for Migration {
                         .timestamp_with_time_zone()
                         .not_null(),
                 )
-                .col(
-                    ColumnDef::new(ManagedServiceBackups::CompletedAt)
-                        .timestamp_with_time_zone(),
-                )
-                .col(
-                    ColumnDef::new(ManagedServiceBackups::RestoredAt)
-                        .timestamp_with_time_zone(),
-                )
+                .col(ColumnDef::new(ManagedServiceBackups::CompletedAt).timestamp_with_time_zone())
+                .col(ColumnDef::new(ManagedServiceBackups::RestoredAt).timestamp_with_time_zone())
                 .foreign_key(
                     ForeignKey::create()
                         .name("fk_managed_service_backup_org")
@@ -95,21 +89,30 @@ impl MigrationTrait for Migration {
                 .foreign_key(
                     ForeignKey::create()
                         .name("fk_managed_service_backup_service")
-                        .from(ManagedServiceBackups::Table, ManagedServiceBackups::ServiceId)
+                        .from(
+                            ManagedServiceBackups::Table,
+                            ManagedServiceBackups::ServiceId,
+                        )
                         .to(ManagedServices::Table, ManagedServices::Id)
                         .on_delete(ForeignKeyAction::Cascade),
                 )
                 .foreign_key(
                     ForeignKey::create()
                         .name("fk_managed_service_backup_server")
-                        .from(ManagedServiceBackups::Table, ManagedServiceBackups::ServerId)
+                        .from(
+                            ManagedServiceBackups::Table,
+                            ManagedServiceBackups::ServerId,
+                        )
                         .to(Servers::Table, Servers::Id)
                         .on_delete(ForeignKeyAction::Restrict),
                 )
                 .foreign_key(
                     ForeignKey::create()
                         .name("fk_managed_service_backup_volume")
-                        .from(ManagedServiceBackups::Table, ManagedServiceBackups::VolumeId)
+                        .from(
+                            ManagedServiceBackups::Table,
+                            ManagedServiceBackups::VolumeId,
+                        )
                         .to(PersistentVolumes::Table, PersistentVolumes::Id)
                         .on_delete(ForeignKeyAction::Restrict),
                 )
