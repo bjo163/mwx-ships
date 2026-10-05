@@ -1079,6 +1079,7 @@ MOONSHIPS_ASKPASS\n\
             "set -eu; umask 077; \
              dir=\"$HOME/.moonships/backups/services/{service_id}\"; \
              mkdir -p \"$dir\"; artifact=\"$dir/{filename}\"; rm -f \"$artifact\"; \
+             docker volume inspect {volume} >/dev/null; \
              docker pull {helper} >/dev/null; \
              docker run --rm \
                --mount type=volume,source={volume},target=/source,readonly \
