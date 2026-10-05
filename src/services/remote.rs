@@ -999,6 +999,9 @@ MOONSHIPS_ASKPASS\n\
             args.push(format!("-l {}", shell_quote(&format!("{key}={value}"))));
         }
         args.push(shell_quote(&config.image));
+        for arg in &config.command {
+            args.push(shell_quote(arg));
+        }
 
         let env_path = format!("\"$HOME/.moonships/runtime/app-{application_id}.env\"");
         let command = format!(
