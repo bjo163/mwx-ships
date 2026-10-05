@@ -101,3 +101,32 @@ Managed services and ordinary single-container applications share the internal `
 Persistent-volume APIs are exposed under `/api/volumes`. Volume declarations have stable identity, deletion protection, explicit attach/detach semantics, and cannot be implicitly destroyed by application/service redeploys.
 
 All release acceptance remains reproducible through CI/local Docker and does not require a real VPS.
+
+### Stateful backup and restore
+
+Managed service backups use a provider-neutral **offline Docker-volume snapshot** contract rather than database-specific operator APIs. This intentionally keeps Moonships in the Mini-PaaS role.
+
+`POST /api/services/{id}/backups` performs a bounded sequence on the selected SSH target:
+
+1. if the service is running, stop its container so the volume is filesystem-consistent;
+2. archive the existing protected Docker volume with the pinned `MOONSHIPS_BACKUP_HELPER_IMAGE` (default `alpine:3.22.2`);
+3. record remote artifact size + SHA-256 in control-plane metadata tied to organization, service, server and volume identity;
+4. restore the artifact into a temporary isolated volume;
+5. boot the same pinned service image against that temporary volume and require its normal readiness check to pass;
+6. remove the temporary verification runtime/volume;
+7. resume the original service if it was running.
+
+The safe API representation exposes checksum, size, status, verification, protection and timestamps. It does **not** expose the remote artifact filesystem path or service credentials.
+
+`POST /api/services/{id}/backups/{backup_id}/restore` has stronger destructive guards:
+
+- only successful, verified backups are accepted;
+- checksum/size/path identity is revalidated against the remote artifact;
+- the target managed service must be stopped;
+- `x-moonships-confirmation` must exactly equal the managed service name;
+- the backup is restored into an isolated verification volume and boot-tested **before** the protected real volume is overwritten;
+- after the real volume is restored, Moonships recreates the service runtime and requires readiness before marking the restore successful.
+
+Backup retention defaults to the newest 7 successful backups per service through `MOONSHIPS_SERVICE_BACKUP_RETENTION`. Older unprotected backups are pruned best-effort; protected backups are skipped. Backup deletion itself requires protection to be disabled and `x-moonships-confirmation: backup-{id}`.
+
+Current v1.2 backup artifacts live on the selected target server under Moonships-managed storage. This is a verified local recovery primitive, not an off-site disaster-recovery substitute.
