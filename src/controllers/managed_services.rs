@@ -3,6 +3,10 @@ use crate::{
         _entities::{environment_variables, managed_service_bindings},
         applications::Model as ApplicationModel,
         audit_events::{AuditEventInput, Model as AuditEventModel},
+        managed_service_backups::{
+            CreateManagedServiceBackupParams, Model as ManagedServiceBackupModel,
+            UpdateManagedServiceBackupProtectionParams,
+        },
         managed_service_bindings::{
             CreateManagedServiceBindingParams, Model as ManagedServiceBindingModel,
         },
@@ -16,6 +20,7 @@ use crate::{
         access_control::{Permission, Principal},
         crypto::CryptoService,
         managed_service::{CreateManagedServiceParams, ManagedServiceTemplateService},
+        managed_service_backup::ManagedServiceBackupService,
         proxy::ProxyService,
         remote::{redact_secrets, RemoteRuntime},
     },
@@ -40,6 +45,14 @@ pub fn routes() -> Routes {
         .add("{id}/logs", get(logs))
         .add("{id}/bindings", get(list_bindings))
         .add("{id}/bindings", post(bind))
+        .add("{id}/backups", get(list_backups))
+        .add("{id}/backups", post(create_backup))
+        .add("{id}/backups/{backup_id}/restore", post(restore_backup))
+        .add(
+            "{id}/backups/{backup_id}/protection",
+            put(set_backup_protection),
+        )
+        .add("{id}/backups/{backup_id}", delete(remove_backup))
 }
 
 async fn authorized_service(
@@ -100,9 +113,17 @@ async fn runtime_for(
 }
 
 async fn wait_ready(runtime: &RemoteRuntime, service: &ManagedServiceModel) -> Result<()> {
+    wait_ready_named(runtime, &service.container_name, &service.kind).await
+}
+
+async fn wait_ready_named(
+    runtime: &RemoteRuntime,
+    container_name: &str,
+    kind: &str,
+) -> Result<()> {
     for _ in 0..30 {
         if runtime
-            .managed_service_ready(&service.container_name, &service.kind)
+            .managed_service_ready(container_name, kind)
             .await
             .unwrap_or(false)
         {
