@@ -1068,13 +1068,10 @@ MOONSHIPS_ASKPASS\n\
             .map_err(|e| RemoteError::Validation(e.to_string()))?;
 
         let filename = format!("backup-{backup_id}.tar.gz");
-        let artifact_path =
-            format!(".moonships/backups/services/{service_id}/{filename}");
+        let artifact_path = format!(".moonships/backups/services/{service_id}/{filename}");
         let volume = shell_quote(volume_name);
         let helper = shell_quote(helper_image);
-        let archive_script = shell_quote(&format!(
-            "cd /source && tar -czf /backup/{filename} ."
-        ));
+        let archive_script = shell_quote(&format!("cd /source && tar -czf /backup/{filename} ."));
         let command = format!(
             "set -eu; umask 077; \
              dir=\"$HOME/.moonships/backups/services/{service_id}\"; \
@@ -1104,8 +1101,7 @@ MOONSHIPS_ASKPASS\n\
         validate_positive_id(service_id, "service_id")?;
         validate_positive_id(backup_id, "backup_id")?;
         let filename = format!("backup-{backup_id}.tar.gz");
-        let artifact_path =
-            format!(".moonships/backups/services/{service_id}/{filename}");
+        let artifact_path = format!(".moonships/backups/services/{service_id}/{filename}");
         let command = format!(
             "set -eu; artifact=\"$HOME/{artifact_path}\"; \
              test -f \"$artifact\"; \
@@ -1169,15 +1165,10 @@ MOONSHIPS_ASKPASS\n\
         validate_positive_id(service_id, "service_id")?;
         validate_positive_id(backup_id, "backup_id")?;
         let filename = format!("backup-{backup_id}.tar.gz");
-        let command = format!(
-            "rm -f \"$HOME/.moonships/backups/services/{service_id}/{filename}\""
-        );
-        self.exec_checked(
-            "volume_snapshot_remove",
-            &command,
-            Duration::from_secs(30),
-        )
-        .await?;
+        let command =
+            format!("rm -f \"$HOME/.moonships/backups/services/{service_id}/{filename}\"");
+        self.exec_checked("volume_snapshot_remove", &command, Duration::from_secs(30))
+            .await?;
         Ok(())
     }
 
@@ -1614,7 +1605,6 @@ mod tests {
     }
 }
 
-
 fn validate_positive_id(value: i64, field: &str) -> Result<(), RemoteError> {
     if value <= 0 {
         return Err(RemoteError::Validation(format!(
@@ -1634,9 +1624,7 @@ fn parse_volume_snapshot_metadata(
         .unwrap_or_default()
         .trim()
         .parse::<i64>()
-        .map_err(|_| {
-            RemoteError::Validation("unable to parse snapshot size".to_string())
-        })?;
+        .map_err(|_| RemoteError::Validation("unable to parse snapshot size".to_string()))?;
     let sha256 = lines.next().unwrap_or_default().trim().to_ascii_lowercase();
     if sha256.len() != 64 || !sha256.chars().all(|ch| ch.is_ascii_hexdigit()) {
         return Err(RemoteError::Validation(
