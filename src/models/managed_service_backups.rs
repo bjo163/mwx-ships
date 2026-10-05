@@ -57,7 +57,6 @@ impl Model {
         service_id: i64,
         server_id: i64,
         volume_id: i64,
-        artifact_path: &str,
         helper_image: &str,
         deletion_protected: bool,
     ) -> Result<Model> {
@@ -66,7 +65,7 @@ impl Model {
             service_id: Set(service_id),
             server_id: Set(server_id),
             volume_id: Set(volume_id),
-            artifact_path: Set(artifact_path.to_string()),
+            artifact_path: Set(String::new()),
             helper_image: Set(helper_image.to_string()),
             status: Set("running".to_string()),
             verified: Set(false),
@@ -76,6 +75,17 @@ impl Model {
         }
         .insert(db)
         .await?)
+    }
+
+    pub async fn set_artifact_path(
+        db: &DatabaseConnection,
+        id: i64,
+        artifact_path: &str,
+    ) -> Result<Model> {
+        let model = Self::find_by_id(db, id).await?;
+        let mut active: ActiveModel = model.into();
+        active.artifact_path = Set(artifact_path.to_string());
+        Ok(active.update(db).await?)
     }
 
     pub async fn complete(
