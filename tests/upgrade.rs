@@ -67,6 +67,8 @@ async fn supported_schema_versions_upgrade_to_latest_without_data_loss() {
             "registry_credentials",
             "persistent_volumes",
             "volume_attachments",
+            "managed_services",
+            "managed_service_bindings",
         ] {
             let count = scalar_i64(
                 &db,
