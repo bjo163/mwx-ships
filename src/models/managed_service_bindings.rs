@@ -46,8 +46,9 @@ impl Model {
         env_prefix: String,
         env_keys: Vec<String>,
     ) -> Result<Model> {
-        let env_keys_json = serde_json::to_string(&env_keys)
-            .map_err(|error| Error::BadRequest(format!("binding key serialization failed: {error}")))?;
+        let env_keys_json = serde_json::to_string(&env_keys).map_err(|error| {
+            Error::BadRequest(format!("binding key serialization failed: {error}"))
+        })?;
         Ok(ActiveModel {
             service_id: Set(service_id),
             application_id: Set(application_id),
