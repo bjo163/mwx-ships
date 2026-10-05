@@ -43,6 +43,13 @@ pub struct RemoteSourceSnapshot {
     pub files: Vec<(String, String)>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RemoteVolumeSnapshot {
+    pub artifact_path: String,
+    pub size_bytes: i64,
+    pub sha256: String,
+}
+
 impl RemoteRuntime {
     pub async fn connect(server: &servers::Model) -> Result<Self, RemoteError> {
         Ok(Self {
@@ -1046,6 +1053,133 @@ MOONSHIPS_ASKPASS\n\
         Ok(stdout.trim().to_string())
     }
 
+    pub async fn snapshot_volume(
+        &self,
+        service_id: i64,
+        backup_id: i64,
+        volume_name: &str,
+        helper_image: &str,
+    ) -> Result<RemoteVolumeSnapshot, RemoteError> {
+        validate_positive_id(service_id, "service_id")?;
+        validate_positive_id(backup_id, "backup_id")?;
+        DockerService::validate_volume_name(volume_name)
+            .map_err(|e| RemoteError::Validation(e.to_string()))?;
+        DockerService::validate_image_name(helper_image)
+            .map_err(|e| RemoteError::Validation(e.to_string()))?;
+
+        let filename = format!("backup-{backup_id}.tar.gz");
+        let artifact_path =
+            format!(".moonships/backups/services/{service_id}/{filename}");
+        let volume = shell_quote(volume_name);
+        let helper = shell_quote(helper_image);
+        let archive_script = shell_quote(&format!(
+            "cd /source && tar -czf /backup/{filename} ."
+        ));
+        let command = format!(
+            "set -eu; umask 077; \
+             dir=\"$HOME/.moonships/backups/services/{service_id}\"; \
+             mkdir -p \"$dir\"; artifact=\"$dir/{filename}\"; rm -f \"$artifact\"; \
+             docker pull {helper} >/dev/null; \
+             docker run --rm \
+               --mount type=volume,source={volume},target=/source,readonly \
+               --mount \"type=bind,source=$dir,target=/backup\" \
+               {helper} sh -c {archive_script}; \
+             chmod 600 \"$artifact\"; \
+             size=$(wc -c < \"$artifact\" | tr -d ' '); \
+             sha=$(sha256sum \"$artifact\" | awk '{{print $1}}'); \
+             printf '%s\\n%s\\n' \"$size\" \"$sha\""
+        );
+        let output = self
+            .exec_checked("volume_snapshot", &command, Duration::from_secs(900))
+            .await?;
+        parse_volume_snapshot_metadata(&artifact_path, &output)
+    }
+
+    pub async fn volume_snapshot_metadata(
+        &self,
+        service_id: i64,
+        backup_id: i64,
+    ) -> Result<RemoteVolumeSnapshot, RemoteError> {
+        validate_positive_id(service_id, "service_id")?;
+        validate_positive_id(backup_id, "backup_id")?;
+        let filename = format!("backup-{backup_id}.tar.gz");
+        let artifact_path =
+            format!(".moonships/backups/services/{service_id}/{filename}");
+        let command = format!(
+            "set -eu; artifact=\"$HOME/{artifact_path}\"; \
+             test -f \"$artifact\"; \
+             size=$(wc -c < \"$artifact\" | tr -d ' '); \
+             sha=$(sha256sum \"$artifact\" | awk '{{print $1}}'); \
+             printf '%s\\n%s\\n' \"$size\" \"$sha\""
+        );
+        let output = self
+            .exec_checked(
+                "volume_snapshot_metadata",
+                &command,
+                Duration::from_secs(60),
+            )
+            .await?;
+        parse_volume_snapshot_metadata(&artifact_path, &output)
+    }
+
+    pub async fn restore_volume_snapshot(
+        &self,
+        service_id: i64,
+        backup_id: i64,
+        target_volume: &str,
+        helper_image: &str,
+    ) -> Result<(), RemoteError> {
+        validate_positive_id(service_id, "service_id")?;
+        validate_positive_id(backup_id, "backup_id")?;
+        DockerService::validate_volume_name(target_volume)
+            .map_err(|e| RemoteError::Validation(e.to_string()))?;
+        DockerService::validate_image_name(helper_image)
+            .map_err(|e| RemoteError::Validation(e.to_string()))?;
+
+        let filename = format!("backup-{backup_id}.tar.gz");
+        let volume = shell_quote(target_volume);
+        let helper = shell_quote(helper_image);
+        let restore_script = shell_quote(&format!(
+            "find /target -mindepth 1 -maxdepth 1 -exec rm -rf -- {{}} +; tar -xzf /backup/{filename} -C /target"
+        ));
+        let command = format!(
+            "set -eu; dir=\"$HOME/.moonships/backups/services/{service_id}\"; \
+             artifact=\"$dir/{filename}\"; test -f \"$artifact\"; \
+             docker pull {helper} >/dev/null; \
+             docker run --rm \
+               --mount type=volume,source={volume},target=/target \
+               --mount \"type=bind,source=$dir,target=/backup,readonly\" \
+               {helper} sh -c {restore_script}"
+        );
+        self.exec_checked(
+            "volume_snapshot_restore",
+            &command,
+            Duration::from_secs(900),
+        )
+        .await?;
+        Ok(())
+    }
+
+    pub async fn remove_volume_snapshot(
+        &self,
+        service_id: i64,
+        backup_id: i64,
+    ) -> Result<(), RemoteError> {
+        validate_positive_id(service_id, "service_id")?;
+        validate_positive_id(backup_id, "backup_id")?;
+        let filename = format!("backup-{backup_id}.tar.gz");
+        let command = format!(
+            "rm -f \"$HOME/.moonships/backups/services/{service_id}/{filename}\""
+        );
+        self.exec_checked(
+            "volume_snapshot_remove",
+            &command,
+            Duration::from_secs(30),
+        )
+        .await?;
+        Ok(())
+    }
+
     pub async fn ensure_volume(&self, name: &str) -> Result<(), RemoteError> {
         DockerService::validate_volume_name(name)
             .map_err(|e| RemoteError::Validation(e.to_string()))?;
@@ -1477,4 +1611,40 @@ mod tests {
         );
         assert_eq!(output, "token=[REDACTED] and short=[REDACTED]");
     }
+}
+
+
+fn validate_positive_id(value: i64, field: &str) -> Result<(), RemoteError> {
+    if value <= 0 {
+        return Err(RemoteError::Validation(format!(
+            "{field} must be a positive integer"
+        )));
+    }
+    Ok(())
+}
+
+fn parse_volume_snapshot_metadata(
+    artifact_path: &str,
+    output: &str,
+) -> Result<RemoteVolumeSnapshot, RemoteError> {
+    let mut lines = output.lines();
+    let size_bytes = lines
+        .next()
+        .unwrap_or_default()
+        .trim()
+        .parse::<i64>()
+        .map_err(|_| {
+            RemoteError::Validation("unable to parse snapshot size".to_string())
+        })?;
+    let sha256 = lines.next().unwrap_or_default().trim().to_ascii_lowercase();
+    if sha256.len() != 64 || !sha256.chars().all(|ch| ch.is_ascii_hexdigit()) {
+        return Err(RemoteError::Validation(
+            "unable to parse snapshot sha256".to_string(),
+        ));
+    }
+    Ok(RemoteVolumeSnapshot {
+        artifact_path: artifact_path.to_string(),
+        size_bytes,
+        sha256,
+    })
 }
