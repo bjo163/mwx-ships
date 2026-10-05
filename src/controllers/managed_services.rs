@@ -786,7 +786,7 @@ pub async fn create_backup(
         Some(serde_json::json!({
             "volume_id": backup.volume_id,
             "size_bytes": backup.size_bytes,
-            "sha256": backup.sha256,
+            "sha256": backup.sha256.clone(),
             "verified": backup.verified,
             "deletion_protected": backup.deletion_protected,
         })),
@@ -935,8 +935,8 @@ pub async fn restore_backup(
         "managed_service.backup.restore",
         Some(serde_json::json!({
             "volume_id": backup.volume_id,
-            "sha256": backup.sha256,
-            "restored_at": backup.restored_at,
+            "sha256": backup.sha256.clone(),
+            "restored_at": backup.restored_at.clone(),
         })),
     )
     .await;
