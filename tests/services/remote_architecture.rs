@@ -54,3 +54,26 @@ fn source_inspection_stays_on_remote_boundary() {
     assert!(remote.contains("[ ! -L"));
     assert!(remote.contains("65536"));
 }
+
+#[test]
+fn managed_services_stay_on_remote_runtime_boundary() {
+    let controller = include_str!("../../src/controllers/managed_services.rs");
+    let templates = include_str!("../../src/services/managed_service.rs");
+    let remote = include_str!("../../src/services/remote.rs");
+
+    assert!(
+        !controller.contains("tokio::process::Command")
+            && !controller.contains("std::process::Command")
+            && !templates.contains("tokio::process::Command")
+            && !templates.contains("std::process::Command"),
+        "managed service lifecycle must not execute Docker on the control-plane host"
+    );
+    assert!(controller.contains("RemoteRuntime"));
+    assert!(remote.contains("run_managed_service_container"));
+    assert!(remote.contains("managed_service_ready"));
+    assert!(controller.contains("redact_secrets"));
+    assert!(
+        !controller.contains("encrypted_credentials\":"),
+        "managed service API responses must not serialize stored credential ciphertext"
+    );
+}
