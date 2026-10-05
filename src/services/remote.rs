@@ -1102,6 +1102,36 @@ MOONSHIPS_ASKPASS\n\
         Ok(stdout.trim().to_string())
     }
 
+    pub async fn managed_service_ready(
+        &self,
+        container_name: &str,
+        kind: &str,
+    ) -> Result<bool, RemoteError> {
+        DockerService::validate_container_name(container_name)
+            .map_err(|e| RemoteError::Validation(e.to_string()))?;
+        let script = match kind {
+            "postgresql" => "pg_isready -U \"$POSTGRES_USER\" -d \"$POSTGRES_DB\" >/dev/null 2>&1",
+            "mysql" => "mysqladmin ping -h 127.0.0.1 -u\"$MYSQL_USER\" -p\"$MYSQL_PASSWORD\" --silent >/dev/null 2>&1",
+            "mariadb" => "mariadb-admin ping -h 127.0.0.1 -u\"$MARIADB_USER\" -p\"$MARIADB_PASSWORD\" --silent >/dev/null 2>&1",
+            "redis" => "redis-cli --no-auth-warning -a \"$REDIS_PASSWORD\" ping 2>/dev/null | grep -qx PONG",
+            _ => {
+                return Err(RemoteError::Validation(
+                    "unsupported managed service readiness kind".to_string(),
+                ))
+            }
+        };
+        let command = format!(
+            "docker exec {} sh -c {}",
+            shell_quote(container_name),
+            shell_quote(script)
+        );
+        let (code, _, _) = self
+            .session
+            .execute_with_timeout(&command, Duration::from_secs(10))
+            .await?;
+        Ok(code == 0)
+    }
+
     pub async fn container_logs(&self, name: &str, tail: u32) -> Result<String, RemoteError> {
         DockerService::validate_container_name(name)
             .map_err(|e| RemoteError::Validation(e.to_string()))?;
