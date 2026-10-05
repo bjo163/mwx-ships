@@ -3,6 +3,7 @@ pub mod auth;
 pub mod deployment_plans;
 pub mod deployments;
 pub mod health;
+pub mod managed_services;
 pub mod operations;
 pub mod organizations;
 pub mod projects;
