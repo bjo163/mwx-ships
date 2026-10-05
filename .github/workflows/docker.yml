@@ -61,3 +61,85 @@ jobs:
           fi
 
           docker rm -f moonships-smoke
+
+  managed-service-smoke:
+    name: Smoke Managed Service — ${{ matrix.kind }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - kind: postgresql
+            image: postgres:17.11-alpine
+          - kind: mysql
+            image: mysql:8.4.11
+          - kind: mariadb
+            image: mariadb:11.4.13
+          - kind: redis
+            image: redis:8.10.2-alpine
+    steps:
+      - name: Boot and verify pinned template
+        env:
+          KIND: ${{ matrix.kind }}
+          IMAGE: ${{ matrix.image }}
+        run: |
+          set -euo pipefail
+          name="moonships-service-smoke-${KIND}"
+          cleanup() { docker rm -f "$name" >/dev/null 2>&1 || true; }
+          trap cleanup EXIT
+
+          case "$KIND" in
+            postgresql)
+              docker run -d --name "$name" \
+                -e POSTGRES_DB=app \
+                -e POSTGRES_USER=moonships \
+                -e POSTGRES_PASSWORD=test-secret \
+                "$IMAGE"
+              ready_cmd='pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB"'
+              ;;
+            mysql)
+              docker run -d --name "$name" \
+                -e MYSQL_DATABASE=app \
+                -e MYSQL_USER=moonships \
+                -e MYSQL_PASSWORD=test-secret \
+                -e MYSQL_ROOT_PASSWORD=test-root-secret \
+                "$IMAGE"
+              ready_cmd='mysqladmin ping -h 127.0.0.1 -u"$MYSQL_USER" -p"$MYSQL_PASSWORD" --silent'
+              ;;
+            mariadb)
+              docker run -d --name "$name" \
+                -e MARIADB_DATABASE=app \
+                -e MARIADB_USER=moonships \
+                -e MARIADB_PASSWORD=test-secret \
+                -e MARIADB_ROOT_PASSWORD=test-root-secret \
+                "$IMAGE"
+              ready_cmd='mariadb-admin ping -h 127.0.0.1 -u"$MARIADB_USER" -p"$MARIADB_PASSWORD" --silent'
+              ;;
+            redis)
+              docker run -d --name "$name" \
+                -e REDIS_PASSWORD=test-secret \
+                "$IMAGE" sh -c 'exec redis-server --appendonly yes --requirepass "$REDIS_PASSWORD"'
+              ready_cmd='redis-cli --no-auth-warning -a "$REDIS_PASSWORD" ping 2>/dev/null | grep -qx PONG'
+              ;;
+            *)
+              echo "Unsupported smoke kind: $KIND" >&2
+              exit 1
+              ;;
+          esac
+
+          ready=0
+          for attempt in $(seq 1 60); do
+            if docker exec "$name" sh -c "$ready_cmd"; then
+              ready=1
+              break
+            fi
+            sleep 2
+          done
+
+          if [ "$ready" -ne 1 ]; then
+            docker logs "$name"
+            exit 1
+          fi
+
+          docker inspect "$name" --format '{{.State.Status}}' | grep -qx running
