@@ -185,12 +185,7 @@ impl ManagedServiceTemplateService {
         volume_name: &str,
         credentials: &ManagedServiceCredentials,
     ) -> Result<ContainerConfig> {
-        Self::runtime_config_with_name(
-            service,
-            volume_name,
-            credentials,
-            &service.container_name,
-        )
+        Self::runtime_config_with_name(service, volume_name, credentials, &service.container_name)
     }
 
     pub fn runtime_config_with_name(
