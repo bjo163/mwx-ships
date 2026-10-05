@@ -527,6 +527,505 @@ pub async fn bind(
     }))
 }
 
+
+async fn backup_for_service(
+    db: &DatabaseConnection,
+    service_id: i64,
+    backup_id: i64,
+) -> Result<ManagedServiceBackupModel> {
+    let backup = ManagedServiceBackupModel::find_by_id(db, backup_id).await?;
+    if backup.service_id != service_id {
+        return Err(Error::BadRequest(
+            "backup does not belong to this managed service".to_string(),
+        ));
+    }
+    Ok(backup)
+}
+
+async fn audit_backup(
+    ctx: &AppContext,
+    principal: &Principal,
+    service: &ManagedServiceModel,
+    backup_id: i64,
+    action: &str,
+    metadata: Option<serde_json::Value>,
+) {
+    let (actor_kind, actor_id) = principal.audit_actor();
+    let _ = AuditEventModel::append(
+        &ctx.db,
+        AuditEventInput {
+            organization_id: Some(service.organization_id),
+            actor_kind: actor_kind.to_string(),
+            actor_id,
+            action: action.to_string(),
+            resource_type: Some("managed_service_backup".to_string()),
+            resource_id: Some(backup_id.to_string()),
+            outcome: "success".to_string(),
+            request_id: Some(principal.request_id.clone()),
+            metadata: principal.audit_metadata(metadata),
+        },
+    )
+    .await;
+}
+
+fn remote_backup_error<E: ToString>(
+    error: E,
+    credentials: &ManagedServiceCredentials,
+) -> Error {
+    Error::BadRequest(redact_secrets(
+        &error.to_string(),
+        &credential_secret_values(credentials),
+    ))
+}
+
+async fn prune_service_backups(
+    db: &DatabaseConnection,
+    runtime: &RemoteRuntime,
+    service_id: i64,
+) -> Result<()> {
+    let keep = std::env::var("MOONSHIPS_SERVICE_BACKUP_RETENTION")
+        .ok()
+        .and_then(|value| value.parse::<usize>().ok())
+        .unwrap_or(7)
+        .max(1);
+    let backups = ManagedServiceBackupModel::by_service(db, service_id).await?;
+    let mut successful_seen = 0usize;
+    for backup in backups {
+        if backup.status != "success" {
+            continue;
+        }
+        successful_seen += 1;
+        if successful_seen <= keep || backup.deletion_protected {
+            continue;
+        }
+        runtime
+            .remove_volume_snapshot(service_id, backup.id)
+            .await
+            .map_err(|error| Error::BadRequest(error.to_string()))?;
+        backup.delete_record(db).await?;
+    }
+    Ok(())
+}
+
+#[debug_handler]
+pub async fn list_backups(
+    headers: HeaderMap,
+    Path(id): Path<i64>,
+    State(ctx): State<AppContext>,
+) -> Result<Response> {
+    let (_, _) = authorized_service(&ctx, &headers, id, Permission::View).await?;
+    let backups = ManagedServiceBackupModel::by_service(&ctx.db, id).await?;
+    let safe = backups
+        .into_iter()
+        .map(|backup| backup.to_safe())
+        .collect::<Vec<_>>();
+    format::json(serde_json::json!({ "data": safe, "message": "ok" }))
+}
+
+#[debug_handler]
+pub async fn create_backup(
+    headers: HeaderMap,
+    Path(id): Path<i64>,
+    State(ctx): State<AppContext>,
+    Json(params): Json<CreateManagedServiceBackupParams>,
+) -> Result<Response> {
+    let (principal, service) =
+        authorized_service(&ctx, &headers, id, Permission::ManageApplications).await?;
+    let volume = PersistentVolumeModel::find_by_id(&ctx.db, service.volume_id).await?;
+    let credentials = decrypt_credentials(&service)?;
+    let (_, runtime) = runtime_for(&ctx.db, &service).await?;
+    let helper_image = ManagedServiceBackupService::helper_image()?;
+
+    runtime
+        .ensure_docker()
+        .await
+        .map_err(|error| remote_backup_error(error, &credentials))?;
+    runtime
+        .ensure_network(ProxyService::MANAGED_NETWORK)
+        .await
+        .map_err(|error| remote_backup_error(error, &credentials))?;
+    runtime
+        .pull_image(&service.image)
+        .await
+        .map_err(|error| remote_backup_error(error, &credentials))?;
+
+    let backup = ManagedServiceBackupModel::start(
+        &ctx.db,
+        service.organization_id,
+        service.id,
+        service.server_id,
+        volume.id,
+        &helper_image,
+        params.deletion_protected.unwrap_or(false),
+    )
+    .await?;
+    let plan = ManagedServiceBackupService::plan(service.id, backup.id, helper_image)?;
+    let backup =
+        ManagedServiceBackupModel::set_artifact_path(&ctx.db, backup.id, &plan.artifact_path)
+            .await?;
+
+    let observed = runtime
+        .container_status(&service.container_name)
+        .await
+        .map_err(|error| remote_backup_error(error, &credentials))?;
+    let was_running = observed == "running";
+
+    let operation = async {
+        if was_running {
+            runtime
+                .stop_container(&service.container_name)
+                .await
+                .map_err(|error| remote_backup_error(error, &credentials))?;
+        }
+
+        let snapshot = runtime
+            .snapshot_volume(
+                service.id,
+                backup.id,
+                &volume.docker_volume_name,
+                &plan.helper_image,
+            )
+            .await
+            .map_err(|error| remote_backup_error(error, &credentials))?;
+
+        runtime
+            .ensure_volume(&plan.verification_volume_name)
+            .await
+            .map_err(|error| remote_backup_error(error, &credentials))?;
+        runtime
+            .restore_volume_snapshot(
+                service.id,
+                backup.id,
+                &plan.verification_volume_name,
+                &plan.helper_image,
+            )
+            .await
+            .map_err(|error| remote_backup_error(error, &credentials))?;
+
+        let verification_config = ManagedServiceBackupService::verification_runtime_config(
+            &service,
+            &credentials,
+            &plan,
+        )?;
+        let _ = runtime
+            .stop_and_remove_container(&plan.verification_container_name)
+            .await;
+        runtime
+            .run_managed_service_container(backup.id, &verification_config)
+            .await
+            .map_err(|error| remote_backup_error(error, &credentials))?;
+        wait_ready_named(
+            &runtime,
+            &plan.verification_container_name,
+            &service.kind,
+        )
+        .await?;
+
+        Ok::<_, Error>(snapshot)
+    }
+    .await;
+
+    let _ = runtime
+        .stop_and_remove_container(&plan.verification_container_name)
+        .await;
+    let _ = runtime.remove_volume(&plan.verification_volume_name).await;
+
+    let restart_result = if was_running {
+        match runtime.start_container(&service.container_name).await {
+            Ok(()) => wait_ready(&runtime, &service).await,
+            Err(error) => Err(remote_backup_error(error, &credentials)),
+        }
+    } else {
+        Ok(())
+    };
+
+    let snapshot = match (operation, restart_result) {
+        (Ok(snapshot), Ok(())) => snapshot,
+        (Err(error), _) => {
+            let message = redact_secrets(
+                &error.to_string(),
+                &credential_secret_values(&credentials),
+            );
+            let _ = ManagedServiceBackupModel::fail(&ctx.db, backup.id, &message).await;
+            return Err(Error::BadRequest(message));
+        }
+        (Ok(_), Err(error)) => {
+            let _ = ManagedServiceModel::update_status(&ctx.db, service.id, "unhealthy").await;
+            let message = redact_secrets(
+                &error.to_string(),
+                &credential_secret_values(&credentials),
+            );
+            let _ = ManagedServiceBackupModel::fail(&ctx.db, backup.id, &message).await;
+            return Err(Error::BadRequest(format!(
+                "backup snapshot verified but original service failed to resume: {message}"
+            )));
+        }
+    };
+
+    let verification_message = format!(
+        "offline_volume_snapshot=ok; isolated_restore=ok; readiness=ok; helper_image={}",
+        plan.helper_image
+    );
+    let backup = ManagedServiceBackupModel::complete(
+        &ctx.db,
+        backup.id,
+        snapshot.size_bytes,
+        &snapshot.sha256,
+        &verification_message,
+    )
+    .await?;
+
+    let _ = prune_service_backups(&ctx.db, &runtime, service.id).await;
+
+    audit_backup(
+        &ctx,
+        &principal,
+        &service,
+        backup.id,
+        "managed_service.backup.create",
+        Some(serde_json::json!({
+            "volume_id": backup.volume_id,
+            "size_bytes": backup.size_bytes,
+            "sha256": backup.sha256,
+            "verified": backup.verified,
+            "deletion_protected": backup.deletion_protected,
+        })),
+    )
+    .await;
+
+    format::json(serde_json::json!({
+        "data": backup.to_safe(),
+        "message": "Managed service backup completed and verified through an isolated restore"
+    }))
+}
+
+#[debug_handler]
+pub async fn restore_backup(
+    headers: HeaderMap,
+    Path((id, backup_id)): Path<(i64, i64)>,
+    State(ctx): State<AppContext>,
+) -> Result<Response> {
+    let (principal, service) =
+        authorized_service(&ctx, &headers, id, Permission::ManageApplications).await?;
+    let backup = backup_for_service(&ctx.db, service.id, backup_id).await?;
+    if backup.status != "success" || !backup.verified {
+        return Err(Error::BadRequest(
+            "only successful verified backups can be restored".to_string(),
+        ));
+    }
+    if principal.confirmation.as_deref() != Some(service.name.as_str()) {
+        return Err(Error::BadRequest(
+            "restore confirmation must exactly match the managed service name in x-moonships-confirmation"
+                .to_string(),
+        ));
+    }
+
+    let volume = PersistentVolumeModel::find_by_id(&ctx.db, service.volume_id).await?;
+    if backup.volume_id != volume.id || backup.server_id != service.server_id {
+        return Err(Error::BadRequest(
+            "backup identity no longer matches the service volume/server".to_string(),
+        ));
+    }
+
+    let credentials = decrypt_credentials(&service)?;
+    let (_, runtime) = runtime_for(&ctx.db, &service).await?;
+    let observed_status = runtime
+        .container_status(&service.container_name)
+        .await
+        .map_err(|error| remote_backup_error(error, &credentials))?;
+    if observed_status == "running" {
+        return Err(Error::BadRequest(
+            "refusing to overwrite an active protected service; stop it before restore"
+                .to_string(),
+        ));
+    }
+
+    let observed = runtime
+        .volume_snapshot_metadata(service.id, backup.id)
+        .await
+        .map_err(|error| remote_backup_error(error, &credentials))?;
+    ManagedServiceBackupService::verify_metadata(&backup, &observed)?;
+
+    let plan = ManagedServiceBackupService::plan(
+        service.id,
+        backup.id,
+        backup.helper_image.clone(),
+    )?;
+
+    runtime
+        .ensure_network(ProxyService::MANAGED_NETWORK)
+        .await
+        .map_err(|error| remote_backup_error(error, &credentials))?;
+    runtime
+        .pull_image(&service.image)
+        .await
+        .map_err(|error| remote_backup_error(error, &credentials))?;
+    runtime
+        .ensure_volume(&plan.verification_volume_name)
+        .await
+        .map_err(|error| remote_backup_error(error, &credentials))?;
+    runtime
+        .restore_volume_snapshot(
+            service.id,
+            backup.id,
+            &plan.verification_volume_name,
+            &plan.helper_image,
+        )
+        .await
+        .map_err(|error| remote_backup_error(error, &credentials))?;
+
+    let verification_config =
+        ManagedServiceBackupService::verification_runtime_config(&service, &credentials, &plan)?;
+    let verification = async {
+        let _ = runtime
+            .stop_and_remove_container(&plan.verification_container_name)
+            .await;
+        runtime
+            .run_managed_service_container(backup.id, &verification_config)
+            .await
+            .map_err(|error| remote_backup_error(error, &credentials))?;
+        wait_ready_named(
+            &runtime,
+            &plan.verification_container_name,
+            &service.kind,
+        )
+        .await
+    }
+    .await;
+    let _ = runtime
+        .stop_and_remove_container(&plan.verification_container_name)
+        .await;
+    let _ = runtime.remove_volume(&plan.verification_volume_name).await;
+    verification?;
+
+    runtime
+        .restore_volume_snapshot(
+            service.id,
+            backup.id,
+            &volume.docker_volume_name,
+            &plan.helper_image,
+        )
+        .await
+        .map_err(|error| remote_backup_error(error, &credentials))?;
+
+    let _ = runtime
+        .stop_and_remove_container(&service.container_name)
+        .await;
+    let config = ManagedServiceTemplateService::runtime_config(
+        &service,
+        &volume.docker_volume_name,
+        &credentials,
+    )?;
+    runtime
+        .run_managed_service_container(service.id, &config)
+        .await
+        .map_err(|error| remote_backup_error(error, &credentials))?;
+    if let Err(error) = wait_ready(&runtime, &service).await {
+        let _ = ManagedServiceModel::update_status(&ctx.db, service.id, "unhealthy").await;
+        return Err(error);
+    }
+
+    let service = ManagedServiceModel::update_status(&ctx.db, service.id, "running").await?;
+    let backup = ManagedServiceBackupModel::mark_restored(&ctx.db, backup.id).await?;
+    audit_backup(
+        &ctx,
+        &principal,
+        &service,
+        backup.id,
+        "managed_service.backup.restore",
+        Some(serde_json::json!({
+            "volume_id": backup.volume_id,
+            "sha256": backup.sha256,
+            "restored_at": backup.restored_at,
+        })),
+    )
+    .await;
+
+    format::json(serde_json::json!({
+        "data": {
+            "service": service.to_safe(),
+            "backup": backup.to_safe(),
+        },
+        "message": "Backup restored into the protected service volume and service readiness verified"
+    }))
+}
+
+#[debug_handler]
+pub async fn set_backup_protection(
+    headers: HeaderMap,
+    Path((id, backup_id)): Path<(i64, i64)>,
+    State(ctx): State<AppContext>,
+    Json(params): Json<UpdateManagedServiceBackupProtectionParams>,
+) -> Result<Response> {
+    let (principal, service) =
+        authorized_service(&ctx, &headers, id, Permission::ManageApplications).await?;
+    let _ = backup_for_service(&ctx.db, service.id, backup_id).await?;
+    let backup = ManagedServiceBackupModel::set_deletion_protection(
+        &ctx.db,
+        backup_id,
+        params.deletion_protected,
+    )
+    .await?;
+    audit_backup(
+        &ctx,
+        &principal,
+        &service,
+        backup.id,
+        "managed_service.backup.protection.update",
+        Some(serde_json::json!({
+            "deletion_protected": backup.deletion_protected,
+        })),
+    )
+    .await;
+    format::json(serde_json::json!({ "data": backup.to_safe(), "message": "ok" }))
+}
+
+#[debug_handler]
+pub async fn remove_backup(
+    headers: HeaderMap,
+    Path((id, backup_id)): Path<(i64, i64)>,
+    State(ctx): State<AppContext>,
+) -> Result<Response> {
+    let (principal, service) =
+        authorized_service(&ctx, &headers, id, Permission::ManageApplications).await?;
+    let backup = backup_for_service(&ctx.db, service.id, backup_id).await?;
+    if backup.deletion_protected {
+        return Err(Error::BadRequest(
+            "backup deletion protection is enabled; disable it explicitly first".to_string(),
+        ));
+    }
+    let expected_confirmation = format!("backup-{}", backup.id);
+    if principal.confirmation.as_deref() != Some(expected_confirmation.as_str()) {
+        return Err(Error::BadRequest(format!(
+            "backup deletion confirmation must equal '{expected_confirmation}' in x-moonships-confirmation"
+        )));
+    }
+
+    let credentials = decrypt_credentials(&service)?;
+    let (_, runtime) = runtime_for(&ctx.db, &service).await?;
+    runtime
+        .remove_volume_snapshot(service.id, backup.id)
+        .await
+        .map_err(|error| remote_backup_error(error, &credentials))?;
+
+    let deleted_id = backup.id;
+    backup.delete_record(&ctx.db).await?;
+    audit_backup(
+        &ctx,
+        &principal,
+        &service,
+        deleted_id,
+        "managed_service.backup.delete",
+        None,
+    )
+    .await;
+
+    format::json(serde_json::json!({
+        "data": null,
+        "message": "Managed service backup artifact and metadata deleted"
+    }))
+}
+
 fn credential_secret_values(credentials: &ManagedServiceCredentials) -> Vec<String> {
     let mut values = vec![credentials.password.clone()];
     if let Some(root) = &credentials.root_password {
