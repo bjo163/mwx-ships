@@ -12,6 +12,8 @@ pub use super::domains::Entity as Domains;
 pub use super::environment_variables::Entity as EnvironmentVariables;
 pub use super::environments::Entity as Environments;
 pub use super::git_integrations::Entity as GitIntegrations;
+pub use super::managed_service_bindings::Entity as ManagedServiceBindings;
+pub use super::managed_services::Entity as ManagedServices;
 pub use super::notification_events::Entity as NotificationEvents;
 pub use super::operational_events::Entity as OperationalEvents;
 pub use super::organization_memberships::Entity as OrganizationMemberships;
