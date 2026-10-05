@@ -116,11 +116,7 @@ async fn wait_ready(runtime: &RemoteRuntime, service: &ManagedServiceModel) -> R
     wait_ready_named(runtime, &service.container_name, &service.kind).await
 }
 
-async fn wait_ready_named(
-    runtime: &RemoteRuntime,
-    container_name: &str,
-    kind: &str,
-) -> Result<()> {
+async fn wait_ready_named(runtime: &RemoteRuntime, container_name: &str, kind: &str) -> Result<()> {
     for _ in 0..30 {
         if runtime
             .managed_service_ready(container_name, kind)
@@ -527,7 +523,6 @@ pub async fn bind(
     }))
 }
 
-
 async fn backup_for_service(
     db: &DatabaseConnection,
     service_id: i64,
@@ -568,10 +563,7 @@ async fn audit_backup(
     .await;
 }
 
-fn remote_backup_error<E: ToString>(
-    error: E,
-    credentials: &ManagedServiceCredentials,
-) -> Error {
+fn remote_backup_error<E: ToString>(error: E, credentials: &ManagedServiceCredentials) -> Error {
     Error::BadRequest(redact_secrets(
         &error.to_string(),
         &credential_secret_values(credentials),
@@ -714,12 +706,7 @@ pub async fn create_backup(
             .run_managed_service_container(backup.id, &verification_config)
             .await
             .map_err(|error| remote_backup_error(error, &credentials))?;
-        wait_ready_named(
-            &runtime,
-            &plan.verification_container_name,
-            &service.kind,
-        )
-        .await?;
+        wait_ready_named(&runtime, &plan.verification_container_name, &service.kind).await?;
 
         Ok::<_, Error>(snapshot)
     }
@@ -742,19 +729,15 @@ pub async fn create_backup(
     let snapshot = match (operation, restart_result) {
         (Ok(snapshot), Ok(())) => snapshot,
         (Err(error), _) => {
-            let message = redact_secrets(
-                &error.to_string(),
-                &credential_secret_values(&credentials),
-            );
+            let message =
+                redact_secrets(&error.to_string(), &credential_secret_values(&credentials));
             let _ = ManagedServiceBackupModel::fail(&ctx.db, backup.id, &message).await;
             return Err(Error::BadRequest(message));
         }
         (Ok(_), Err(error)) => {
             let _ = ManagedServiceModel::update_status(&ctx.db, service.id, "unhealthy").await;
-            let message = redact_secrets(
-                &error.to_string(),
-                &credential_secret_values(&credentials),
-            );
+            let message =
+                redact_secrets(&error.to_string(), &credential_secret_values(&credentials));
             let _ = ManagedServiceBackupModel::fail(&ctx.db, backup.id, &message).await;
             return Err(Error::BadRequest(format!(
                 "backup snapshot verified but original service failed to resume: {message}"
@@ -835,8 +818,7 @@ pub async fn restore_backup(
         .map_err(|error| remote_backup_error(error, &credentials))?;
     if observed_status == "running" {
         return Err(Error::BadRequest(
-            "refusing to overwrite an active protected service; stop it before restore"
-                .to_string(),
+            "refusing to overwrite an active protected service; stop it before restore".to_string(),
         ));
     }
 
@@ -846,11 +828,8 @@ pub async fn restore_backup(
         .map_err(|error| remote_backup_error(error, &credentials))?;
     ManagedServiceBackupService::verify_metadata(&backup, &observed)?;
 
-    let plan = ManagedServiceBackupService::plan(
-        service.id,
-        backup.id,
-        backup.helper_image.clone(),
-    )?;
+    let plan =
+        ManagedServiceBackupService::plan(service.id, backup.id, backup.helper_image.clone())?;
 
     runtime
         .ensure_network(ProxyService::MANAGED_NETWORK)
@@ -884,12 +863,7 @@ pub async fn restore_backup(
             .run_managed_service_container(backup.id, &verification_config)
             .await
             .map_err(|error| remote_backup_error(error, &credentials))?;
-        wait_ready_named(
-            &runtime,
-            &plan.verification_container_name,
-            &service.kind,
-        )
-        .await
+        wait_ready_named(&runtime, &plan.verification_container_name, &service.kind).await
     }
     .await;
     let _ = runtime
