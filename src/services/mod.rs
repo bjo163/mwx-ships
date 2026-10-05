@@ -7,6 +7,7 @@ pub mod docker;
 pub mod git;
 pub mod git_provider;
 pub mod managed_service;
+pub mod managed_service_backup;
 pub mod notification;
 pub mod operations;
 pub mod preview;
